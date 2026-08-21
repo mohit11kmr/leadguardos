@@ -1,0 +1,6 @@
+{
+  "name": "LeadGuard OS - Revenue & Ad Shield",
+  "description": "Autonomous lead leakage & ad spend shield for Indian & global SMBs. Detects broken WhatsApp routing (+9191 bug, 0-prefix), dead dialers, missing Meta Pixels, GA4 dropouts, and Google SEO penalties with interactive funnel simulation, mobile sandbox debugging, zero-touch CMS auto-repair scripts, bulk agency radar, and 24/7 watchdog monitoring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
