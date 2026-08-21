@@ -23,6 +23,13 @@ export const HeroScanner: React.FC<HeroScannerProps> = ({ onScan, isLoading, act
   const [urlInput, setUrlInput] = useState(activeUrl || '');
   const [stepIndex, setStepIndex] = useState(0);
 
+  // Keep input in sync with activeUrl if changed from dropdown presets or external triggers
+  React.useEffect(() => {
+    if (activeUrl) {
+      setUrlInput(activeUrl);
+    }
+  }, [activeUrl]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!urlInput.trim() || isLoading) return;

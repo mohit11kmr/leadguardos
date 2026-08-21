@@ -8,7 +8,7 @@ interface ScanCounterStatsProps {
   statsOverride?: GlobalScanStats | null;
 }
 
-export const ScanCounterStats: React.FC<ScanCounterStatsProps> = ({ statsOverride }) => {
+export const ScanCounterStats: React.FC<ScanCounterStatsProps> = ({ statsOverride, onRefresh }) => {
   const [stats, setStats] = useState<GlobalScanStats>({
     totalScannedSites: 14820,
     problemsFound: 38490,
@@ -25,6 +25,9 @@ export const ScanCounterStats: React.FC<ScanCounterStatsProps> = ({ statsOverrid
       if (res.ok) {
         const data = await res.json();
         setStats(data);
+        if (onRefresh) {
+          onRefresh();
+        }
       }
     } catch (err) {
       console.error('Failed to fetch scan stats:', err);
@@ -36,10 +39,22 @@ export const ScanCounterStats: React.FC<ScanCounterStatsProps> = ({ statsOverrid
   useEffect(() => {
     if (statsOverride) {
       setStats(statsOverride);
-    } else {
-      fetchStats();
     }
   }, [statsOverride]);
+
+  useEffect(() => {
+    fetchStats();
+    // Periodic light telemetry sync every 15s
+    const timer = setInterval(() => {
+      fetch('/api/scan-stats')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (d) setStats(d);
+        })
+        .catch(() => {});
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
     <div className="rounded-3xl border border-slate-800/90 bg-gradient-to-br from-slate-950 via-slate-900/80 to-slate-950 p-5 sm:p-6 shadow-2xl backdrop-blur-md relative overflow-hidden">

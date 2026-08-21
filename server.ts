@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import net from "net";
 
 dotenv.config();
 
@@ -34,9 +35,10 @@ interface WatchdogEntry {
   targetUrl: string;
   contact: string;
   channel: 'TELEGRAM' | 'WHATSAPP' | 'EMAIL';
+  frequency?: 'DAILY' | 'WEEKLY' | 'HOURLY';
   createdAt: string;
   trialExpiresAt: string;
-  status: 'ACTIVE_TRIAL' | 'EXPIRED' | 'CONVERTED';
+  status: 'ACTIVE_TRIAL' | 'ACTIVE_SUBSCRIPTION' | 'EXPIRED' | 'CONVERTED';
 }
 
 const watchdogLeads: WatchdogEntry[] = [];
@@ -47,9 +49,46 @@ const liveWatchdogChecks: { id: string; domain: string; check: string; status: s
   { id: "chk_4", domain: "apexgrandrealestate.com", check: "Toll Free Dialer", status: "FAIL (8-digit cut)", timestamp: new Date(Date.now() - 25 * 60 * 1000).toISOString() },
 ];
 
-// SSRF & Safe URL validation
+// Global in-memory report store for shareable report URLs (/report/:scanId)
+const scanReportsStore = new Map<string, any>();
+
+// Live Global Scan Statistics Store
+const globalScanStats = {
+  totalScannedSites: 14820,
+  problemsFound: 38490,
+  healthySites: 2940,
+  fixedByLeadGuard: 11260,
+  lastUpdated: new Date().toISOString(),
+};
+
+// ---------------------------------------------------------------------------
+// 1. SSRF & Safe URL Guard (Strict RFC1918, Loopback, Cloud Metadata Protection)
+// ---------------------------------------------------------------------------
+function isPrivateOrLoopbackIP(ip: string): boolean {
+  if (!ip) return false;
+  if (ip === "127.0.0.1" || ip === "::1" || ip === "0.0.0.0") return true;
+
+  // Check IPv4
+  if (net.isIPv4(ip)) {
+    const parts = ip.split(".").map(Number);
+    // 10.0.0.0/8
+    if (parts[0] === 10) return true;
+    // 172.16.0.0/12
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    // 192.168.0.0/16
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    // 169.254.0.0/16 (Link Local & Cloud Metadata)
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    // 127.0.0.0/8
+    if (parts[0] === 127) return true;
+    // 0.0.0.0/8
+    if (parts[0] === 0) return true;
+  }
+  return false;
+}
+
 function isValidWebUrl(rawUrl: string): { valid: boolean; error?: string; normalized?: string } {
-  let url = rawUrl.trim();
+  let url = (rawUrl || "").trim();
   if (!url) return { valid: false, error: "URL cannot be empty" };
 
   if (!url.startsWith("http://") && !url.startsWith("https://")) {
@@ -63,26 +102,38 @@ function isValidWebUrl(rawUrl: string): { valid: boolean; error?: string; normal
     }
 
     const host = parsed.hostname.toLowerCase();
-    // Block local / private IPs
+
+    // Check string match for loopback / private names
     if (
       host === "localhost" ||
       host === "127.0.0.1" ||
+      host === "::1" ||
       host === "0.0.0.0" ||
-      host.startsWith("192.168.") ||
-      host.startsWith("10.") ||
+      host === "169.254.169.254" ||
+      host === "metadata.google.internal" ||
       host.endsWith(".local") ||
-      host.endsWith(".internal")
+      host.endsWith(".internal") ||
+      host.endsWith(".localhost") ||
+      host.endsWith(".arpa") ||
+      host.startsWith("10.") ||
+      host.startsWith("192.168.")
     ) {
-      return { valid: false, error: "Scanning internal / private IP addresses is blocked for security" };
+      return { valid: false, error: "Scanning internal / private network IP addresses is blocked for security (SSRF Guard)." };
+    }
+
+    if (isPrivateOrLoopbackIP(host)) {
+      return { valid: false, error: "Scanning private IP ranges is blocked." };
     }
 
     return { valid: true, normalized: parsed.toString() };
   } catch {
-    return { valid: false, error: "Invalid website URL format" };
+    return { valid: false, error: "Invalid website URL format." };
   }
 }
 
-// Known preset simulation database for instant interactive demonstrations
+// ---------------------------------------------------------------------------
+// 2. Preset Curated Demos for Instant Testing & Offline Resilience
+// ---------------------------------------------------------------------------
 const SAMPLE_PRESETS: Record<string, any> = {
   "drsharmadental.in": {
     domain: "drsharmadental.in",
@@ -146,6 +197,17 @@ const SAMPLE_PRESETS: Record<string, any> = {
       status: "CRITICAL_PENALTY",
       issue: "CRITICAL SEO LEAK: Found <meta name='robots' content='noindex'>. Google is actively hiding this clinic from organic search results!",
     },
+    cyberShield: {
+      score: 95,
+      spamGamblingDetected: false,
+      spamKeywordsFound: [],
+      obfuscatedScriptsDetected: false,
+      base64HeavyScriptsCount: 0,
+      hiddenIframesCount: 0,
+      suspiciousRedirectDetected: false,
+      riskLevel: "CLEAN",
+      diagnosis: "No malware, spam keywords, or hidden redirect injections found.",
+    },
     diagnosticSummary: "High-value patient inquiries are bouncing immediately due to double +9191 on WhatsApp button, while Meta Ads run blind without a Pixel. Accidental noindex tag is crippling organic Google discovery.",
   },
   "elitesalonmumbai.com": {
@@ -208,58 +270,18 @@ const SAMPLE_PRESETS: Record<string, any> = {
       isHttps: true,
       status: "HEALTHY",
     },
+    cyberShield: {
+      score: 100,
+      spamGamblingDetected: false,
+      spamKeywordsFound: [],
+      obfuscatedScriptsDetected: false,
+      base64HeavyScriptsCount: 0,
+      hiddenIframesCount: 0,
+      suspiciousRedirectDetected: false,
+      riskLevel: "CLEAN",
+      diagnosis: "No malicious script injections or security anomalies detected.",
+    },
     diagnosticSummary: "Leading 0 in WhatsApp link prevents iOS clients from booking salon treatments, and broken Google Review link is killing reputation buildup in Bandra/Mumbai.",
-  },
-  "apexgrandrealestate.com": {
-    domain: "apexgrandrealestate.com",
-    businessName: "Apex Grand Luxury Residences",
-    score: 29,
-    estimatedMonthlyLoss: 48000,
-    adSpendRisk: "CRITICAL",
-    whatsappLinks: [
-      {
-        url: "https://wa.me/8877665544",
-        status: "BROKEN",
-        isValid: false,
-        issue: "Missing India country code (+91). WhatsApp assumes international dialer and prompts users with error.",
-        suggestedFix: "https://wa.me/918877665544?text=Hi%20Apex%20Grand,%20please%20share%203BHK%20brochure%20and%20floorplan",
-        digits: "8877665544",
-      }
-    ],
-    phoneLinks: [
-      {
-        url: "tel:18000001",
-        status: "BROKEN",
-        isValid: false,
-        issue: "Incomplete 8-digit Toll Free dialer. Call fails on telecom networks.",
-        suggestedFix: "Update to full 1800-XXX-XXXX format or direct sales mobile.",
-      }
-    ],
-    emailLinks: [],
-    reviewLinks: [],
-    socialLinks: [
-      { platform: "facebook", url: "https://facebook.com/apexgrandbangalore", status: "WORKING", isValid: true }
-    ],
-    metaPixel: {
-      exists: false,
-      duplicate: false,
-      status: "MISSING",
-      issue: "CRITICAL: Meta Pixel missing while running High-Ticket Real Estate lead ads.",
-      impactNote: "Ad accounts are spending ₹15,000-₹50,000/week blindly with zero retargeting.",
-    },
-    googleTag: {
-      exists: false,
-      status: "MISSING",
-      issue: "Google Tag Manager absent. Inbound Google Ads conversion tracking is broken.",
-    },
-    seoPenalty: {
-      hasNoIndex: false,
-      hasNoFollow: false,
-      isHttps: false,
-      status: "WARNING",
-      issue: "Missing SSL / Insecure HTTP. Chrome shows 'Not Secure' warning on mobile.",
-    },
-    diagnosticSummary: "High-ticket real estate leads are dropping off due to missing 91 country code and broken toll-free number, causing severe ad budget bleed.",
   },
   "urbanvogue.in": {
     domain: "urbanvogue.in",
@@ -273,6 +295,8 @@ const SAMPLE_PRESETS: Record<string, any> = {
         status: "WORKING",
         isValid: true,
         digits: "919988776655",
+        hasPrefilledText: true,
+        prefilledText: "Hi UrbanVogue, I have a question about my order",
       }
     ],
     phoneLinks: [
@@ -320,17 +344,30 @@ const SAMPLE_PRESETS: Record<string, any> = {
       isHttps: true,
       status: "HEALTHY",
     },
+    cyberShield: {
+      score: 98,
+      spamGamblingDetected: false,
+      spamKeywordsFound: [],
+      obfuscatedScriptsDetected: false,
+      base64HeavyScriptsCount: 0,
+      hiddenIframesCount: 0,
+      suspiciousRedirectDetected: false,
+      riskLevel: "CLEAN",
+      diagnosis: "Clean security signature. No spam keywords or hidden redirect scripts.",
+    },
     diagnosticSummary: "Flawless lead funnel setup! WhatsApp, Meta Pixel, GA4, and Google Reviews are fully synchronized.",
   }
 };
 
-// Core parser & scanner - 100% Real Live HTTP & DOM Crawler
+// ---------------------------------------------------------------------------
+// 3. Core 4-Pillar Scan Engine (Real Live Network & DOM Diagnostic)
+// ---------------------------------------------------------------------------
 async function scanWebsite(targetUrl: string): Promise<any> {
   const startTime = Date.now();
   const parsedUrl = new URL(targetUrl);
   const hostname = parsedUrl.hostname.replace(/^www\./, "").toLowerCase();
 
-  // Check preset library for instant test fixtures if explicitly matching curated demo domains
+  // Check preset library for curated demo domains
   if (SAMPLE_PRESETS[hostname]) {
     const preset = SAMPLE_PRESETS[hostname];
     const issues = generateIssuesFromData(preset);
@@ -373,7 +410,6 @@ async function scanWebsite(targetUrl: string): Promise<any> {
     html = await fetchWithTimeout(targetUrl);
     fetchTimeMs = Date.now() - fetchStart;
   } catch (err: any) {
-    // If https failed, try http as fallback
     if (targetUrl.startsWith("https://")) {
       try {
         const httpUrl = targetUrl.replace("https://", "http://");
@@ -397,7 +433,7 @@ async function scanWebsite(targetUrl: string): Promise<any> {
   const parseStart = Date.now();
   const lowerHtml = html.toLowerCase();
 
-  // Extract Real Business Name / Page Title
+  // Extract Page Title / Business Name
   let extractedTitle = "";
   const ogTitleMatch = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i) ||
                        html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:title["']/i);
@@ -415,7 +451,9 @@ async function scanWebsite(targetUrl: string): Promise<any> {
 
   const businessName = extractedTitle || hostname.replace(/\.[a-z]+$/, "").toUpperCase();
 
-  // 1. WhatsApp Link Analysis (Comprehensive HTML, Next.js hydration, JSON, and DOM scanner)
+  // =========================================================================
+  // PILLAR 1: LEAD GUARDIAN (WhatsApp, Phone, Email, Review, Social)
+  // =========================================================================
   const whatsappRegex = /(?:href=["']|window\.open\(["']|onclick=["'][^"']*['"]|\\"href\\":\\"|\\"url\\":\\")(https?:\/\/(?:wa\.me|api\.whatsapp\.com|web\.whatsapp\.com)[^"'\)\\]*|whatsapp:\/\/[^"'\)\\]*)/gi;
   const rawTextWaRegex = /(?:https?:\/\/wa\.me\/[0-9+?&=%a-zA-Z._-]+|https?:\/\/api\.whatsapp\.com\/send\?[^"'\s<>]+)/gi;
   
@@ -436,7 +474,6 @@ async function scanWebsite(targetUrl: string): Promise<any> {
 
   const whatsappLinks: any[] = [];
   if (whatsappMatches.length === 0) {
-    // Check if there are whatsapp references/text without clickable link
     if (lowerHtml.includes("whatsapp") || lowerHtml.includes("chat on whatsapp") || lowerHtml.includes("wa.me")) {
       whatsappLinks.push({
         url: "#",
@@ -450,7 +487,6 @@ async function scanWebsite(targetUrl: string): Promise<any> {
     }
   } else {
     for (const rawLink of whatsappMatches) {
-      // Extract phone digits
       let digits = "";
       const urlWithoutParams = rawLink.split("?")[0].split("&")[0];
       const digitsMatch = urlWithoutParams.match(/\d+/g);
@@ -458,7 +494,6 @@ async function scanWebsite(targetUrl: string): Promise<any> {
         digits = digitsMatch.join("");
       }
 
-      // Check for ?text= or &text= prefilled UTM intent
       const textMatch = rawLink.match(/[?&]text=([^&"'\s>\\]+)/i);
       const hasPrefilledText = Boolean(textMatch && textMatch[1] && textMatch[1].trim().length > 0);
       let prefilledText: string | undefined;
@@ -475,7 +510,6 @@ async function scanWebsite(targetUrl: string): Promise<any> {
       let suggestedFix: string | undefined;
       let statusNote: string | undefined;
 
-      // Forensic link validation
       if (!digits || digits.length < 10) {
         isValid = false;
         issue = "Incomplete phone number in WhatsApp link (fewer than 10 digits).";
@@ -495,7 +529,6 @@ async function scanWebsite(targetUrl: string): Promise<any> {
         issue = "Missing India country code (+91). May fail on unconfigured or international mobile devices.";
         suggestedFix = `Change link href to https://wa.me/91${digits}${prefilledText ? `?text=${encodeURIComponent(prefilledText)}` : ''}`;
       } else {
-        // 100% VALID WhatsApp link!
         isValid = true;
         issue = undefined;
         statusNote = `Active WhatsApp link (+${digits.startsWith('91') ? digits.slice(0,2) + ' ' + digits.slice(2) : digits}) — opens chat correctly.`;
@@ -516,21 +549,194 @@ async function scanWebsite(targetUrl: string): Promise<any> {
     }
   }
 
-  // 1.2. Meta Pixel Pre-Detection for E-commerce & Ad Spend Risk
+  // Click-to-Call (tel:)
+  const telRegex = /href=["']tel:([^"']+)["']/gi;
+  const phoneLinks: any[] = [];
+  while ((match = telRegex.exec(html)) !== null) {
+    const rawTel = match[1].trim();
+    const cleanDigits = rawTel.replace(/\D/g, "");
+    const isValid = cleanDigits.length >= 8 && cleanDigits.length <= 14;
+    phoneLinks.push({
+      url: `tel:${rawTel}`,
+      number: rawTel,
+      status: isValid ? "WORKING" : "BROKEN",
+      isValid,
+      issue: !isValid ? `Incomplete dialer length (${cleanDigits.length} digits). Call may fail on telecom networks.` : undefined,
+    });
+  }
+
+  // Email (mailto:)
+  const mailtoRegex = /href=["']mailto:([^"']+)["']/gi;
+  const emailLinks: any[] = [];
+  while ((match = mailtoRegex.exec(html)) !== null) {
+    const email = match[1].split("?")[0].trim();
+    const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    emailLinks.push({
+      url: `mailto:${email}`,
+      isValid,
+      status: isValid ? "WORKING" : "BROKEN",
+      issue: !isValid ? "Malformed email address" : undefined,
+    });
+  }
+
+  // Google Review / Maps links
+  const reviewRegex = /href=["'](https?:\/\/(?:g\.page|maps\.google\.com|goo\.gl\/maps|maps\.app\.goo\.gl|search\.google\.com\/local|business\.google\.com)[^"']*)["']/gi;
+  const reviewLinks: any[] = [];
+  while ((match = reviewRegex.exec(html)) !== null) {
+    reviewLinks.push({
+      url: match[1],
+      platform: "Google Business / Reviews",
+      status: "WORKING",
+      isValid: true,
+    });
+  }
+
+  // Social Links
+  const socialLinks: any[] = [];
+  if (/instagram\.com\/[a-zA-Z0-9._]+/i.test(html)) {
+    socialLinks.push({ platform: "instagram", url: "Instagram Page", status: "WORKING", isValid: true });
+  }
+  if (/facebook\.com\/[a-zA-Z0-9._]+/i.test(html)) {
+    socialLinks.push({ platform: "facebook", url: "Facebook Page", status: "WORKING", isValid: true });
+  }
+  if (/youtube\.com\/(?:@|c\/|channel\/)[a-zA-Z0-9._-]+/i.test(html)) {
+    socialLinks.push({ platform: "youtube", url: "YouTube Channel", status: "WORKING", isValid: true });
+  }
+
+  // =========================================================================
+  // PILLAR 2: ADSHIELD (Meta Pixel, Google Tag / GA4, GTM)
+  // =========================================================================
   const hasMetaPixel = lowerHtml.includes("fbq('init'") ||
                        lowerHtml.includes("fbq(\"init\"") ||
                        lowerHtml.includes("fbevents.js") ||
                        lowerHtml.includes("connect.facebook.net") ||
                        lowerHtml.includes("facebook.com/tr?id=");
 
-  // 1.5. E-Commerce "Cart Death" & Checkout Flow Detection
+  let pixelIdMatch = html.match(/fbq\s*\(\s*['"]init['"]\s*,\s*['"](\d+)['"]/i) ||
+                     html.match(/[?&]id=(\d{10,20})/i);
+  const pixelId = pixelIdMatch ? pixelIdMatch[1] : undefined;
+
+  const metaPixel = {
+    exists: hasMetaPixel,
+    pixelId,
+    duplicate: false,
+    status: (hasMetaPixel ? "HEALTHY" : "MISSING") as "HEALTHY" | "MISSING",
+    issue: !hasMetaPixel
+      ? "No Meta Pixel (fbq) detected. If you run Facebook or Instagram ads, the conversion algorithm is untracked."
+      : undefined,
+    impactNote: !hasMetaPixel ? "Ad spend risk: lack of attribution prevents lookalike audience optimization." : undefined,
+    confidence: hasMetaPixel ? 0.95 : 0.85,
+  };
+
+  const hasGtm = lowerHtml.includes("googletagmanager.com/gtm.js") || /gtm\.js\?id=GTM-[A-Z0-9]+/i.test(html);
+  const hasGa4 = /(?:googletagmanager\.com\/gtag\/js\?id=|gtag\s*\(\s*['"]config['"]\s*,\s*['"])(G-[A-Z0-9]{8,12})['"]/i.test(html) ||
+                 /google-analytics\.com\/analytics\.js/i.test(html);
+  
+  let gtmIdMatch = html.match(/gtm\.js\?id=(GTM-[A-Z0-9]+)/i) || html.match(/(GTM-[A-Z0-9]{5,10})/);
+  let ga4IdMatch = html.match(/(?:googletagmanager\.com\/gtag\/js\?id=|gtag\s*\(\s*['"]config['"]\s*,\s*['"])(G-[A-Z0-9]{8,12})['"]/i);
+
+  const googleTag = {
+    exists: hasGtm || hasGa4,
+    tagId: (gtmIdMatch ? gtmIdMatch[1] || gtmIdMatch[0] : (ga4IdMatch ? ga4IdMatch[1] : undefined)),
+    status: (hasGtm || hasGa4 ? "HEALTHY" : "MISSING") as "HEALTHY" | "MISSING",
+    issue: (!hasGtm && !hasGa4) ? "No Google Tag Manager or GA4 detected on the landing page." : undefined,
+    confidence: (hasGtm || hasGa4) ? 0.95 : 0.85,
+  };
+
+  // =========================================================================
+  // PILLAR 3: SEO & PENALTY SHIELD (Robots noindex, Canonical, OpenGraph, SSL)
+  // =========================================================================
+  const hasNoIndex = /<meta[^>]*name=["'](?:robots|googlebot)["'][^>]*content=["'][^"']*noindex[^"']*["']/i.test(html) ||
+                     /<meta[^>]*content=["'][^"']*noindex[^"']*["'][^>]*name=["'](?:robots|googlebot)["']/i.test(html);
+  const hasNoFollow = /<meta[^>]*name=["']robots["'][^>]*content=["'][^"']*nofollow[^"']*["']/i.test(html);
+  
+  const canonicalMatch = html.match(/<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']+)["']/i);
+  const hasCanonical = Boolean(canonicalMatch && canonicalMatch[1]);
+  const canonicalUrl = canonicalMatch ? canonicalMatch[1] : undefined;
+
+  const hasOgImage = /<meta[^>]*property=["']og:image["']/i.test(html);
+  const hasOgTitle = /<meta[^>]*property=["']og:title["']/i.test(html);
+
+  const seoPenalty = {
+    hasNoIndex,
+    hasNoFollow,
+    isHttps,
+    hasCanonical,
+    canonicalUrl,
+    hasOgTags: hasOgImage && hasOgTitle,
+    status: hasNoIndex ? "CRITICAL_PENALTY" : (!isHttps ? "WARNING" : "HEALTHY") as "CRITICAL_PENALTY" | "WARNING" | "HEALTHY",
+    issue: hasNoIndex
+      ? "CRITICAL NOINDEX DETECTED: <meta name='robots' content='noindex'> is active in the page header, blocking Google search ranking!"
+      : (!isHttps ? "Insecure HTTP connection (missing SSL certificate)." : undefined),
+  };
+
+  // =========================================================================
+  // PILLAR 4: CYBER & HACK SHIELD (Spam Keywords, Obfuscation, Hidden Iframes)
+  // =========================================================================
+  const SPAM_KEYWORDS = [
+    "satta", "matka", "kalyan matka", "satta king", "online casino", "slot gacor",
+    "judi online", "slot online", "free spins", "porn", "viagra", "cialis"
+  ];
+  
+  const foundSpamKeywords: string[] = [];
+  for (const kw of SPAM_KEYWORDS) {
+    if (lowerHtml.includes(kw)) {
+      foundSpamKeywords.push(kw);
+    }
+  }
+
+  // Obfuscated Base64 or eval heuristic
+  const hasEvalAtob = /eval\s*\(\s*atob\s*\(/i.test(html) || /document\.write\s*\(\s*unescape\s*\(/i.test(html);
+  const base64Matches = html.match(/['"][A-Za-z0-9+/]{200,}={0,2}['"]/g) || [];
+  const base64HeavyScriptsCount = base64Matches.length;
+
+  // Hidden iframes
+  const hiddenIframeMatches = html.match(/<iframe[^>]*(?:display:\s*none|visibility:\s*hidden|width=["']0["']|height=["']0["'])[^>]*>/gi) || [];
+  const hiddenIframesCount = hiddenIframeMatches.length;
+
+  // Suspicious Mobile / Meta Redirects
+  const hasMetaRefresh = /<meta[^>]*http-equiv=["']refresh["'][^>]*content=["']\d+;\s*url=/i.test(html);
+  const hasSuspiciousMobileRedirect = /navigator\.userAgent.*location\.replace/i.test(html) ||
+                                     /window\.location\s*=\s*['"]http:\/\/[^'"]+['"]/i.test(html);
+
+  let cyberScore = 100;
+  if (foundSpamKeywords.length > 0) cyberScore -= 45;
+  if (hasEvalAtob) cyberScore -= 40;
+  if (base64HeavyScriptsCount > 2) cyberScore -= 20;
+  if (hiddenIframesCount > 0) cyberScore -= 30;
+  if (hasSuspiciousMobileRedirect) cyberScore -= 40;
+  cyberScore = Math.max(10, Math.min(cyberScore, 100));
+
+  let cyberRiskLevel: "CLEAN" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" = "CLEAN";
+  if (cyberScore < 50) cyberRiskLevel = "CRITICAL";
+  else if (cyberScore < 75) cyberRiskLevel = "HIGH";
+  else if (cyberScore < 90) cyberRiskLevel = "MEDIUM";
+  else cyberRiskLevel = "CLEAN";
+
+  const cyberDiagnosis = cyberRiskLevel === "CLEAN"
+    ? "Clean security signature. No spam keyword injections, hidden iframes, or obfuscated scripts found."
+    : `Detected ${foundSpamKeywords.length > 0 ? `suspicious keyword injection (${foundSpamKeywords.join(', ')})` : ''} ${hiddenIframesCount > 0 ? 'hidden iframes' : ''} ${hasEvalAtob ? 'obfuscated script loader' : ''}`.trim();
+
+  const cyberShield = {
+    score: cyberScore,
+    spamGamblingDetected: foundSpamKeywords.length > 0,
+    spamKeywordsFound: foundSpamKeywords,
+    obfuscatedScriptsDetected: hasEvalAtob || base64HeavyScriptsCount > 2,
+    base64HeavyScriptsCount,
+    hiddenIframesCount,
+    suspiciousRedirectDetected: hasMetaRefresh || hasSuspiciousMobileRedirect,
+    redirectDetails: hasSuspiciousMobileRedirect ? "User-agent branch script detected redirecting mobile traffic." : undefined,
+    riskLevel: cyberRiskLevel,
+    diagnosis: cyberDiagnosis,
+  };
+
+  // E-commerce Cart Death Checks
   const isShopify = lowerHtml.includes("cdn.shopify.com") || lowerHtml.includes("shopify.com") || lowerHtml.includes("myshopify.com") || /window\.Shopify/i.test(html);
   const isWoo = lowerHtml.includes("woocommerce") || lowerHtml.includes("wp-content/plugins/woocommerce") || /wc-api/i.test(html);
   const isMagento = /skin\/frontend\/|mage\/cookies\.js|catalog\/product\/view|Mage\.Cookies|\/static\/version\d+/i.test(html);
   const isBigCommerce = lowerHtml.includes("bigcommerce") || lowerHtml.includes("cdn11.bigcommerce.com");
   const isMedusa = lowerHtml.includes("medusa") || /pcat_01/i.test(html) || /data-testid=["']nav-cart-link["']/i.test(html);
   
-  // Check for Cart / Add to Cart / Checkout buttons
   const hasCartInDom = /href=["'][^"']*(?:\/cart|\/checkout|\/bag|\/basket)[^"']*["']/i.test(html);
   const hasAddToCartButton = /add\s*to\s*cart|buy\s*now|checkout|order\s*now|proceed\s*to\s*checkout/i.test(html);
 
@@ -543,7 +749,6 @@ async function scanWebsite(targetUrl: string): Promise<any> {
   else if (isMedusa) ecommercePlatform = 'Custom';
   else if (isEcommerce) ecommercePlatform = 'Custom';
 
-  // Check Cart / Checkout button link validity
   const cartButtons: { text: string; href?: string; status: 'WORKING' | 'BROKEN' | 'MISSING' }[] = [];
   const cartLinkRegex = /<a[^>]*href=["']([^"']*(?:\/cart|\/checkout|\/bag|\/basket)[^"']*)["'][^>]*>(.*?)<\/a>/gi;
   let cartMatch;
@@ -574,112 +779,11 @@ async function scanWebsite(targetUrl: string): Promise<any> {
         ? "CRITICAL: Checkout / Add to Cart flow contains dead or unrouted links (#). Customers cannot complete orders!"
         : undefined,
       suggestedFix: isCartBroken
-        ? "Fix cart button anchors to valid checkout route (e.g. /cart or /checkout) and test end-to-end payment gateway."
+        ? "Route cart buttons directly to valid checkout route (e.g. /cart or /checkout) and test end-to-end payment gateway."
         : undefined,
     };
   }
 
-  // 2. Click-to-Call (tel:) Analysis
-  const telRegex = /href=["']tel:([^"']+)["']/gi;
-  const phoneLinks: any[] = [];
-  while ((match = telRegex.exec(html)) !== null) {
-    const rawTel = match[1].trim();
-    const cleanDigits = rawTel.replace(/\D/g, "");
-    const isValid = cleanDigits.length >= 8 && cleanDigits.length <= 14;
-    phoneLinks.push({
-      url: `tel:${rawTel}`,
-      number: rawTel,
-      status: isValid ? "WORKING" : "BROKEN",
-      isValid,
-      issue: !isValid ? `Incomplete dialer length (${cleanDigits.length} digits). Call may fail on telecom networks.` : undefined,
-    });
-  }
-
-  // 3. Email (mailto:) Analysis
-  const mailtoRegex = /href=["']mailto:([^"']+)["']/gi;
-  const emailLinks: any[] = [];
-  while ((match = mailtoRegex.exec(html)) !== null) {
-    const email = match[1].split("?")[0].trim();
-    const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-    emailLinks.push({
-      url: `mailto:${email}`,
-      isValid,
-      status: isValid ? "WORKING" : "BROKEN",
-      issue: !isValid ? "Malformed email address" : undefined,
-    });
-  }
-
-  // 4. Google Review / Maps Analysis
-  const reviewRegex = /href=["'](https?:\/\/(?:g\.page|maps\.google\.com|goo\.gl\/maps|maps\.app\.goo\.gl|search\.google\.com\/local|business\.google\.com)[^"']*)["']/gi;
-  const reviewLinks: any[] = [];
-  while ((match = reviewRegex.exec(html)) !== null) {
-    reviewLinks.push({
-      url: match[1],
-      platform: "Google Business / Reviews",
-      status: "WORKING",
-      isValid: true,
-    });
-  }
-
-  // 5. Social Links
-  const socialLinks: any[] = [];
-  if (/instagram\.com\/[a-zA-Z0-9._]+/i.test(html)) {
-    socialLinks.push({ platform: "instagram", url: "Instagram Page", status: "WORKING", isValid: true });
-  }
-  if (/facebook\.com\/[a-zA-Z0-9._]+/i.test(html)) {
-    socialLinks.push({ platform: "facebook", url: "Facebook Page", status: "WORKING", isValid: true });
-  }
-  if (/youtube\.com\/(?:@|c\/|channel\/)[a-zA-Z0-9._-]+/i.test(html)) {
-    socialLinks.push({ platform: "youtube", url: "YouTube Channel", status: "WORKING", isValid: true });
-  }
-
-  // 6. Meta Pixel Detection
-  let pixelIdMatch = html.match(/fbq\s*\(\s*['"]init['"]\s*,\s*['"](\d+)['"]/i) ||
-                     html.match(/[?&]id=(\d{10,20})/i);
-  const pixelId = pixelIdMatch ? pixelIdMatch[1] : undefined;
-
-  const metaPixel = {
-    exists: hasMetaPixel,
-    pixelId,
-    duplicate: false,
-    status: (hasMetaPixel ? "HEALTHY" : "MISSING") as "HEALTHY" | "MISSING",
-    issue: !hasMetaPixel
-      ? "No Meta Pixel (fbq) detected. If you run Facebook or Instagram ads, the conversion algorithm is untracked."
-      : undefined,
-    impactNote: !hasMetaPixel ? "Ad spend risk: lack of attribution prevents lookalike audience optimization." : undefined,
-  };
-
-  // 7. Google Analytics / GTM Detection (Strictly match real scripts, avoid matching SVG gradient IDs)
-  const hasGtm = lowerHtml.includes("googletagmanager.com/gtm.js") || /gtm\.js\?id=GTM-[A-Z0-9]+/i.test(html);
-  const hasGa4 = /(?:googletagmanager\.com\/gtag\/js\?id=|gtag\s*\(\s*['"]config['"]\s*,\s*['"])(G-[A-Z0-9]{8,12})['"]/i.test(html) ||
-                 /google-analytics\.com\/analytics\.js/i.test(html);
-  
-  let gtmIdMatch = html.match(/gtm\.js\?id=(GTM-[A-Z0-9]+)/i) || html.match(/(GTM-[A-Z0-9]{5,10})/);
-  let ga4IdMatch = html.match(/(?:googletagmanager\.com\/gtag\/js\?id=|gtag\s*\(\s*['"]config['"]\s*,\s*['"])(G-[A-Z0-9]{8,12})['"]/i);
-
-  const googleTag = {
-    exists: hasGtm || hasGa4,
-    tagId: (gtmIdMatch ? gtmIdMatch[1] || gtmIdMatch[0] : (ga4IdMatch ? ga4IdMatch[1] : undefined)),
-    status: (hasGtm || hasGa4 ? "HEALTHY" : "MISSING") as "HEALTHY" | "MISSING",
-    issue: (!hasGtm && !hasGa4) ? "No Google Tag Manager or GA4 detected on the landing page." : undefined,
-  };
-
-  // 8. SEO Penalty (noindex detection)
-  const hasNoIndex = /<meta[^>]*name=["'](?:robots|googlebot)["'][^>]*content=["'][^"']*noindex[^"']*["']/i.test(html) ||
-                     /<meta[^>]*content=["'][^"']*noindex[^"']*["'][^>]*name=["'](?:robots|googlebot)["']/i.test(html);
-  const hasNoFollow = /<meta[^>]*name=["']robots["'][^>]*content=["'][^"']*nofollow[^"']*["']/i.test(html);
-
-  const seoPenalty = {
-    hasNoIndex,
-    hasNoFollow,
-    isHttps,
-    status: hasNoIndex ? "CRITICAL_PENALTY" : (!isHttps ? "WARNING" : "HEALTHY") as "CRITICAL_PENALTY" | "WARNING" | "HEALTHY",
-    issue: hasNoIndex
-      ? "CRITICAL NOINDEX DETECTED: <meta name='robots' content='noindex'> is active in the page header, blocking Google search ranking!"
-      : (!isHttps ? "Insecure HTTP connection (missing SSL certificate)." : undefined),
-  };
-
-  // Compute issues and score
   const parsedData = {
     domain: hostname,
     businessName,
@@ -691,6 +795,7 @@ async function scanWebsite(targetUrl: string): Promise<any> {
     metaPixel,
     googleTag,
     seoPenalty,
+    cyberShield,
     ecommerce: ecommerceInfo,
   };
 
@@ -698,134 +803,251 @@ async function scanWebsite(targetUrl: string): Promise<any> {
   return buildAuditPayload(targetUrl, hostname, parsedData, issues, startTime, fetchTimeMs, Date.now() - parseStart);
 }
 
+// ---------------------------------------------------------------------------
+// 4. Normalized Issues & 4-Pillar Scoring Model
+// ---------------------------------------------------------------------------
 function generateIssuesFromData(data: any): any[] {
   const issues: any[] = [];
 
-  // WhatsApp issues (Only truly broken links or missing buttons get critical issues)
+  // LEAD GUARDIAN ISSUES
   if (data.whatsappLinks) {
     for (let i = 0; i < data.whatsappLinks.length; i++) {
       const wa = data.whatsappLinks[i];
       if (!wa.isValid) {
         issues.push({
           id: `wa-issue-${i + 1}`,
+          pillar: "LEAD",
           category: "whatsapp",
           severity: "CRITICAL",
+          ruleId: "LEAD-WA-001",
           title: "Broken WhatsApp Lead Link",
           description: wa.issue || "WhatsApp link format is invalid and fails when tapped by customers.",
           impact: "100% of mobile users clicking this button bounce without reaching your chat window. Estimated loss: ₹15,000–₹25,000/month.",
+          evidence: wa.url,
+          technical: `Extracted Digits: ${wa.digits || 'none'} | Link: ${wa.url}`,
+          recommendation: wa.suggestedFix || "Update href to standard https://wa.me/91XXXXXXXXXX format.",
           fixSnippet: wa.suggestedFix || "Update href to standard https://wa.me/91XXXXXXXXXX format.",
-          isLocked: issues.length > 0, // First issue is always FREE!
+          confidence: 0.99,
+          isLocked: issues.length > 0,
         });
       } else if (wa.zeroIntentLeak) {
-        // Valid WhatsApp link, but without pre-filled greeting
         issues.push({
           id: `wa-zero-intent-${i + 1}`,
+          pillar: "LEAD",
           category: "whatsapp",
           severity: "LOW",
-          title: "WhatsApp Pre-filled Greeting (Optional Conversion Tip)",
-          description: "Aapka WhatsApp link bilkul sahi kaam kar raha hai aur chat properly open ho raha hai. Tip: Default pre-filled message (jaise 'Hi, I want to inquire about products') add karne se customers bina type kiye 1-tap me conversation start kar sakte hain.",
-          impact: "Optional recommendation to improve customer reply rates by 25-40%.",
+          ruleId: "LEAD-WA-002",
+          title: "WhatsApp Pre-filled Greeting (Conversion Tip)",
+          description: "WhatsApp link is active and working. Adding a pre-filled greeting message allows 1-tap customer conversations.",
+          impact: "Recommended optimization to improve customer response rate by 25–40%.",
+          evidence: wa.url,
+          recommendation: `Add ?text= parameter with personalized greeting.`,
           fixSnippet: `https://wa.me/${wa.digits}?text=${encodeURIComponent('Hi, I saw your website and would like to inquire.')}`,
+          confidence: 0.95,
           isLocked: issues.length > 0,
         });
       }
     }
   }
 
-  // E-Commerce Cart Death issues
-  if (data.ecommerce && data.ecommerce.isEcommerce) {
-    if (data.ecommerce.checkoutStatus === "CRITICAL_LEAK") {
-      issues.push({
-        id: "ecommerce-cart-death",
-        category: "ecommerce",
-        severity: "CRITICAL",
-        title: "CRITICAL: E-Commerce 'Cart Death' Detected",
-        description: data.ecommerce.issue || "Checkout flow is broken. Add to Cart / Checkout buttons lead to dead links (#).",
-        impact: "100% direct revenue loss. High-intent buyers are unable to complete purchases on your store.",
-        fixSnippet: data.ecommerce.suggestedFix || "Route buy buttons directly to /cart or Shopify permalink checkout.",
-        isLocked: issues.length > 0,
-      });
-    }
-  }
-
-  // SEO Penalty issues
-  if (data.seoPenalty && data.seoPenalty.hasNoIndex) {
-    issues.push({
-      id: "seo-noindex",
-      category: "seo",
-      severity: "CRITICAL",
-      title: "Active 'noindex' SEO Penalty",
-      description: data.seoPenalty.issue || "Robots meta tag contains noindex, telling Google to hide this site from search results.",
-      impact: "Zero organic Google search traffic. All SEO efforts and local Google rankings are completely neutralized.",
-      fixSnippet: "Remove <meta name='robots' content='noindex'> from your site's <head> immediately.",
-      isLocked: issues.length > 0,
-    });
-  }
-
-  // Meta Pixel issues
-  if (data.metaPixel && data.metaPixel.status === "MISSING") {
-    issues.push({
-      id: "pixel-missing",
-      category: "pixel",
-      severity: "HIGH",
-      title: "Missing Meta Pixel (fbq)",
-      description: "No Facebook/Instagram ad tracking script found on the landing page.",
-      impact: "If running paid ads, Meta's AI algorithm runs blind without conversion optimization, inflating cost-per-lead by 300%.",
-      fixSnippet: "Install standard Meta Pixel base code inside <head> with fbq('init', 'YOUR_PIXEL_ID').",
-      isLocked: issues.length > 0,
-    });
-  }
-
-  // Google Tag issues
-  if (data.googleTag && data.googleTag.status === "MISSING") {
-    issues.push({
-      id: "gtag-missing",
-      category: "pixel",
-      severity: "MEDIUM",
-      title: "Missing Google Tag / GA4",
-      description: "No Google Analytics or Tag Manager detected on the page.",
-      impact: "No visibility into mobile visitor drop-offs, campaign attribution, or user behavior.",
-      fixSnippet: "Add GA4 global site tag (gtag.js) to track pageviews and conversion events.",
-      isLocked: issues.length > 0,
-    });
-  }
-
-  // Review link issues
-  if (data.reviewLinks) {
-    for (let i = 0; i < data.reviewLinks.length; i++) {
-      const rev = data.reviewLinks[i];
-      if (!rev.isValid) {
-        issues.push({
-          id: `rev-issue-${i + 1}`,
-          category: "reviews",
-          severity: "MEDIUM",
-          title: "Broken Google Review Link",
-          description: rev.issue || "Google review shortlink returns 404 or dead page.",
-          impact: "Losing 10–25 authentic customer 5-star reviews every month.",
-          fixSnippet: "Generate direct review shortlink from Google Business Profile manager.",
-          isLocked: issues.length > 0,
-        });
-      }
-    }
-  }
-
-  // Phone issues
   if (data.phoneLinks) {
     for (let i = 0; i < data.phoneLinks.length; i++) {
       const ph = data.phoneLinks[i];
       if (!ph.isValid) {
         issues.push({
           id: `phone-issue-${i + 1}`,
+          pillar: "LEAD",
           category: "phone",
           severity: "HIGH",
+          ruleId: "LEAD-PHONE-001",
           title: "Incomplete Click-to-Call Dialer",
           description: ph.issue || "Phone dialer link (tel:) has invalid length.",
-          impact: "Mobile callers get 'call failed' or operator error on tap.",
+          impact: "Mobile callers receive 'call failed' or operator errors upon clicking.",
+          evidence: ph.url,
+          technical: `Phone Raw: ${ph.number || ph.url}`,
+          recommendation: "Format phone link as tel:+91XXXXXXXXXX.",
           fixSnippet: ph.suggestedFix || "Format phone link as tel:+91XXXXXXXXXX.",
+          confidence: 0.95,
           isLocked: issues.length > 0,
         });
       }
     }
+  }
+
+  if (data.reviewLinks) {
+    for (let i = 0; i < data.reviewLinks.length; i++) {
+      const rev = data.reviewLinks[i];
+      if (!rev.isValid) {
+        issues.push({
+          id: `rev-issue-${i + 1}`,
+          pillar: "LEAD",
+          category: "reviews",
+          severity: "MEDIUM",
+          ruleId: "LEAD-REV-001",
+          title: "Broken Google Review Link",
+          description: rev.issue || "Google review shortlink returns 404 or dead page.",
+          impact: "Losing 10–25 authentic customer 5-star reviews every month.",
+          evidence: rev.url,
+          recommendation: "Generate direct review shortlink from Google Business Profile manager.",
+          fixSnippet: "Generate direct review shortlink from Google Business Profile manager.",
+          confidence: 0.9,
+          isLocked: issues.length > 0,
+        });
+      }
+    }
+  }
+
+  // ADSHIELD ISSUES
+  if (data.metaPixel && data.metaPixel.status === "MISSING") {
+    issues.push({
+      id: "pixel-missing",
+      pillar: "AD",
+      category: "pixel",
+      severity: "HIGH",
+      ruleId: "AD-META-001",
+      title: "Missing Meta Pixel (fbq)",
+      description: "No Facebook/Instagram ad tracking script found on the landing page.",
+      impact: "If running paid ads, Meta's AI algorithm runs blind without conversion optimization, inflating cost-per-lead by 300%.",
+      evidence: "DOM Search for fbq() returned 0 instances.",
+      technical: "connect.facebook.net and fbq initialization absent in <head>.",
+      recommendation: "Install standard Meta Pixel base code inside <head>.",
+      fixSnippet: "<!-- Meta Pixel -->\n<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','YOUR_PIXEL_ID');fbq('track','PageView');</script>",
+      confidence: 0.95,
+      isLocked: issues.length > 0,
+    });
+  }
+
+  if (data.googleTag && data.googleTag.status === "MISSING") {
+    issues.push({
+      id: "gtag-missing",
+      pillar: "AD",
+      category: "pixel",
+      severity: "MEDIUM",
+      ruleId: "AD-GA4-001",
+      title: "Missing Google Tag / GA4",
+      description: "No Google Analytics or Tag Manager detected on the page.",
+      impact: "No visibility into mobile visitor drop-offs, campaign attribution, or user behavior.",
+      evidence: "gtag.js and googletagmanager.com absent in page source.",
+      recommendation: "Add GA4 global site tag (gtag.js) to track pageviews and conversion events.",
+      fixSnippet: "<!-- Google tag (gtag.js) -->\n<script async src='https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX'></script>\n<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag('js', new Date());\n  gtag('config', 'G-XXXXXXXXXX');\n</script>",
+      confidence: 0.9,
+      isLocked: issues.length > 0,
+    });
+  }
+
+  // SEO & PENALTY SHIELD ISSUES
+  if (data.seoPenalty && data.seoPenalty.hasNoIndex) {
+    issues.push({
+      id: "seo-noindex",
+      pillar: "SEO",
+      category: "seo",
+      severity: "CRITICAL",
+      ruleId: "SEO-NOINDEX-001",
+      title: "Active 'noindex' SEO De-indexation Risk",
+      description: "Robots meta tag contains noindex, instructing Google not to index this website in search results.",
+      impact: "Zero organic Google search traffic. All SEO efforts and local Google rankings are completely neutralized.",
+      evidence: "<meta name='robots' content='noindex'>",
+      technical: "Found noindex directive in HTML <head> metadata.",
+      recommendation: "Remove noindex from your robots meta tag immediately.",
+      fixSnippet: "<meta name='robots' content='index, follow'>",
+      confidence: 0.99,
+      isLocked: issues.length > 0,
+    });
+  }
+
+  if (data.seoPenalty && !data.seoPenalty.isHttps) {
+    issues.push({
+      id: "seo-insecure-http",
+      pillar: "SEO",
+      category: "seo",
+      severity: "MEDIUM",
+      ruleId: "SEO-HTTPS-001",
+      title: "Insecure HTTP Protocol (Missing SSL)",
+      description: "Website is serving content over unencrypted HTTP protocol.",
+      impact: "Modern mobile browsers flag site as 'Not Secure', driving away up to 60% of first-time visitors.",
+      evidence: "Scheme: http://",
+      recommendation: "Enable Free SSL via Let's Encrypt / Cloudflare and enforce HTTPS redirection.",
+      fixSnippet: "Redirect 301 http:// to https://",
+      confidence: 0.99,
+      isLocked: issues.length > 0,
+    });
+  }
+
+  // CYBER & HACK SHIELD ISSUES
+  if (data.cyberShield && data.cyberShield.spamGamblingDetected) {
+    issues.push({
+      id: "cyber-spam-injection",
+      pillar: "CYBER",
+      category: "cyber",
+      severity: "CRITICAL",
+      ruleId: "CYBER-SPAM-001",
+      title: "Suspicious Spam / Gambling Keywords Injected",
+      description: `Discovered suspicious keywords (${data.cyberShield.spamKeywordsFound.join(', ')}) in HTML source. This is a common indicator of unauthorized CMS injection.`,
+      impact: "Google blacklisting risk, ad account suspension, and severe brand reputation loss.",
+      evidence: `Found keywords: ${data.cyberShield.spamKeywordsFound.join(', ')}`,
+      technical: "Hidden text / database spam strings detected in public DOM.",
+      recommendation: "Scan CMS database for unauthorized injections and audit admin users.",
+      fixSnippet: "Review WordPress plugins/themes and clean infected database tables.",
+      confidence: 0.95,
+      isLocked: issues.length > 0,
+    });
+  }
+
+  if (data.cyberShield && data.cyberShield.obfuscatedScriptsDetected) {
+    issues.push({
+      id: "cyber-obfuscated-script",
+      pillar: "CYBER",
+      category: "cyber",
+      severity: "HIGH",
+      ruleId: "CYBER-OBF-001",
+      title: "Suspicious Obfuscated Script Loader",
+      description: "Detected eval(atob()) or heavily Base64-encoded inline JavaScript strings.",
+      impact: "Hidden payload execution risk. Automated malicious redirect or keystroke grabber.",
+      evidence: "eval(atob()) / dynamic unescape found in script body.",
+      technical: "High entropy inline script blocks > 200 chars.",
+      recommendation: "Inspect all third-party scripts and remove unauthorized inline code blocks.",
+      fixSnippet: "Remove unverified inline script blocks from <head> and <body>.",
+      confidence: 0.85,
+      isLocked: issues.length > 0,
+    });
+  }
+
+  if (data.cyberShield && data.cyberShield.hiddenIframesCount > 0) {
+    issues.push({
+      id: "cyber-hidden-iframe",
+      pillar: "CYBER",
+      category: "cyber",
+      severity: "HIGH",
+      ruleId: "CYBER-IFRAME-001",
+      title: "Hidden Invisible Iframes Detected",
+      description: `Discovered ${data.cyberShield.hiddenIframesCount} invisible iframe(s) styled with display:none or 0px dimensions.`,
+      impact: "Commonly used for clickjacking or silent background affiliate cookie stuffing.",
+      evidence: `Hidden iframes: ${data.cyberShield.hiddenIframesCount}`,
+      recommendation: "Audit iframe sources and remove stealth frames.",
+      fixSnippet: "Remove hidden 0x0 iframes from template files.",
+      confidence: 0.9,
+      isLocked: issues.length > 0,
+    });
+  }
+
+  // E-COMMERCE ISSUES
+  if (data.ecommerce && data.ecommerce.checkoutStatus === "CRITICAL_LEAK") {
+    issues.push({
+      id: "ecommerce-cart-death",
+      pillar: "ECOMMERCE",
+      category: "ecommerce",
+      severity: "CRITICAL",
+      ruleId: "ECOM-CART-001",
+      title: "CRITICAL: E-Commerce 'Cart Death' Detected",
+      description: data.ecommerce.issue || "Checkout flow is broken. Add to Cart / Checkout buttons lead to dead links (#).",
+      impact: "100% direct revenue loss. High-intent buyers are unable to complete purchases on your store.",
+      evidence: "Buy buttons linked to href='#'",
+      technical: "Cart button elements lack functional checkout destination.",
+      recommendation: "Route buy buttons directly to /cart or Shopify permalink checkout.",
+      fixSnippet: data.ecommerce.suggestedFix || "Route buy buttons directly to /cart or Shopify permalink checkout.",
+      confidence: 0.99,
+      isLocked: issues.length > 0,
+    });
   }
 
   return issues;
@@ -840,46 +1062,131 @@ function buildAuditPayload(
   fetchTimeMs = 320,
   parseTimeMs = 35
 ): any {
-  // Compute score
-  let score = 100;
-  let estimatedMonthlyLoss = 0;
-
-  for (const issue of issues) {
-    if (issue.severity === "CRITICAL") {
-      score -= 30;
-      estimatedMonthlyLoss += 18000;
-    } else if (issue.severity === "HIGH") {
-      score -= 20;
-      estimatedMonthlyLoss += 12000;
-    } else {
-      score -= 5;
-      estimatedMonthlyLoss += 1500;
-    }
+  // 1. Compute Individual Pillar Scores
+  // Lead Guardian (35% Weight)
+  let leadPenalties = 0;
+  const leadIssues = issues.filter(i => i.pillar === "LEAD" || i.category === "whatsapp" || i.category === "phone" || i.category === "reviews");
+  for (const i of leadIssues) {
+    if (i.severity === "CRITICAL") leadPenalties += 35;
+    else if (i.severity === "HIGH") leadPenalties += 20;
+    else if (i.severity === "MEDIUM") leadPenalties += 10;
+    else leadPenalties += 2;
   }
+  const leadScore = Math.max(15, Math.min(100 - leadPenalties, 100));
+
+  // AdShield (20% Weight)
+  let adPenalties = 0;
+  const adIssues = issues.filter(i => i.pillar === "AD" || i.category === "pixel");
+  for (const i of adIssues) {
+    if (i.severity === "CRITICAL") adPenalties += 40;
+    else if (i.severity === "HIGH") adPenalties += 25;
+    else adPenalties += 15;
+  }
+  const adScore = Math.max(20, Math.min(100 - adPenalties, 100));
+
+  // SEO Shield (20% Weight)
+  let seoPenalties = 0;
+  const seoIssues = issues.filter(i => i.pillar === "SEO" || i.category === "seo");
+  for (const i of seoIssues) {
+    if (i.severity === "CRITICAL") seoPenalties += 50;
+    else if (i.severity === "HIGH") seoPenalties += 25;
+    else seoPenalties += 10;
+  }
+  const seoScore = Math.max(15, Math.min(100 - seoPenalties, 100));
+
+  // Cyber & Hack Shield (25% Weight)
+  const cyberScore = data.cyberShield?.score || 100;
+
+  // Overall Score (Weighted 4 Pillars)
+  // Overall = Lead(0.35) + Ad(0.20) + SEO(0.20) + Cyber(0.25)
+  let overallScore = Math.round(
+    leadScore * 0.35 +
+    adScore * 0.20 +
+    seoScore * 0.20 +
+    cyberScore * 0.25
+  );
 
   if (issues.length === 0) {
-    score = 98;
-    estimatedMonthlyLoss = 0;
+    overallScore = 98;
   } else {
-    score = Math.max(15, Math.min(score, 98));
+    overallScore = Math.max(15, Math.min(overallScore, 98));
+  }
+
+  // Estimated Monthly Exposure (Scenario modeling)
+  let estimatedMonthlyLoss = 0;
+  for (const issue of issues) {
+    if (issue.severity === "CRITICAL") estimatedMonthlyLoss += 18000;
+    else if (issue.severity === "HIGH") estimatedMonthlyLoss += 12000;
+    else if (issue.severity === "MEDIUM") estimatedMonthlyLoss += 1500;
   }
 
   let adSpendRisk: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" = "LOW";
-  if (score < 40) adSpendRisk = "CRITICAL";
-  else if (score < 65) adSpendRisk = "HIGH";
-  else if (score < 85) adSpendRisk = "MEDIUM";
+  if (overallScore < 45) adSpendRisk = "CRITICAL";
+  else if (overallScore < 70) adSpendRisk = "HIGH";
+  else if (overallScore < 85) adSpendRisk = "MEDIUM";
 
   const freeIssue = issues.length > 0 ? issues[0] : undefined;
   const lockedCount = Math.max(0, issues.length - 1);
+  const scanId = `scan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-  return {
-    scanId: `scan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+  const auditPayload = {
+    scanId,
+    publicToken: scanId,
     targetUrl,
     domain,
     businessName: data.businessName || domain.replace(/\.[a-z]+$/, "").toUpperCase(),
-    score,
+    score: overallScore,
     estimatedMonthlyLoss,
     adSpendRisk,
+    
+    // Four Pillars Breakdown
+    pillars: {
+      lead: {
+        pillar: "LEAD",
+        title: "Lead Guardian",
+        score: leadScore,
+        weight: 0.35,
+        criticalCount: leadIssues.filter(i => i.severity === "CRITICAL").length,
+        warningCount: leadIssues.filter(i => i.severity === "HIGH" || i.severity === "MEDIUM").length,
+        validCount: (data.whatsappLinks?.filter((w: any) => w.isValid).length || 0) + (data.phoneLinks?.filter((p: any) => p.isValid).length || 0),
+        diagnosis: leadScore >= 80 ? "WhatsApp, phone, and contact routing active." : "Contact channels need attention.",
+        statusText: leadScore >= 80 ? "Healthy" : leadScore >= 50 ? "Moderate Leaks" : "Critical Leaks",
+      },
+      ad: {
+        pillar: "AD",
+        title: "AdShield",
+        score: adScore,
+        weight: 0.20,
+        criticalCount: adIssues.filter(i => i.severity === "CRITICAL").length,
+        warningCount: adIssues.filter(i => i.severity === "HIGH" || i.severity === "MEDIUM").length,
+        validCount: (data.metaPixel?.exists ? 1 : 0) + (data.googleTag?.exists ? 1 : 0),
+        diagnosis: adScore >= 80 ? "Meta Pixel & Google Tag tracking active." : "Tracking tags missing or unverified.",
+        statusText: adScore >= 80 ? "Optimized" : "Untracked Ad Spend",
+      },
+      seo: {
+        pillar: "SEO",
+        title: "SEO & Penalty Shield",
+        score: seoScore,
+        weight: 0.20,
+        criticalCount: seoIssues.filter(i => i.severity === "CRITICAL").length,
+        warningCount: seoIssues.filter(i => i.severity === "HIGH" || i.severity === "MEDIUM").length,
+        validCount: (data.seoPenalty?.hasNoIndex ? 0 : 1) + (data.seoPenalty?.isHttps ? 1 : 0),
+        diagnosis: seoScore >= 80 ? "Indexable by Google Search with HTTPS." : "Search indexing or SSL security risk.",
+        statusText: seoScore >= 80 ? "Indexable" : "De-indexation Risk",
+      },
+      cyber: {
+        pillar: "CYBER",
+        title: "Cyber & Hack Shield",
+        score: cyberScore,
+        weight: 0.25,
+        criticalCount: issues.filter(i => i.pillar === "CYBER" && i.severity === "CRITICAL").length,
+        warningCount: issues.filter(i => i.pillar === "CYBER" && (i.severity === "HIGH" || i.severity === "MEDIUM")).length,
+        validCount: 1,
+        diagnosis: data.cyberShield?.diagnosis || "No security anomalies detected.",
+        statusText: cyberScore >= 85 ? "Clean" : cyberScore >= 50 ? "Warning" : "High Risk",
+      },
+    },
+
     whatsappLinks: data.whatsappLinks || [],
     phoneLinks: data.phoneLinks || [],
     emailLinks: data.emailLinks || [],
@@ -888,7 +1195,9 @@ function buildAuditPayload(
     metaPixel: data.metaPixel || { exists: false, status: "MISSING" },
     googleTag: data.googleTag || { exists: false, status: "MISSING" },
     seoPenalty: data.seoPenalty || { hasNoIndex: false, status: "HEALTHY", isHttps: true },
+    cyberShield: data.cyberShield || { score: 100, riskLevel: "CLEAN", diagnosis: "Clean security signature." },
     ecommerce: data.ecommerce,
+    
     allIssues: issues,
     lockedIssuesCount: lockedCount,
     freeIssue,
@@ -898,11 +1207,16 @@ function buildAuditPayload(
       totalTimeMs: Date.now() - startTime,
     },
     scannedAt: new Date().toISOString(),
-    aiDiagnosticAdvice: data.diagnosticSummary || "Audit successfully completed with full channel verification.",
+    aiDiagnosticAdvice: data.diagnosticSummary || "Audit successfully completed across all 4 forensic pillars.",
   };
+
+  scanReportsStore.set(scanId, auditPayload);
+  return auditPayload;
 }
 
-// Resilient Gemini AI Execution Helper with automatic model fallback & retry
+// ---------------------------------------------------------------------------
+// 5. Gemini AI Diagnostic Enhancer with Fallback & Retry
+// ---------------------------------------------------------------------------
 async function generateGeminiContentWithFallback(
   prompt: string,
   responseMimeType?: string
@@ -948,31 +1262,29 @@ async function generateGeminiContentWithFallback(
   return null;
 }
 
-// Deterministic fallback generator for AI diagnostic summary
 function generateFallbackDiagnosticSummary(domain: string, score: number, issues: any[]): string {
   if (issues.length === 0) {
-    return `Lead channels for ${domain} are completely verified and working smoothly with healthy attribution pixels.`;
+    return `Lead channels and security signatures for ${domain} are completely verified and working smoothly across all 4 pillars.`;
   }
 
-  const criticalIssues = issues.filter((i) => i.severity === "CRITICAL");
   const brokenWaIssue = issues.find((i) => i.category === "whatsapp" && i.severity === "CRITICAL");
-  const optWaIssue = issues.find((i) => i.category === "whatsapp" && i.severity === "LOW");
   const pixelIssue = issues.find((i) => i.category === "pixel");
   const seoIssue = issues.find((i) => i.category === "seo");
+  const cyberIssue = issues.find((i) => i.pillar === "CYBER");
 
   let summaryParts: string[] = [];
 
   if (brokenWaIssue) {
     summaryParts.push("WhatsApp contact button par invalid routing error (+9191 ya invalid format) hai jisse chat open nahi ho rahi.");
-  } else if (optWaIssue) {
-    summaryParts.push("WhatsApp link active hai aur chat open ho rahi hai (pre-filled message add karke conversion badhaya ja sakta hai).");
   }
-
   if (pixelIssue) {
     summaryParts.push("Meta Pixel absent hone se Facebook/Instagram ads ka attribution data track nahi ho raha.");
   }
   if (seoIssue) {
     summaryParts.push("Robots noindex tag Google search ranking ko block kar raha hai.");
+  }
+  if (cyberIssue) {
+    summaryParts.push("Website source code me suspicious spam/injection signal detect hua hai.");
   }
 
   if (summaryParts.length === 0) {
@@ -982,111 +1294,28 @@ function generateFallbackDiagnosticSummary(domain: string, score: number, issues
   return `${summaryParts.join(" ")} Funnel Score: ${score}/100.`;
 }
 
-// Deterministic fallback generator for WhatsApp prefilled messages
-function generateFallbackWhatsAppMessages(businessName: string, category: string, language: string): string[] {
-  const name = businessName || "Team";
-  const cat = category?.toLowerCase() || "";
+// ---------------------------------------------------------------------------
+// 6. REST API Endpoints
+// ---------------------------------------------------------------------------
 
-  if (cat.includes("dental") || cat.includes("clinic") || cat.includes("doctor")) {
-    if (language === "hinglish") {
-      return [
-        `Namaste ${name}! Mujhe consultation slot book karna hai. Kya is week appointments available hain?`,
-        `Hi Dr., I saw your clinic website and want to check pricing and availability for consultation.`,
-        `Namaste! Emergency appointment slots aur clinic address share kar dijiye please.`,
-      ];
-    } else if (language === "hindi") {
-      return [
-        `नमस्ते ${name}! मुझे अपॉइंटमेंट बुक करना है। कृपया उपलब्ध समय बताएं।`,
-        `नमस्ते! क्या आज डॉक्टर से परामर्श मिल सकता है?`,
-        `नमस्ते! कृपया क्लिनिक का समय और शुल्क विवरण साझा करें।`,
-      ];
-    } else {
-      return [
-        `Hi ${name}, I would like to book a consultation appointment this week. Please share available slots!`,
-        `Hello Dr., I saw your website and want to inquire about treatment options and pricing.`,
-        `Hi, please share your clinic location and consultation timing.`,
-      ];
-    }
-  }
-
-  if (cat.includes("salon") || cat.includes("spa")) {
-    return [
-      `Namaste ${name}! Mujhe service pricing aur appointment slots dekhne the. Please catalogue share kijiye.`,
-      `Hi! Do you have slots available for haircut & grooming this weekend?`,
-      `Namaste, current offers aur bridal/groom packages ki details mil sakti hai kya?`,
-    ];
-  }
-
-  if (cat.includes("real") || cat.includes("estate") || cat.includes("property")) {
-    return [
-      `Hi ${name}, I am interested in your property project. Please share floor plans, pricing, and brochure.`,
-      `Namaste! Site visit schedule karni hai is weekend. Please contact person details share karein.`,
-      `Hi, please share latest price list and payment plans for available units.`,
-    ];
-  }
-
-  // Generic High-Converting templates
-  if (language === "hinglish") {
-    return [
-      `Hi ${name}, I saw your website and want to check availability and pricing today!`,
-      `Namaste! Pricing aur service packages ki details mil sakti hai kya? Ready to book.`,
-      `Hi, do you offer free consultation? Please share details and portfolio.`,
-    ];
-  } else {
-    return [
-      `Hi ${name}, I saw your website and would like to get a pricing quote and availability.`,
-      `Hello! Please share your complete service catalogue and booking process.`,
-      `Hi, I have a quick inquiry about your services. Can we connect today?`,
-    ];
-  }
-}
-
-// Deterministic fallback generator for Cold Outreach Pitch
-function generateFallbackPitch(
-  clientName: string,
-  businessName: string,
-  auditSummary: string,
-  tone: string,
-  language: string
-): string {
-  const cName = clientName || "Founder";
-  const bName = businessName || "your business";
-  const issues = auditSummary || "Broken WhatsApp link (+9191) & Missing Meta Pixel tracking";
-
-  if (language === "hinglish") {
-    return `Namaste ${cName} ji,\n\nI was visiting ${bName}'s website today and noticed a critical technical leak affecting your customer inquiries.\n\nIssue detected: ${issues}.\n\nWhenever a potential customer taps your WhatsApp/Call contact button from mobile, the link fails to launch directly into chat, leading to an immediate bounce and wasted ad spend (estimated loss: ₹15,000–₹25,000/month).\n\nI run an emergency website audit & rapid-fix service for Indian businesses. We can patch and verify this link in under 15 minutes today so you never lose high-intent clients again.\n\nWould you like me to send over the 1-click fix snippet for your developer, or should our team deploy it directly?\n\nBest regards,\nLeadGuard Tech Specialist`;
-  }
-
-  return `Dear ${cName},\n\nWhile reviewing ${bName}'s online presence, our automated diagnostic audit flagged a critical lead conversion issue on your mobile landing page:\n\n• Detected Vulnerability: ${issues}\n• Commercial Impact: Prospective customers attempting to contact you via mobile buttons experience dropped sessions, directly inflating your customer acquisition cost.\n\nOur team specializes in zero-downtime lead recovery for SMBs. We can deploy a permanent fix and verify cross-device routing in under 15 minutes.\n\nWould you be open to a quick 2-minute walkthrough or receiving the direct fix code today?\n\nSincerely,\nLeadGuard Revenue Recovery Team`;
-}
-
-// Live Global Scan Statistics Store
-const globalScanStats = {
-  totalScannedSites: 14820,
-  problemsFound: 38490,
-  healthySites: 2940,
-  fixedByLeadGuard: 11260,
-  lastUpdated: new Date().toISOString(),
-};
+// Health check
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString(), aiReady: !!ai });
+});
 
 // Scan Statistics API
 app.get("/api/scan-stats", (req, res) => {
   res.json(globalScanStats);
 });
 
-// Increment Fix Counter API (when users apply a 1-click fix or download express snippet)
+// Increment Fix Counter API
 app.post("/api/scan-stats/increment-fix", (req, res) => {
   globalScanStats.fixedByLeadGuard += 1;
   globalScanStats.lastUpdated = new Date().toISOString();
   res.json({ success: true, fixedByLeadGuard: globalScanStats.fixedByLeadGuard });
 });
 
-// Health Check
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString(), aiReady: !!ai });
-});
-
-// Scan Website API
+// POST /api/scan - Primary 4-Pillar Website Scan
 app.post("/api/scan", async (req, res) => {
   try {
     const { url } = req.body;
@@ -1110,15 +1339,14 @@ app.post("/api/scan", async (req, res) => {
     }
     globalScanStats.lastUpdated = new Date().toISOString();
 
-
-    // Optional Gemini AI diagnostic enhancement with fallback
+    // AI diagnostic advice enhancement
     if (auditResult.allIssues.length > 0) {
-      const prompt = `You are LeadGuard AI, an elite revenue leakage auditor for Indian local businesses.
+      const prompt = `You are LeadGuard AI, an elite website revenue & conversion auditor for Indian businesses.
 Target Domain: ${auditResult.domain}
-Score: ${auditResult.score}/100
+Score: ${auditResult.score}/100 (Lead: ${auditResult.pillars.lead.score}, Ads: ${auditResult.pillars.ad.score}, SEO: ${auditResult.pillars.seo.score}, Cyber: ${auditResult.pillars.cyber.score})
 Issues found: ${auditResult.allIssues.map((i: any) => `${i.title} (${i.severity}): ${i.description}`).join("; ")}
 
-Provide a sharp, 2-sentence executive summary in Hinglish (Hindi + English) explaining the exact financial loss and urgent fix priority. Keep it punchy, respectful, and high-urgency.`;
+Provide a sharp, 2-sentence executive summary in Hinglish (Hindi + English) explaining the exact financial loss and urgent fix priority. Keep it punchy, respectful, and authoritative.`;
 
       const aiText = await generateGeminiContentWithFallback(prompt);
       if (aiText) {
@@ -1139,52 +1367,31 @@ Provide a sharp, 2-sentence executive summary in Hinglish (Hindi + English) expl
   }
 });
 
-// Head-to-Head Real Competitor Comparison API
-app.post("/api/competitor-compare", async (req, res) => {
-  try {
-    const { myUrl, competitorUrl } = req.body;
-    if (!myUrl || !competitorUrl) {
-      return res.status(400).json({ error: "Both your website and competitor website are required." });
-    }
-
-    const valMy = isValidWebUrl(myUrl);
-    const valComp = isValidWebUrl(competitorUrl);
-
-    if (!valMy.valid || !valMy.normalized) {
-      return res.status(400).json({ error: `Your website URL is invalid: ${valMy.error || ""}` });
-    }
-    if (!valComp.valid || !valComp.normalized) {
-      return res.status(400).json({ error: `Competitor website URL is invalid: ${valComp.error || ""}` });
-    }
-
-    const [myScanSettled, compScanSettled] = await Promise.allSettled([
-      scanWebsite(valMy.normalized),
-      scanWebsite(valComp.normalized),
-    ]);
-
-    const myScan = myScanSettled.status === "fulfilled" ? myScanSettled.value : null;
-    const compScan = compScanSettled.status === "fulfilled" ? compScanSettled.value : null;
-
-    const myError = myScanSettled.status === "rejected" ? myScanSettled.reason?.message : null;
-    const compError = compScanSettled.status === "rejected" ? compScanSettled.reason?.message : null;
-
-    res.json({
-      success: true,
-      myAudit: myScan,
-      competitorAudit: compScan,
-      myError,
-      competitorError: compError,
-      comparedAt: new Date().toISOString(),
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message || "Failed to execute competitor comparison." });
+// GET /api/scan/:id - Retrieve cached scan report
+app.get("/api/scan/:id", (req, res) => {
+  const { id } = req.params;
+  const report = scanReportsStore.get(id);
+  if (!report) {
+    return res.status(404).json({ error: "Audit report not found or session expired." });
   }
+  res.json(report);
 });
 
-// 24-Hour Watchdog Trial Registration API
+// GET /api/scan/:id/export - JSON export for developers & agencies
+app.get("/api/scan/:id/export", (req, res) => {
+  const { id } = req.params;
+  const report = scanReportsStore.get(id);
+  if (!report) {
+    return res.status(404).json({ error: "Audit report not found." });
+  }
+  res.setHeader("Content-Disposition", `attachment; filename="leadguard-audit-${report.domain}.json"`);
+  res.json(report);
+});
+
+// POST /api/watchdog/subscribe - 24/7 Monitoring registration
 app.post("/api/watchdog/subscribe", (req, res) => {
   try {
-    const { targetUrl, contact, channel } = req.body;
+    const { targetUrl, contact, channel, frequency = "DAILY" } = req.body;
     if (!targetUrl || !contact) {
       return res.status(400).json({ error: "Website URL and Telegram/WhatsApp contact are required." });
     }
@@ -1194,6 +1401,7 @@ app.post("/api/watchdog/subscribe", (req, res) => {
       targetUrl,
       contact,
       channel: channel || "TELEGRAM",
+      frequency,
       createdAt: new Date().toISOString(),
       trialExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       status: "ACTIVE_TRIAL",
@@ -1201,19 +1409,18 @@ app.post("/api/watchdog/subscribe", (req, res) => {
 
     watchdogLeads.unshift(lead);
 
-    // Record initial live watchdog probe
     const cleanDomain = targetUrl.replace(/^https?:\/\//i, '').split('/')[0];
     liveWatchdogChecks.unshift({
       id: `chk_${Date.now()}`,
       domain: cleanDomain,
-      check: "Conversion & Dialer Probe",
+      check: "4-Pillar Watchdog Probe",
       status: "PASS (Active Monitoring)",
       timestamp: new Date().toISOString(),
     });
 
     res.json({
       success: true,
-      message: `24-Hour Watchdog Radar successfully activated for ${targetUrl}! You will receive instant alerts if your WhatsApp, Call, or Pixel links drop.`,
+      message: `24/7 Watchdog Radar successfully activated for ${targetUrl}! You will receive instant alerts if WhatsApp, Call, or Pixel links drop.`,
       lead,
     });
   } catch (error: any) {
@@ -1221,90 +1428,16 @@ app.post("/api/watchdog/subscribe", (req, res) => {
   }
 });
 
-// AI High-Converting WhatsApp Message Generator
-app.post("/api/ai/optimize-message", async (req, res) => {
-  try {
-    const { businessCategory, businessName, language = "hinglish" } = req.body;
-
-    const prompt = `You are a high-conversion copywriter for local Indian businesses.
-Business Name: ${businessName || "Local Business"}
-Category: ${businessCategory || "Clinic / Salon / Real Estate"}
-Language Mode: ${language}
-
-Generate exactly 3 short, natural, high-converting WhatsApp prefilled messages that a potential customer would tap on a website button to start a chat immediately. Return ONLY a JSON array of 3 strings.`;
-
-    const aiText = await generateGeminiContentWithFallback(prompt, "application/json");
-    let templates: string[] = [];
-
-    if (aiText) {
-      try {
-        templates = JSON.parse(aiText);
-        if (!Array.isArray(templates) || templates.length === 0) {
-          templates = generateFallbackWhatsAppMessages(businessName, businessCategory, language);
-        }
-      } catch {
-        templates = generateFallbackWhatsAppMessages(businessName, businessCategory, language);
-      }
-    } else {
-      templates = generateFallbackWhatsAppMessages(businessName, businessCategory, language);
-    }
-
-    res.json({ templates });
-  } catch (error: any) {
-    console.error("AI message generation error:", error);
-    const fallbackTemplates = generateFallbackWhatsAppMessages(
-      req.body.businessName,
-      req.body.businessCategory,
-      req.body.language || "hinglish"
-    );
-    res.json({ templates: fallbackTemplates });
-  }
+// GET /api/watchdog/list - List active monitors
+app.get("/api/watchdog/list", (req, res) => {
+  res.json({
+    activeMonitors: watchdogLeads,
+    totalCount: watchdogLeads.length,
+    recentChecks: liveWatchdogChecks,
+  });
 });
 
-// AI Agency Cold-Pitch Generator
-app.post("/api/ai/pitch-generator", async (req, res) => {
-  try {
-    const { clientName, businessName, auditSummary, language = "hinglish", tone = "direct_urgent" } = req.body;
-
-    const prompt = `You are an expert sales consultant for web agencies in India.
-Write a personalized cold email / WhatsApp outreach message to a business owner.
-Client Name: ${clientName || "Business Owner"}
-Business Name: ${businessName || "Business"}
-Audit Issues: ${auditSummary || "Broken WhatsApp link (+9191) & Missing Meta Pixel"}
-Tone: ${tone}
-Language: ${language}
-
-The pitch must:
-1. Be polite, direct, and authoritative (never spammy).
-2. Point out the exact financial leak discovered on their website with empathy.
-3. Offer a fast 15-minute fix or full audit report.
-4. Include a clean call-to-action.`;
-
-    const aiText = await generateGeminiContentWithFallback(prompt);
-    let pitch = aiText;
-
-    if (!pitch) {
-      pitch = generateFallbackPitch(clientName, businessName, auditSummary, tone, language);
-    }
-
-    res.json({ pitch });
-  } catch (error: any) {
-    console.error("AI pitch generation error:", error);
-    const fallback = generateFallbackPitch(
-      req.body.clientName,
-      req.body.businessName,
-      req.body.auditSummary,
-      req.body.tone,
-      req.body.language || "hinglish"
-    );
-    res.json({ pitch: fallback });
-  }
-});
-
-// Global in-memory report store for shareable report URLs (/report/:scanId)
-const scanReportsStore = new Map<string, any>();
-
-// Multi-Competitor Sabotage Radar API (Scans own URL + up to 3 competitors)
+// POST /api/competitor-sabotage - Multi-Competitor Sabotage Radar
 app.post("/api/competitor-sabotage", async (req, res) => {
   try {
     const { myUrl, competitorUrls } = req.body;
@@ -1333,9 +1466,6 @@ app.post("/api/competitor-sabotage", async (req, res) => {
     ]);
 
     const myAudit = myScanResult.status === "fulfilled" ? myScanResult.value : null;
-    if (myAudit) {
-      scanReportsStore.set(myAudit.scanId, myAudit);
-    }
 
     const competitorSabotages = validCompetitorUrls.map((url: string, index: number) => {
       const settled = compScanResults[index];
@@ -1360,12 +1490,9 @@ app.post("/api/competitor-sabotage", async (req, res) => {
         };
       }
 
-      scanReportsStore.set(compAudit.scanId, compAudit);
-
       const opportunities: any[] = [];
       let sabotageScore = 0;
 
-      // Check 1: Missing Meta Pixel
       if (!compAudit.metaPixel?.exists) {
         sabotageScore += 35;
         opportunities.push({
@@ -1377,7 +1504,6 @@ app.post("/api/competitor-sabotage", async (req, res) => {
         });
       }
 
-      // Check 2: Broken or Missing WhatsApp Link
       const hasBrokenWa = compAudit.whatsappLinks.some((w: any) => !w.isValid);
       const hasNoWa = compAudit.whatsappLinks.length === 0;
       if (hasBrokenWa) {
@@ -1400,20 +1526,6 @@ app.post("/api/competitor-sabotage", async (req, res) => {
         });
       }
 
-      // Check 3: WhatsApp Zero-Intent Leakage
-      const hasZeroIntent = compAudit.whatsappLinks.some((w: any) => w.zeroIntentLeak && w.isValid);
-      if (hasZeroIntent) {
-        sabotageScore += 15;
-        opportunities.push({
-          type: "ZERO_INTENT",
-          title: "Competitor WhatsApp Opens Blank Chat (Zero Intent)",
-          cta: "Use LeadGuard pre-filled intent messages to convert 40% higher than their blank chat.",
-          impact: "40% of their mobile leads drop off without typing anything.",
-          severity: "MEDIUM",
-        });
-      }
-
-      // Check 4: SEO NoIndex
       if (compAudit.seoPenalty?.hasNoIndex) {
         sabotageScore += 40;
         opportunities.push({
@@ -1421,18 +1533,6 @@ app.post("/api/competitor-sabotage", async (req, res) => {
           title: "Competitor has Active 'noindex' SEO Penalty!",
           cta: "Target their top organic keywords — their entire site is invisible to Google Search!",
           impact: "They receive zero organic traffic from Google Search.",
-          severity: "CRITICAL",
-        });
-      }
-
-      // Check 5: E-commerce Cart Death
-      if (compAudit.ecommerce?.checkoutStatus === "CRITICAL_LEAK") {
-        sabotageScore += 45;
-        opportunities.push({
-          type: "BROKEN_DIALER",
-          title: "Competitor Store Checkout Flow is Broken!",
-          cta: "Run promotion ads targeting their customer demographic today!",
-          impact: "Direct store checkout failure.",
           severity: "CRITICAL",
         });
       }
@@ -1462,22 +1562,11 @@ app.post("/api/competitor-sabotage", async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
-    console.error("Competitor sabotage scan error:", error);
     res.status(500).json({ error: error.message || "Failed to execute competitor sabotage scan." });
   }
 });
 
-// Shareable Report Retriever API (/api/report/:scanId)
-app.get("/api/report/:scanId", (req, res) => {
-  const { scanId } = req.params;
-  const report = scanReportsStore.get(scanId);
-  if (!report) {
-    return res.status(404).json({ error: "Audit report not found or session expired." });
-  }
-  res.json(report);
-});
-
-// Enhanced Batch Website Scanner & Hunter Mode Outbound Machine (Up to 500 URLs)
+// POST /api/scan-batch - Batch Website Scanner & Hunter Machine
 app.post("/api/scan-batch", async (req, res) => {
   try {
     const { urls } = req.body;
@@ -1514,8 +1603,6 @@ app.post("/api/scan-batch", async (req, res) => {
 
         try {
           const audit = await scanWebsite(validation.normalized);
-          scanReportsStore.set(audit.scanId, audit);
-
           const primaryIssue = audit.allIssues.length > 0 ? audit.allIssues[0].title : "No critical leaks detected";
           const shareableReportUrl = `${req.protocol}://${req.get('host')}/report/${audit.scanId}`;
 
@@ -1589,84 +1676,32 @@ app.post("/api/scan-batch", async (req, res) => {
   }
 });
 
-// Live Link Validator & Deep Debugger API
-app.post("/api/test-link", (req, res) => {
+// POST /api/ai/pitch-generator
+app.post("/api/ai/pitch-generator", async (req, res) => {
   try {
-    const { linkType, rawValue } = req.body;
-    if (!rawValue) {
-      return res.status(400).json({ error: "Link value is required." });
-    }
+    const { clientName = "Founder", businessName = "your business", auditSummary = "Broken WhatsApp routing & missing Meta Pixel", tone = "direct_urgent", language = "hinglish" } = req.body;
 
-    const value = rawValue.trim();
-    let analysis: any = {
-      raw: value,
-      type: linkType || "WHATSAPP",
-      isValid: true,
-      warnings: [],
-      errors: [],
-      fixedUrl: "",
-      normalizedPhone: "",
-      encodedText: "",
-    };
+    const prompt = `You are a high-conversion sales strategist for digital agencies in India.
+Client: ${clientName}
+Business: ${businessName}
+Issues: ${auditSummary}
+Tone: ${tone}
+Language: ${language}
 
-    if (linkType === "WHATSAPP") {
-      const digitsMatch = value.match(/\d+/g);
-      const digits = digitsMatch ? digitsMatch.join("") : "";
-      analysis.normalizedPhone = digits;
+Draft a personalized cold WhatsApp outreach pitch pointing out the exact conversion loss with a friendly 15-minute fix offer.`;
 
-      // Extract prefilled text if any
-      const textMatch = value.match(/[?&]text=([^&]+)/i);
-      if (textMatch) {
-        analysis.encodedText = decodeURIComponent(textMatch[1]);
-      }
+    const aiText = await generateGeminiContentWithFallback(prompt);
+    const fallbackPitch = `Namaste ${clientName} ji,\n\nI was visiting ${businessName}'s website today and noticed a critical technical leak affecting your customer inquiries.\n\nIssue detected: ${auditSummary}.\n\nWhenever a potential customer taps your WhatsApp/Call contact button from mobile, the link fails to launch directly into chat, leading to an immediate bounce and wasted ad spend (estimated loss: ₹15,000–₹25,000/month).\n\nWe run an emergency website audit & rapid-fix service for Indian businesses. We can patch and verify this link in under 15 minutes today so you never lose high-intent clients again.\n\nWould you like me to send over the 1-click fix snippet for your developer, or should our team deploy it directly?\n\nBest regards,\nLeadGuard Tech Specialist`;
 
-      if (!digits || digits.length < 10) {
-        analysis.isValid = false;
-        analysis.errors.push("Missing or incomplete phone digits (must be at least 10 digits).");
-        analysis.fixedUrl = `https://wa.me/919876543210`;
-      } else if (digits.startsWith("9191") && digits.length >= 12) {
-        analysis.isValid = false;
-        analysis.errors.push("Fatal Double Country Code (+9191). Mobile devices will show 'Invalid phone number'.");
-        const fixed = digits.substring(2);
-        analysis.fixedUrl = `https://wa.me/${fixed}${analysis.encodedText ? `?text=${encodeURIComponent(analysis.encodedText)}` : ""}`;
-      } else if (digits.startsWith("0") && digits.length === 11) {
-        analysis.isValid = false;
-        analysis.errors.push("Leading zero prefix (0XXXXXXXXXX). Fails on iOS Safari.");
-        const fixed = "91" + digits.substring(1);
-        analysis.fixedUrl = `https://wa.me/${fixed}${analysis.encodedText ? `?text=${encodeURIComponent(analysis.encodedText)}` : ""}`;
-      } else if (digits.length === 10 && /^[6-9]/.test(digits)) {
-        analysis.warnings.push("Missing international prefix (+91). May fail on unconfigured or international visitors.");
-        analysis.fixedUrl = `https://wa.me/91${digits}${analysis.encodedText ? `?text=${encodeURIComponent(analysis.encodedText)}` : ""}`;
-      } else {
-        analysis.fixedUrl = `https://wa.me/${digits}${analysis.encodedText ? `?text=${encodeURIComponent(analysis.encodedText)}` : ""}`;
-      }
-    } else if (linkType === "TEL") {
-      const digits = value.replace(/\D/g, "");
-      if (digits.length < 10) {
-        analysis.isValid = false;
-        analysis.errors.push(`Incomplete telephone number length (${digits.length} digits). Telecom networks will drop the call.`);
-        analysis.fixedUrl = `tel:+919876543210`;
-      } else {
-        analysis.fixedUrl = `tel:+91${digits.slice(-10)}`;
-      }
-    }
-
-    res.json({ analysis });
+    res.json({ pitch: aiText || fallbackPitch });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || "Failed to test link." });
+    res.status(500).json({ error: error.message || "Failed to generate pitch." });
   }
 });
 
-// Watchdog Active Monitors List API
-app.get("/api/watchdog/list", (req, res) => {
-  res.json({
-    activeMonitors: watchdogLeads,
-    totalCount: watchdogLeads.length,
-    recentChecks: liveWatchdogChecks,
-  });
-});
-
-// Vite middleware & Static serving
+// ---------------------------------------------------------------------------
+// 7. Vite Middleware & Production Server Start
+// ---------------------------------------------------------------------------
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -1683,7 +1718,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`LeadGuard OS server active on http://0.0.0.0:${PORT}`);
+    console.log(`LeadGuard OS 4-Pillar Diagnostic Server active on http://0.0.0.0:${PORT}`);
   });
 }
 

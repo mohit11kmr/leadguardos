@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Navbar, AppTab } from './components/Navbar';
 import { HeroScanner } from './components/HeroScanner';
 import { ScoreDashboard } from './components/ScoreDashboard';
+import { FourPillarsOverview } from './components/FourPillarsOverview';
+import { FindingsDetailTabs } from './components/FindingsDetailTabs';
+import { RevenueScenarioCalculator } from './components/RevenueScenarioCalculator';
+import { ShareableReportModal } from './components/ShareableReportModal';
 import { ChannelMatrix } from './components/ChannelMatrix';
 import { FreeFixAndLockedPaywall } from './components/FreeFixAndLockedPaywall';
 import { FunnelLeakSimulator } from './components/FunnelLeakSimulator';
@@ -19,7 +23,7 @@ import { CartDeathMonitor } from './components/CartDeathMonitor';
 import { HunterMode } from './components/HunterMode';
 import { ScanCounterStats } from './components/ScanCounterStats';
 import { LiveScanningRadar } from './components/LiveScanningRadar';
-import { AuditResult, GlobalScanStats } from './types';
+import { AuditResult, GlobalScanStats, PillarType } from './types';
 import { Shield, AlertCircle, Sparkles, CheckCircle2, ArrowRight, Search, ShieldCheck, Zap } from 'lucide-react';
 
 export default function App() {
@@ -29,6 +33,7 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeUrl, setActiveUrl] = useState('');
   const [globalStats, setGlobalStats] = useState<GlobalScanStats | null>(null);
+  const [selectedPillar, setSelectedPillar] = useState<PillarType | 'ALL'>('ALL');
 
   // Selected prospect for pitch
   const [selectedProspectPitch, setSelectedProspectPitch] = useState<{
@@ -42,6 +47,7 @@ export default function App() {
   const [isExpressFixOpen, setIsExpressFixOpen] = useState(false);
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   const fetchGlobalStats = async () => {
     try {
@@ -186,7 +192,7 @@ export default function App() {
             {auditResult && !isLoading && (
               <div className="space-y-8">
                 
-                {/* Score & Financial Impact Overview */}
+                {/* 1. Score & Financial Impact Overview */}
                 <ScoreDashboard
                   result={auditResult}
                   onOpenWatchdog={() => setIsWatchdogOpen(true)}
@@ -195,9 +201,38 @@ export default function App() {
                     setIsExpressFixOpen(true);
                   }}
                   onOpenAlerts={() => setIsAlertsOpen(true)}
+                  onOpenShareModal={() => setIsShareModalOpen(true)}
                 />
 
-                {/* Free Fix & Locked Paywall Resolution Engine */}
+                {/* 2. Four Pillars Architecture Overview */}
+                <FourPillarsOverview
+                  result={auditResult}
+                  activePillarFilter={selectedPillar}
+                  onSelectPillar={setSelectedPillar}
+                />
+
+                {/* 3. Interactive Financial Loss & Scenario Calculator */}
+                <RevenueScenarioCalculator
+                  result={auditResult}
+                  onOpenExpressFix={() => {
+                    handleIncrementFix();
+                    setIsExpressFixOpen(true);
+                  }}
+                />
+
+                {/* 4. Detailed Diagnostic Findings & 1-Click Fix Engine */}
+                <FindingsDetailTabs
+                  result={auditResult}
+                  selectedPillar={selectedPillar}
+                  onSelectPillar={setSelectedPillar}
+                  onOpenExpressFix={() => {
+                    handleIncrementFix();
+                    setIsExpressFixOpen(true);
+                  }}
+                  onOpenWatchdog={() => setIsWatchdogOpen(true)}
+                />
+
+                {/* 5. Free Fix & Locked Paywall Resolution Engine */}
                 <FreeFixAndLockedPaywall
                   result={auditResult}
                   onOpenWatchdog={() => setIsWatchdogOpen(true)}
@@ -207,7 +242,7 @@ export default function App() {
                   }}
                 />
 
-                {/* 6-Channel Verification Matrix */}
+                {/* 6. Comprehensive Verification Matrix */}
                 <ChannelMatrix result={auditResult} />
 
               </div>
@@ -334,6 +369,15 @@ export default function App() {
         onClose={() => setIsAlertsOpen(false)}
         domain={auditResult?.domain || activeUrl}
       />
+
+      {/* Shareable Public Report Modal */}
+      {auditResult && (
+        <ShareableReportModal
+          isOpen={isShareModalOpen}
+          onClose={() => setIsShareModalOpen(false)}
+          result={auditResult}
+        />
+      )}
 
     </div>
   );

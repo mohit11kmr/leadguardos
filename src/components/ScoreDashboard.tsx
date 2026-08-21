@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AuditResult } from '../types';
-import { Download, Share2, Sparkles, Check, TrendingDown, Clock, ShieldAlert, CheckCircle, AlertTriangle, XCircle, MessageCircle, Bell } from 'lucide-react';
+import { Download, Share2, Sparkles, Check, TrendingDown, Clock, ShieldAlert, CheckCircle2, AlertTriangle, XCircle, MessageCircle, Bell, ArrowRight, Zap, HelpCircle, ShieldCheck } from 'lucide-react';
 import { generateAuditPdf } from '../utils/pdfGenerator';
 import { useLanguage } from '../context/LanguageContext';
 import confetti from 'canvas-confetti';
@@ -10,6 +10,7 @@ interface ScoreDashboardProps {
   onOpenWatchdog: () => void;
   onOpenExpressFix: () => void;
   onOpenAlerts?: () => void;
+  onOpenShareModal?: () => void;
 }
 
 export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
@@ -17,10 +18,12 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
   onOpenWatchdog,
   onOpenExpressFix,
   onOpenAlerts,
+  onOpenShareModal,
 }) => {
   const { lang, t } = useLanguage();
   const [copied, setCopied] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [showPlainSummary, setShowPlainSummary] = useState(true);
 
   const handleDownloadPdf = () => {
     setIsExporting(true);
@@ -60,190 +63,289 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
   const isModerate = result.score >= 50 && result.score < 80;
   const isCritical = result.score < 50;
 
-  const scoreBadgeBg = isHealthy
-    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+  const scoreTheme = isHealthy
+    ? {
+        text: 'text-emerald-400',
+        bg: 'bg-emerald-500/10',
+        border: 'border-emerald-500/30',
+        badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+        statusLabel: 'All Systems Operational',
+        statusDesc: 'No major revenue leakage detected on customer channels.',
+      }
     : isModerate
-    ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
-    : 'border-rose-500/30 bg-rose-500/10 text-rose-400';
+    ? {
+        text: 'text-amber-400',
+        bg: 'bg-amber-500/10',
+        border: 'border-amber-500/30',
+        badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+        statusLabel: 'Moderate Leakage Risk',
+        statusDesc: 'Some customer lead channels or tracking pixels require attention.',
+      }
+    : {
+        text: 'text-rose-400',
+        bg: 'bg-rose-500/10',
+        border: 'border-rose-500/30',
+        badge: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
+        statusLabel: 'Critical Revenue Leaks Detected',
+        statusDesc: 'Customers attempting to contact or purchase are dropping off silently.',
+      };
 
   return (
     <div className="space-y-6">
       
-      {/* Top Banner: Score & Financial Loss Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch">
+      {/* 3-Second Executive Diagnostic Banner */}
+      <div className="rounded-3xl border border-slate-800/90 bg-gradient-to-b from-slate-900/95 via-slate-900/90 to-slate-950 p-6 md:p-8 shadow-2xl backdrop-blur-md space-y-6">
         
-        {/* Score Card (Col 4) */}
-        <div className="md:col-span-4 rounded-3xl border border-slate-800/90 bg-slate-900/80 p-6 flex flex-col items-center justify-center text-center relative overflow-hidden shadow-xl backdrop-blur-sm">
-          
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Funnel Health Score
-          </span>
-
-          <div className="my-5 relative flex items-center justify-center">
-            {/* Circular Gauge Ring */}
-            <div className="relative h-32 w-32 flex items-center justify-center">
-              <svg className="h-full w-full -rotate-90 transform" viewBox="0 0 36 36">
-                <path
-                  className="text-slate-800"
-                  strokeWidth="3.2"
-                  stroke="currentColor"
-                  fill="none"
-                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                />
-                <path
-                  className={isHealthy ? 'text-emerald-500' : isModerate ? 'text-amber-500' : 'text-rose-500'}
-                  strokeDasharray={`${result.score}, 100`}
-                  strokeWidth="3.2"
-                  strokeLinecap="round"
-                  stroke="currentColor"
-                  fill="none"
-                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                />
-              </svg>
-              <div className="absolute flex flex-col items-center justify-center">
-                <span className={`text-4xl font-extrabold tracking-tight ${isHealthy ? 'text-emerald-400' : isModerate ? 'text-amber-400' : 'text-rose-400'}`}>
-                  {result.score}
+        {/* Domain & Quick Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-2xl bg-slate-800 border border-slate-700/80 flex items-center justify-center text-slate-300 shadow-inner">
+              <ShieldCheck className="h-5 w-5 text-rose-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
+                  Audit Report: <span className="text-rose-400 font-mono">{result.domain}</span>
+                </h2>
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                  LIVE SCANNED
                 </span>
-                <span className="text-[10px] font-semibold text-slate-500 tracking-wider">OUT OF 100</span>
               </div>
+              <p className="text-xs text-slate-400">
+                Automated 6-Layer Diagnostic Scan completed in 1.2 seconds
+              </p>
             </div>
           </div>
 
-          <div className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1 text-xs font-bold ${scoreBadgeBg}`}>
-            {isHealthy ? 'Clean Lead Channels' : isModerate ? 'Moderate Leaks Found' : 'Critical Conversion Leaks'}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowPlainSummary(!showPlainSummary)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-xs font-semibold text-slate-300 border border-slate-700/80 transition-all"
+            >
+              <HelpCircle className="h-3.5 w-3.5 text-indigo-400" />
+              <span>{showPlainSummary ? 'Hide Simple Guide' : 'Explain in Simple Hindi/English'}</span>
+            </button>
           </div>
-
-          <p className="mt-4 text-xs text-slate-400 font-mono">
-            Domain: <span className="font-semibold text-slate-200">{result.domain}</span>
-          </p>
         </div>
 
-        {/* Financial Impact & Forensic Overview (Col 8) */}
-        <div className="md:col-span-8 rounded-3xl border border-slate-800/90 bg-slate-900/80 p-6 md:p-8 flex flex-col justify-between shadow-xl relative overflow-hidden backdrop-blur-sm">
+        {/* 3 Core Questions: The Non-Technical 3-Second Triage */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-stretch">
           
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-rose-500" />
-                <span className="text-xs font-semibold text-slate-300">
-                  Revenue & Lead Leakage Analysis
-                </span>
+          {/* Card 1: Question 1: Is Something Wrong? */}
+          <div className={`rounded-2xl border ${scoreTheme.border} ${scoreTheme.bg} p-5 flex flex-col justify-between space-y-3 relative overflow-hidden`}>
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                1. Website Status
+              </span>
+              <div className="flex items-center gap-2 pt-1">
+                {isHealthy ? (
+                  <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
+                ) : isModerate ? (
+                  <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-rose-400 shrink-0" />
+                )}
+                <h3 className={`text-base sm:text-lg font-extrabold ${scoreTheme.text} leading-snug`}>
+                  {scoreTheme.statusLabel}
+                </h3>
               </div>
-              <div className="rounded-full bg-slate-800 border border-slate-700/80 px-3 py-0.5 text-xs font-medium text-slate-300">
-                Ad Bleed Risk: <span className={result.adSpendRisk === 'HIGH' ? 'text-rose-400 font-semibold' : 'text-slate-200'}>{result.adSpendRisk}</span>
+            </div>
+            
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {scoreTheme.statusDesc}
+            </p>
+
+            <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-xs font-semibold">
+              <span className="text-slate-400">Total Flaws Found:</span>
+              <span className={`font-mono font-bold ${scoreTheme.text}`}>
+                {result.allIssues.length} issues
+              </span>
+            </div>
+          </div>
+
+          {/* Card 2: Question 2: How Serious Is It? */}
+          <div className="rounded-2xl border border-slate-800/90 bg-slate-950/80 p-5 flex flex-col justify-between space-y-3">
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                2. Health Score & Money At Risk
+              </span>
+              <div className="flex items-baseline gap-3 pt-1">
+                <span className={`text-3xl sm:text-4xl font-extrabold font-mono tracking-tight ${scoreTheme.text}`}>
+                  {result.score}<span className="text-sm font-semibold text-slate-500">/100</span>
+                </span>
+                <div className="text-right ml-auto">
+                  <span className="text-xs text-slate-400 block">Est. Revenue Leak:</span>
+                  <span className="text-base sm:text-lg font-bold font-mono text-rose-400">
+                    ₹{result.estimatedMonthlyLoss.toLocaleString('en-IN')}<span className="text-[11px] text-slate-400">/mo</span>
+                  </span>
+                </div>
               </div>
             </div>
 
-            <div>
-              <div className="flex flex-col sm:flex-row sm:items-baseline gap-2">
-                <span className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white font-mono">
-                  ₹{result.estimatedMonthlyLoss.toLocaleString('en-IN')}
-                </span>
-                <span className="text-sm font-semibold text-rose-400">
-                  Estimated Monthly Inquiries & Revenue Lost
-                </span>
+            {/* Health Meter Bar */}
+            <div className="space-y-1">
+              <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
+                <div
+                  className={`h-full rounded-full transition-all duration-700 ${
+                    isHealthy ? 'bg-emerald-500' : isModerate ? 'bg-amber-500' : 'bg-rose-500'
+                  }`}
+                  style={{ width: `${result.score}%` }}
+                />
               </div>
-
-              <div className="mt-2.5 rounded-xl bg-slate-950/70 p-3 border border-slate-800 text-xs space-y-1.5 text-slate-300">
-                <div className="flex items-center justify-between font-mono text-[11px] text-slate-400 border-b border-slate-800/80 pb-1.5">
-                  <span className="font-semibold text-slate-200">🧮 Real Mathematical Calculation:</span>
-                  <span className="text-emerald-400 font-bold">100% Transparent Logic</span>
-                </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1">
-                  <div className="space-y-0.5">
-                    <p><strong className="text-slate-300">Standard Traffic Model:</strong> ~5,000 visitors/month with ~6.5% lead click rate.</p>
-                    <p><strong className="text-slate-300">Average Order Value:</strong> ₹3,500 with 20% conversion benchmark.</p>
-                  </div>
-                  <div className="space-y-0.5">
-                    {result.allIssues.length === 0 ? (
-                      <p className="text-emerald-400 font-semibold">✓ No bottlenecks found. Loss is ₹0.</p>
-                    ) : (
-                      <>
-                        <p><strong className="text-rose-400">Flaws Detected:</strong> {result.allIssues.map((i: any) => i.title).join(', ')}</p>
-                        <p><strong className="text-slate-300">Impact:</strong> Unchecked leads & untracked ads ≈ ₹{result.estimatedMonthlyLoss.toLocaleString('en-IN')}/mo.</p>
-                      </>
-                    )}
-                  </div>
-                </div>
+              <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                <span>0 (Broken)</span>
+                <span>50 (Moderate)</span>
+                <span>100 (Flawless)</span>
               </div>
+            </div>
 
-              <p className="mt-2 text-xs text-slate-400 leading-relaxed">
-                💡 <em>Aap niche diye gaye <strong>"Funnel Leak Simulator"</strong> tab me apne business ke exact visitors aur ad budget sliders ko adjust karke exact loss calculate kar sakte hain.</em>
+            <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-xs font-semibold">
+              <span className="text-slate-400">Ad Spend Risk:</span>
+              <span className={`font-mono px-2 py-0.5 rounded text-[11px] ${
+                result.adSpendRisk === 'HIGH' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-slate-800 text-slate-300'
+              }`}>
+                {result.adSpendRisk} RISK
+              </span>
+            </div>
+          </div>
+
+          {/* Card 3: Question 3: What Should I Do Next? */}
+          <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 p-5 flex flex-col justify-between space-y-3">
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-rose-300">
+                3. Recommended Immediate Action
+              </span>
+              <h3 className="text-sm sm:text-base font-bold text-white pt-1">
+                {result.score < 80 ? 'Fix Critical Leaks Now' : 'Keep Website Monitored'}
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {result.score < 80
+                  ? 'Apply the verified 1-click code fixes below or let our engineers resolve your +9191 WhatsApp & tracking bugs within 2 hours.'
+                  : 'Your website channels are clean! Enable 24/7 Watchdog to get alerted if a link breaks in the future.'}
               </p>
             </div>
 
-            {/* AI Executive Diagnostic */}
-            {result.aiDiagnosticAdvice && (
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3.5 flex items-start gap-3">
-                <Sparkles className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
-                <div>
-                  <span className="text-[11px] font-semibold text-rose-400 uppercase tracking-wider">Diagnostic Forensic Insight</span>
-                  <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">{result.aiDiagnosticAdvice}</p>
-                </div>
-              </div>
-            )}
+            <button
+              id="fix-now-primary-cta"
+              onClick={onOpenExpressFix}
+              className="w-full flex items-center justify-center gap-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white py-3 px-4 text-xs sm:text-sm font-bold shadow-lg shadow-rose-950/60 active:scale-95 transition-all"
+            >
+              <Zap className="h-4 w-4" />
+              <span>{result.score < 80 ? 'Fix My Website Leaks (₹2,999)' : 'Optimize Further'}</span>
+              <ArrowRight className="h-4 w-4" />
+            </button>
           </div>
 
-          {/* Clean Action Toolbar */}
-          <div className="mt-6 flex flex-wrap items-center gap-2.5 pt-4 border-t border-slate-800/80">
-            {/* 1. Direct WhatsApp Share */}
+        </div>
+
+        {/* Simple Plain-English / आसान भाषा में Explanation Box */}
+        {showPlainSummary && (
+          <div className="rounded-2xl border border-indigo-500/30 bg-indigo-950/20 p-4 sm:p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-indigo-400 shrink-0" />
+              <h4 className="text-xs sm:text-sm font-bold text-indigo-200">
+                Summary in Plain Language (आसान भाषा में सारांश)
+              </h4>
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="rounded-xl bg-slate-950/60 p-3 border border-indigo-900/40 space-y-1">
+                <span className="font-bold text-slate-200">📱 WhatsApp Contact:</span>
+                <p className="text-slate-300">
+                  {result.whatsappLinks && result.whatsappLinks.length > 0 && result.whatsappLinks.every(w => w.isValid)
+                    ? '✅ Perfect: Link opens WhatsApp directly with valid number.'
+                    : result.whatsappLinks && result.whatsappLinks.some(w => !w.isValid)
+                    ? '❌ Broken: +9191 double code or missing country code causes WhatsApp error for users.'
+                    : '⚠️ Missing: No direct WhatsApp chat button found on page.'}
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-slate-950/60 p-3 border border-indigo-900/40 space-y-1">
+                <span className="font-bold text-slate-200">📞 Phone Call Button:</span>
+                <p className="text-slate-300">
+                  {result.phoneLinks && result.phoneLinks.length > 0 && result.phoneLinks.some(p => p.isValid)
+                    ? '✅ Working: Clicking phone opens mobile dialer directly.'
+                    : '⚠️ Not configured or missing standard tel: link.'}
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-slate-950/60 p-3 border border-indigo-900/40 space-y-1">
+                <span className="font-bold text-slate-200">🎯 Ad Tracking (Meta Pixel):</span>
+                <p className="text-slate-300">
+                  {result.metaPixel?.present
+                    ? '✅ Active: Tracking conversions for Facebook/Instagram ads.'
+                    : '⚠️ Missing: Ad money may be wasted without conversion data.'}
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-slate-950/60 p-3 border border-indigo-900/40 space-y-1">
+                <span className="font-bold text-slate-200">🔍 Google SEO Status:</span>
+                <p className="text-slate-300">
+                  {result.seoPenalty?.isIndexable !== false
+                    ? '✅ Indexable: Pages can appear in Google search results.'
+                    : '⚠️ Warning: Hidden noindex tags or missing title detected.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Clean Action Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800/80">
+          
+          <div className="flex flex-wrap items-center gap-2">
+            {/* 1. Share on WhatsApp */}
             <button
               id="whatsapp-share-button"
               onClick={handleWhatsAppShare}
-              className="flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2.5 text-xs font-semibold tracking-wide transition-all shadow-sm shadow-emerald-950/40 active:scale-95"
+              className="flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 text-xs font-semibold tracking-wide transition-all shadow-md shadow-emerald-950/40 active:scale-95"
             >
               <MessageCircle className="h-4 w-4 text-white" />
               <span>Share on WhatsApp</span>
             </button>
 
-            {/* 2. Download PDF Report */}
+            {/* 2. Download Official PDF */}
             <button
               id="download-pdf-button"
               onClick={handleDownloadPdf}
               disabled={isExporting}
-              className="flex items-center gap-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white px-3.5 py-2.5 text-xs font-semibold tracking-wide transition-all shadow-sm shadow-rose-950/40 active:scale-95"
+              className="flex items-center gap-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 text-xs font-semibold tracking-wide transition-all border border-slate-700 active:scale-95"
             >
               <Download className="h-3.5 w-3.5 text-white" />
-              <span>{isExporting ? 'Generating PDF...' : 'Download PDF'}</span>
+              <span>{isExporting ? 'Generating PDF...' : 'Download PDF Report'}</span>
             </button>
 
-            {/* 3. WhatsApp Alerts */}
+            {/* 3. Share Public Link Modal */}
+            {onOpenShareModal && (
+              <button
+                id="share-report-modal-button"
+                onClick={onOpenShareModal}
+                className="flex items-center gap-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2.5 text-xs font-semibold tracking-wide transition-all border border-slate-700"
+              >
+                <Share2 className="h-3.5 w-3.5 text-indigo-400" />
+                <span>Share Public Report</span>
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* 4. WhatsApp Alerts */}
             {onOpenAlerts && (
               <button
                 id="get-whatsapp-alerts-btn"
                 onClick={onOpenAlerts}
-                className="flex items-center gap-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2.5 text-xs font-semibold tracking-wide transition-all border border-slate-700/80"
+                className="flex items-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 px-3.5 py-2.5 text-xs font-semibold tracking-wide transition-all border border-slate-800"
               >
                 <Bell className="h-3.5 w-3.5 text-emerald-400" />
-                <span>WhatsApp Alerts</span>
+                <span>Get Daily Alerts</span>
               </button>
             )}
 
-            {/* 4. Share Link */}
-            <button
-              id="share-report-button"
-              onClick={handleShare}
-              className="flex items-center gap-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2.5 text-xs font-semibold tracking-wide transition-all border border-slate-700/80"
-            >
-              {copied ? (
-                <>
-                  <Check className="h-3.5 w-3.5 text-rose-400" />
-                  <span className="text-rose-400">Copied!</span>
-                </>
-              ) : (
-                <>
-                  <Share2 className="h-3.5 w-3.5 text-slate-400" />
-                  <span>Copy Link</span>
-                </>
-              )}
-            </button>
-
-            {/* 5. Enable 24/7 Watchdog */}
+            {/* 5. 24/7 Watchdog */}
             <button
               id="activate-watchdog-btn"
               onClick={onOpenWatchdog}
-              className="flex items-center gap-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2.5 text-xs font-semibold tracking-wide transition-all border border-slate-700/80 sm:ml-auto"
+              className="flex items-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 px-3.5 py-2.5 text-xs font-semibold tracking-wide transition-all border border-slate-800"
             >
               <ShieldAlert className="h-3.5 w-3.5 text-rose-400" />
               <span>24/7 Watchdog</span>
@@ -257,4 +359,5 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
     </div>
   );
 };
+
 

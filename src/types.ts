@@ -1,9 +1,12 @@
 export type LinkStatus = 'WORKING' | 'BROKEN' | 'MISSING' | 'DETECTED';
+export type PillarType = 'LEAD' | 'AD' | 'SEO' | 'CYBER' | 'ECOMMERCE';
+export type FindingSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
 
 export interface WhatsAppLinkInfo {
   url: string;
   status: LinkStatus;
   issue?: string;
+  statusNote?: string;
   isValid: boolean;
   suggestedFix?: string;
   digits?: string;
@@ -93,6 +96,7 @@ export interface MetaPixelInfo {
   status: 'HEALTHY' | 'MISSING' | 'DUPLICATE';
   issue?: string;
   impactNote?: string;
+  confidence?: number;
 }
 
 export interface GoogleTagInfo {
@@ -100,35 +104,81 @@ export interface GoogleTagInfo {
   tagId?: string;
   status: 'HEALTHY' | 'MISSING';
   issue?: string;
+  confidence?: number;
 }
 
 export interface SeoPenaltyInfo {
   hasNoIndex: boolean;
   hasNoFollow: boolean;
   isHttps: boolean;
+  hasCanonical?: boolean;
+  canonicalUrl?: string;
+  hasOgTags?: boolean;
   status: 'CRITICAL_PENALTY' | 'WARNING' | 'HEALTHY';
   issue?: string;
 }
 
+export interface CyberShieldInfo {
+  score: number;
+  spamGamblingDetected: boolean;
+  spamKeywordsFound: string[];
+  obfuscatedScriptsDetected: boolean;
+  base64HeavyScriptsCount: number;
+  hiddenIframesCount: number;
+  suspiciousRedirectDetected: boolean;
+  redirectDetails?: string;
+  riskLevel: 'CLEAN' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  diagnosis: string;
+}
+
+export interface PillarScoreData {
+  pillar: PillarType;
+  title: string;
+  score: number; // 0-100
+  weight: number; // e.g. 0.35, 0.20, 0.20, 0.25
+  criticalCount: number;
+  warningCount: number;
+  validCount: number;
+  diagnosis: string;
+  statusText: string;
+}
+
 export interface AuditIssue {
   id: string;
-  category: 'whatsapp' | 'phone' | 'pixel' | 'seo' | 'reviews' | 'email' | 'ecommerce';
-  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+  pillar: PillarType;
+  category: 'whatsapp' | 'phone' | 'pixel' | 'seo' | 'reviews' | 'email' | 'ecommerce' | 'cyber';
+  severity: FindingSeverity;
+  ruleId?: string;
   title: string;
   description: string;
   impact: string;
+  evidence?: string | Record<string, any>;
+  technical?: string;
+  recommendation?: string;
   fixSnippet: string;
+  confidence?: number;
   isLocked: boolean;
 }
 
 export interface AuditResult {
   scanId: string;
+  publicToken?: string;
   targetUrl: string;
   domain: string;
   businessName?: string;
   score: number;
   estimatedMonthlyLoss: number;
   adSpendRisk: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  
+  // 4 Pillar Scores
+  pillars: {
+    lead: PillarScoreData;
+    ad: PillarScoreData;
+    seo: PillarScoreData;
+    cyber: PillarScoreData;
+  };
+
+  // Detailed channels
   whatsappLinks: WhatsAppLinkInfo[];
   phoneLinks: PhoneLinkInfo[];
   emailLinks: EmailLinkInfo[];
@@ -137,10 +187,14 @@ export interface AuditResult {
   metaPixel: MetaPixelInfo;
   googleTag: GoogleTagInfo;
   seoPenalty: SeoPenaltyInfo;
+  cyberShield: CyberShieldInfo;
   ecommerce?: EcommerceInfo;
+  
+  // Findings
   allIssues: AuditIssue[];
   lockedIssuesCount: number;
   freeIssue?: AuditIssue;
+  
   performance: {
     fetchTimeMs: number;
     parseTimeMs: number;
@@ -155,9 +209,10 @@ export interface WatchdogLead {
   targetUrl: string;
   contact: string;
   channel: 'TELEGRAM' | 'WHATSAPP' | 'EMAIL';
+  frequency?: 'DAILY' | 'WEEKLY' | 'HOURLY';
   createdAt: string;
   trialExpiresAt: string;
-  status: 'ACTIVE_TRIAL' | 'EXPIRED' | 'CONVERTED';
+  status: 'ACTIVE_TRIAL' | 'ACTIVE_SUBSCRIPTION' | 'EXPIRED' | 'CONVERTED';
 }
 
 export interface WidgetCustomization {
@@ -181,4 +236,5 @@ export interface GlobalScanStats {
   fixedByLeadGuard: number;
   lastUpdated: string;
 }
+
 
