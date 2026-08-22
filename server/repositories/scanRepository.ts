@@ -119,8 +119,16 @@ export class ScanRepository implements IScanRepository {
           serverTimestamp: FieldValue.serverTimestamp(),
         });
       } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
+        if (process.env.NODE_ENV === 'production' || process.env.STORAGE_MODE === 'firestore') {
+          throw new Error(`FIRESTORE_WRITE_FAILED: Failed to persist scan ${scanId}: ${err?.message || err}`);
+        }
         console.warn(`[ScanRepository] Firestore write error for scan ${scanId}:`, err?.message || err);
       }
+    } else if (process.env.NODE_ENV === 'production' || process.env.STORAGE_MODE === 'firestore') {
+      throw new Error(`DATABASE_UNAVAILABLE: Firestore is required in production but unavailable for scan ${scanId}`);
     }
 
     await auditRepository.logEvent({
@@ -189,7 +197,13 @@ export class ScanRepository implements IScanRepository {
         if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
           markFirestorePermissionDenied();
         }
+        if (process.env.NODE_ENV === 'production' || process.env.STORAGE_MODE === 'firestore') {
+          throw new Error(`FIRESTORE_WRITE_FAILED: Failed to save scan ${scan.scanId}: ${err?.message || err}`);
+        }
+        console.warn(`[ScanRepository] Firestore write error for scan ${scan.scanId}:`, err?.message || err);
       }
+    } else if (process.env.NODE_ENV === 'production' || process.env.STORAGE_MODE === 'firestore') {
+      throw new Error(`DATABASE_UNAVAILABLE: Firestore is required in production but unavailable for scan ${scan.scanId}`);
     }
 
     await auditRepository.logEvent({
@@ -230,6 +244,8 @@ export class ScanRepository implements IScanRepository {
   }
 
   async getScanByToken(token: string): Promise<ScanDocument | undefined> {
+    if (!token || typeof token !== 'string') return undefined;
+
     if (isFirebaseConfigured()) {
       try {
         const db = getAdminDb();
@@ -240,13 +256,8 @@ export class ScanRepository implements IScanRepository {
           this.tokenIndex.set(token, data.scanId);
           return data;
         }
-        // Fallback check on scanId
-        const directSnap = await db.collection('scans').doc(token).get();
-        if (directSnap.exists) {
-          const data = directSnap.data() as ScanDocument;
-          this.localCache.set(data.scanId, data);
-          return data;
-        }
+        // Strict token lookup: DO NOT fallback to scans.doc(token)
+        return undefined;
       } catch (err: any) {
         if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
           markFirestorePermissionDenied();
@@ -258,7 +269,8 @@ export class ScanRepository implements IScanRepository {
     if (scanId) {
       return this.localCache.get(scanId);
     }
-    return this.localCache.get(token);
+    // Strict local cache check: verify the document at scanId actually has this publicToken
+    return undefined;
   }
 
   async getRecentScans(limit = 20, mode?: 'LIVE' | 'DEMO'): Promise<ScanDocument[]> {

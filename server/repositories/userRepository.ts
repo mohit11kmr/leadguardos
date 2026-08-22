@@ -190,8 +190,9 @@ export class UserRepository implements IUserRepository {
     const token = bearerToken.startsWith('Bearer ') ? bearerToken.split(' ')[1] : bearerToken;
     if (!token) return null;
 
-    // Check in-memory fast validation for tests / offline mode
-    if (this.localUsers.has(token)) {
+    // Check in-memory fast validation ONLY in non-production test/development environments
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (!isProduction && this.localUsers.has(token)) {
       const local = this.localUsers.get(token)!;
       return {
         uid: local.id,
@@ -225,6 +226,7 @@ export class UserRepository implements IUserRepository {
       }
     }
 
+    // In production, if Firebase Admin is not configured or token fails, fail closed
     return null;
   }
 }

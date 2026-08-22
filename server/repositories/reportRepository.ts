@@ -47,12 +47,8 @@ export class ReportRepository {
   async getPublicReport(token: string): Promise<SanitizedPublicReport | null> {
     if (!token || typeof token !== 'string') return null;
 
-    let scan: ScanDocument | undefined = await scanRepository.getScanByToken(token);
-
-    if (!scan) {
-      // Direct lookup in Firestore if token matches scanId as legacy fallback
-      scan = await scanRepository.getScanById(token);
-    }
+    // Strict lookup: ONLY by publicToken
+    const scan: ScanDocument | undefined = await scanRepository.getScanByToken(token);
 
     if (!scan) return null;
 

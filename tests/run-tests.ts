@@ -197,6 +197,18 @@ async function runTestSuite() {
     assert(err?.message?.includes('Unauthorized'), 'Enforces ownership rejection on watchdog target modification');
   }
 
+  // Test distributed lease lock acquisition & release
+  const acquiredFirst = await watchdogRepository.acquireTargetLease(testWatchdog.id, 'worker_node_A', 60000);
+  assert(acquiredFirst === true, 'Worker A acquires distributed lease on watchdog target');
+
+  const acquiredSecond = await watchdogRepository.acquireTargetLease(testWatchdog.id, 'worker_node_B', 60000);
+  assert(acquiredSecond === false, 'Worker B is denied concurrent lease while Worker A holds active lease');
+
+  await watchdogRepository.releaseTargetLease(testWatchdog.id, 'worker_node_A');
+  const acquiredAfterRelease = await watchdogRepository.acquireTargetLease(testWatchdog.id, 'worker_node_B', 60000);
+  assert(acquiredAfterRelease === true, 'Worker B acquires lease after Worker A releases');
+  await watchdogRepository.releaseTargetLease(testWatchdog.id, 'worker_node_B');
+
   // -------------------------------------------------------------------------
   // 8. Monetization & Payment Verification Lifecycle
   // -------------------------------------------------------------------------
@@ -216,9 +228,22 @@ async function runTestSuite() {
   );
   assert(pendingOrder.status === 'PENDING', 'New order is created in PENDING state');
 
-  const paidOrder = await orderRepository.verifyAndMarkPaid(pendingOrder.orderId, 'UPI_REF_TXN_998877', 'user_customer_456');
-  assert(paidOrder.status === 'PAID', 'Server marks order PAID upon payment verification');
-  assert(paidOrder.paymentReference === 'UPI_REF_TXN_998877', 'Records transaction payment reference');
+  // Test UPI Manual remains PENDING / awaiting review
+  const upiSubmittedOrder = await orderRepository.verifyAndMarkPaid(
+    pendingOrder.orderId,
+    { paymentReference: 'UPI_REF_TXN_998877', provider: 'UPI_MANUAL' },
+    'user_customer_456'
+  );
+  assert(upiSubmittedOrder.status === 'PENDING', 'UPI manual submissions remain in PENDING/review state');
+  assert(upiSubmittedOrder.paymentReference === 'UPI_REF_TXN_998877', 'Records transaction payment reference');
+
+  // Test Sandbox provider in non-production environment marks PAID
+  const sandboxPaidOrder = await orderRepository.verifyAndMarkPaid(
+    pendingOrder.orderId,
+    { paymentReference: 'SANDBOX_TXN_12345', provider: 'SANDBOX' },
+    'user_customer_456'
+  );
+  assert(sandboxPaidOrder.status === 'PAID', 'Sandbox simulation successfully marks order PAID in non-production');
 
   // -------------------------------------------------------------------------
   // 9. Webhooks & SSRF Defense

@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { watchdogRepository, WatchdogTargetDocument } from './repositories/watchdogRepository';
 import { webhookRepository } from './repositories/webhookRepository';
 import { executeLiveWebsiteScan } from './scannerEngine';
@@ -20,10 +21,11 @@ function calculateNextCheckTime(frequency: string = 'DAILY'): string {
 export class WatchdogScheduler {
   private timer: NodeJS.Timeout | null = null;
   private isRunningCheck = false;
+  private workerId: string = `worker_${process.pid}_${crypto.randomBytes(4).toString('hex')}`;
 
   public start(intervalMs = 60000) {
     if (this.timer) clearInterval(this.timer);
-    console.log(`[WatchdogScheduler] Initializing 24/7 Watchdog Heartbeat Radar (Interval: ${intervalMs / 1000}s)...`);
+    console.log(`[WatchdogScheduler] Initializing 24/7 Watchdog Heartbeat Radar [Worker: ${this.workerId}] (Interval: ${intervalMs / 1000}s)...`);
 
     this.timer = setInterval(() => {
       this.runPeriodicProbes();
@@ -66,16 +68,31 @@ export class WatchdogScheduler {
         return;
       }
 
-      // 3. Process eligible targets in concurrency batches of 5
+      // 3. Process eligible targets in concurrency batches of 5 with distributed lease locking
       const BATCH_SIZE = 5;
       for (let i = 0; i < eligibleTargets.length; i += BATCH_SIZE) {
         const chunk = eligibleTargets.slice(i, i + BATCH_SIZE);
-        await Promise.allSettled(chunk.map(target => this.probeSingleTarget(target)));
+        await Promise.allSettled(chunk.map(target => this.probeSingleTargetWithLock(target)));
       }
     } catch (err) {
       console.warn('[WatchdogScheduler] Periodic probe iteration error:', err);
     } finally {
       this.isRunningCheck = false;
+    }
+  }
+
+  private async probeSingleTargetWithLock(target: WatchdogTargetDocument): Promise<void> {
+    // Acquire distributed lease to prevent duplicate runs across multi-instance containers
+    const acquired = await watchdogRepository.acquireTargetLease(target.id, this.workerId);
+    if (!acquired) {
+      // Target is currently being probed by another worker instance
+      return;
+    }
+
+    try {
+      await this.probeSingleTarget(target);
+    } finally {
+      await watchdogRepository.releaseTargetLease(target.id, this.workerId);
     }
   }
 
@@ -93,6 +110,29 @@ export class WatchdogScheduler {
         ? 'FAIL (+9191 or broken WhatsApp)'
         : (hasMissingPixel ? 'WARN (Missing Meta Pixel)' : 'PASS (Healthy)');
 
+      // Incident Deduplication fingerprinting
+      let lastIncidentFingerprint = target.lastIncidentFingerprint;
+      let lastIncidentAt = target.lastIncidentAt;
+
+      const isIncident = audit.score < 60 || hasBrokenWa;
+      if (isIncident) {
+        const issueKey = (audit.allIssues || []).map((i: any) => i.title || i.ruleId || '').sort().join('|');
+        const currentFingerprint = crypto
+          .createHash('sha256')
+          .update(`${target.id}:${audit.score}:${issueKey}`)
+          .digest('hex');
+
+        const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+        const lastTime = target.lastIncidentAt ? new Date(target.lastIncidentAt).getTime() : 0;
+        const isDuplicate = target.lastIncidentFingerprint === currentFingerprint && (Date.now() - lastTime < SIX_HOURS_MS);
+
+        if (!isDuplicate) {
+          await this.dispatchIncidentWebhooks(target, audit);
+          lastIncidentFingerprint = currentFingerprint;
+          lastIncidentAt = new Date().toISOString();
+        }
+      }
+
       // Update target in repository / Firestore
       await watchdogRepository.updateTarget(
         target.id,
@@ -101,6 +141,8 @@ export class WatchdogScheduler {
           nextCheckAt,
           lastScore: audit.score,
           lastStatus: statusText,
+          lastIncidentFingerprint,
+          lastIncidentAt,
         },
         undefined,
         true
@@ -119,11 +161,6 @@ export class WatchdogScheduler {
           ? `${audit.allIssues.length} findings detected (Score: ${audit.score}/100)`
           : 'All systems fully operational',
       });
-
-      // If critical leak or degradation detected, trigger incident webhooks
-      if (audit.score < 60 || hasBrokenWa) {
-        await this.dispatchIncidentWebhooks(target, audit);
-      }
     } catch (err: any) {
       // Record failure log without crashing scheduler
       await watchdogRepository.updateTarget(

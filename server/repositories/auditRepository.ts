@@ -15,6 +15,7 @@ export interface AuditLogEntry {
     | 'WEBHOOK_DELIVERY'
     | 'ORDER_CREATED'
     | 'ORDER_PAYMENT_VERIFICATION_STARTED'
+    | 'ORDER_PENDING_REVIEW'
     | 'ORDER_PAID'
     | 'ORDER_FAILED'
     | 'ORDER_UPDATED'

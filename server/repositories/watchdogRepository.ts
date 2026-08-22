@@ -9,6 +9,11 @@ export interface WatchdogTargetDocument extends WatchdogTarget {
   mode: 'LIVE' | 'DEMO';
   nextCheckAt?: string;
   updatedAt?: string;
+  leaseOwner?: string;
+  leaseExpiresAt?: string;
+  lastRunId?: string;
+  lastIncidentFingerprint?: string;
+  lastIncidentAt?: string;
   serverTimestamp?: any;
 }
 
@@ -281,6 +286,101 @@ export class WatchdogRepository implements IWatchdogRepository {
 
     const filtered = targetId ? this.localLogs.filter(l => l.targetId === targetId) : this.localLogs;
     return filtered.slice(0, limit);
+  }
+
+  /**
+   * Acquire a distributed execution lease for target probe.
+   * Prevents multiple worker instances from running concurrent probes on the same target.
+   */
+  async acquireTargetLease(targetId: string, workerId: string, leaseDurationMs = 180000): Promise<boolean> {
+    const now = Date.now();
+    const expiresAt = new Date(now + leaseDurationMs).toISOString();
+
+    if (isFirebaseConfigured()) {
+      try {
+        const db = getAdminDb();
+        const docRef = db.collection('watchdogTargets').doc(targetId);
+
+        const acquired = await db.runTransaction(async (transaction) => {
+          const snap = await transaction.get(docRef);
+          if (!snap.exists) return false;
+
+          const data = snap.data() as WatchdogTargetDocument;
+          const currentLeaseExp = data.leaseExpiresAt ? new Date(data.leaseExpiresAt).getTime() : 0;
+
+          // If currently leased by another active worker and not expired, skip
+          if (data.leaseOwner && data.leaseOwner !== workerId && currentLeaseExp > now) {
+            return false;
+          }
+
+          transaction.update(docRef, {
+            leaseOwner: workerId,
+            leaseExpiresAt: expiresAt,
+            lastRunId: `run_${now}_${Math.random().toString(36).substring(2, 6)}`,
+          });
+
+          return true;
+        });
+
+        if (acquired) {
+          const local = this.localTargets.get(targetId);
+          if (local) {
+            this.localTargets.set(targetId, {
+              ...local,
+              leaseOwner: workerId,
+              leaseExpiresAt: expiresAt,
+            });
+          }
+        }
+
+        return acquired;
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
+      }
+    }
+
+    // Local in-memory lease checking for development / offline
+    const local = this.localTargets.get(targetId);
+    if (local) {
+      const currentLeaseExp = local.leaseExpiresAt ? new Date(local.leaseExpiresAt).getTime() : 0;
+      if (local.leaseOwner && local.leaseOwner !== workerId && currentLeaseExp > now) {
+        return false;
+      }
+      this.localTargets.set(targetId, {
+        ...local,
+        leaseOwner: workerId,
+        leaseExpiresAt: expiresAt,
+      });
+      return true;
+    }
+
+    return true;
+  }
+
+  /**
+   * Release the distributed execution lease after probe completion.
+   */
+  async releaseTargetLease(targetId: string, workerId: string): Promise<void> {
+    if (isFirebaseConfigured()) {
+      try {
+        const db = getAdminDb();
+        const docRef = db.collection('watchdogTargets').doc(targetId);
+        await docRef.update({
+          leaseOwner: FieldValue.delete(),
+          leaseExpiresAt: FieldValue.delete(),
+        });
+      } catch {
+        // Non-critical cleanup
+      }
+    }
+
+    const local = this.localTargets.get(targetId);
+    if (local && local.leaseOwner === workerId) {
+      delete local.leaseOwner;
+      delete local.leaseExpiresAt;
+    }
   }
 }
 
