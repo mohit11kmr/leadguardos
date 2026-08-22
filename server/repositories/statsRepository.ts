@@ -1,4 +1,4 @@
-import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
+import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 import { scanRepository } from './scanRepository';
 import { watchdogRepository } from './watchdogRepository';
 import { orderRepository } from './orderRepository';
@@ -19,41 +19,41 @@ export interface RealSystemMetrics {
 
 export class StatsRepository {
   private localStats: RealSystemMetrics = {
-    totalScannedSites: 24,
-    problemsFound: 68,
-    healthySites: 6,
-    fixedByLeadGuard: 19,
-    activeLiveMonitors: 8,
-    totalLiveScans: 24,
-    totalUsers: 14,
-    totalOrders: 6,
+    totalScannedSites: 0,
+    problemsFound: 0,
+    healthySites: 0,
+    fixedByLeadGuard: 0,
+    activeLiveMonitors: 0,
+    totalLiveScans: 0,
+    totalUsers: 0,
+    totalOrders: 0,
     mode: 'LIVE',
     lastUpdated: new Date().toISOString(),
     isRealDatabaseData: true,
   };
 
   async getSystemStats(): Promise<RealSystemMetrics> {
-    // Dynamic recalculation from in-memory repositories if needed
+    // Dynamic recalculation from in-memory repositories
     try {
-      const recentScans = await scanRepository.getRecentScans(100, 'LIVE');
-      if (recentScans && recentScans.length > 0) {
-        this.localStats.totalLiveScans = Math.max(this.localStats.totalLiveScans, recentScans.length);
-        this.localStats.totalScannedSites = Math.max(this.localStats.totalScannedSites, recentScans.length);
-        const problems = recentScans.reduce((acc, s) => acc + (s.findingsCount || 0), 0);
-        if (problems > 0) this.localStats.problemsFound = Math.max(this.localStats.problemsFound, problems);
+      const recentScans = await scanRepository.getRecentScans(200, 'LIVE');
+      if (recentScans) {
+        this.localStats.totalLiveScans = recentScans.length;
+        this.localStats.totalScannedSites = recentScans.length;
+        this.localStats.problemsFound = recentScans.reduce((acc, s) => acc + (s.findingsCount || 0), 0);
+        this.localStats.healthySites = recentScans.filter(s => s.score >= 80).length;
       }
 
       const monitors = await watchdogRepository.getTargets(undefined, undefined, true);
-      if (monitors && monitors.length > 0) {
-        this.localStats.activeLiveMonitors = Math.max(this.localStats.activeLiveMonitors, monitors.length);
+      if (monitors) {
+        this.localStats.activeLiveMonitors = monitors.filter(m => m.mode !== 'DEMO').length;
       }
 
       const orders = await orderRepository.getOrders(undefined, undefined, true);
-      if (orders && orders.length > 0) {
-        this.localStats.totalOrders = Math.max(this.localStats.totalOrders, orders.length);
+      if (orders) {
+        this.localStats.totalOrders = orders.length;
       }
     } catch {
-      // Keep localStats baseline
+      // Keep local calculations
     }
 
     if (!isFirebaseConfigured()) {
@@ -72,7 +72,7 @@ export class StatsRepository {
           healthySites: data?.healthySites ?? this.localStats.healthySites,
           fixedByLeadGuard: data?.fixedByLeadGuard ?? this.localStats.fixedByLeadGuard,
           activeLiveMonitors: data?.activeLiveMonitors ?? this.localStats.activeLiveMonitors,
-          totalLiveScans: data?.totalScannedSites ?? this.localStats.totalLiveScans,
+          totalLiveScans: data?.totalLiveScans ?? data?.totalScannedSites ?? this.localStats.totalLiveScans,
           totalUsers: data?.totalUsers ?? this.localStats.totalUsers,
           totalOrders: data?.totalOrders ?? this.localStats.totalOrders,
           mode: 'LIVE',
@@ -81,15 +81,17 @@ export class StatsRepository {
         };
       }
 
-      // If document doesn't exist yet, save local baseline
+      // If document doesn't exist yet, save counted values
       await db.collection('systemStats').doc('live_metrics').set({
         ...this.localStats,
         serverTimestamp: FieldValue.serverTimestamp(),
       });
 
       return { ...this.localStats };
-    } catch {
-      // Gracefully return dynamic local stats on any permission or connection limit
+    } catch (err: any) {
+      if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+        markFirestorePermissionDenied();
+      }
       return {
         ...this.localStats,
         lastUpdated: new Date().toISOString(),
@@ -125,8 +127,10 @@ export class StatsRepository {
         },
         { merge: true }
       );
-    } catch {
-      // In-memory stats maintained
+    } catch (err: any) {
+      if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+        markFirestorePermissionDenied();
+      }
     }
   }
 
@@ -146,8 +150,10 @@ export class StatsRepository {
         },
         { merge: true }
       );
-    } catch {
-      // In-memory stats maintained
+    } catch (err: any) {
+      if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+        markFirestorePermissionDenied();
+      }
     }
   }
 
@@ -165,8 +171,10 @@ export class StatsRepository {
         },
         { merge: true }
       );
-    } catch {
-      // In-memory stats maintained
+    } catch (err: any) {
+      if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+        markFirestorePermissionDenied();
+      }
     }
   }
 
@@ -184,8 +192,10 @@ export class StatsRepository {
         },
         { merge: true }
       );
-    } catch {
-      // In-memory stats maintained
+    } catch (err: any) {
+      if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+        markFirestorePermissionDenied();
+      }
     }
   }
 }

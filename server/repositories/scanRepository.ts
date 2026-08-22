@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
+import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 import { ScanRecord } from '../storage';
 import { auditRepository } from './auditRepository';
 
@@ -186,7 +186,9 @@ export class ScanRepository implements IScanRepository {
           serverTimestamp: FieldValue.serverTimestamp(),
         });
       } catch (err: any) {
-        console.warn(`[ScanRepository] Firestore persist warning for ${scan.scanId}:`, err?.message || err);
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -217,8 +219,10 @@ export class ScanRepository implements IScanRepository {
           if (data.publicToken) this.tokenIndex.set(data.publicToken, scanId);
           return data;
         }
-      } catch (err) {
-        console.warn(`[ScanRepository] Error fetching scan ${scanId} from Firestore:`, err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -243,8 +247,10 @@ export class ScanRepository implements IScanRepository {
           this.localCache.set(data.scanId, data);
           return data;
         }
-      } catch (err) {
-        console.warn(`[ScanRepository] Error fetching scan by token:`, err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -267,8 +273,10 @@ export class ScanRepository implements IScanRepository {
         if (!snap.empty) {
           return snap.docs.map(d => d.data() as ScanDocument);
         }
-      } catch (err) {
-        console.warn('[ScanRepository] Error fetching recent scans from Firestore:', err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -298,8 +306,10 @@ export class ScanRepository implements IScanRepository {
         const items = snap.docs.map(d => d.data() as ScanDocument);
         const nextCursor = items.length === limit ? items[items.length - 1].scanId : undefined;
         return { items, nextCursor };
-      } catch (err) {
-        console.warn(`[ScanRepository] Error querying scans for user ${userId}:`, err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -325,8 +335,10 @@ export class ScanRepository implements IScanRepository {
         if (!snap.empty) {
           return snap.docs.map(d => d.data() as ScanDocument);
         }
-      } catch (err) {
-        console.warn(`[ScanRepository] Error querying domain ${domain}:`, err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 

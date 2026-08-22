@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
+import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 import { WebhookConfig } from '../storage';
 import { validateAndResolveSafeUrl } from '../ssrfGuard';
 import { auditRepository } from './auditRepository';
@@ -90,7 +90,9 @@ export class WebhookRepository implements IWebhookRepository {
           serverTimestamp: FieldValue.serverTimestamp(),
         });
       } catch (err: any) {
-        console.warn(`[WebhookRepository] Firestore sync notice for webhook ${id}:`, err?.message || err);
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -125,8 +127,10 @@ export class WebhookRepository implements IWebhookRepository {
             };
           });
         }
-      } catch (err) {
-        console.warn('[WebhookRepository] Error fetching webhooks from Firestore:', err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -153,7 +157,9 @@ export class WebhookRepository implements IWebhookRepository {
         }
       } catch (err: any) {
         if (err?.message === 'UNAUTHORIZED_WEBHOOK_ACCESS') throw err;
-        console.warn(`[WebhookRepository] Error fetching webhook ${id} from Firestore:`, err);
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -179,8 +185,10 @@ export class WebhookRepository implements IWebhookRepository {
         const db = getAdminDb();
         const docRef = db.collection('webhooks').doc(id);
         await docRef.delete();
-      } catch (err) {
-        console.warn(`[WebhookRepository] Error deleting webhook ${id} from Firestore:`, err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -221,8 +229,10 @@ export class WebhookRepository implements IWebhookRepository {
           ...record,
           serverTimestamp: FieldValue.serverTimestamp(),
         });
-      } catch (err) {
-        console.warn(`[WebhookRepository] Error logging delivery ${id}:`, err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -241,14 +251,17 @@ export class WebhookRepository implements IWebhookRepository {
         if (!snap.empty) {
           return snap.docs.map(d => d.data() as WebhookDeliveryRecord);
         }
-      } catch (err) {
-        console.warn('[WebhookRepository] Error fetching delivery logs from Firestore:', err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
     const filtered = webhookId ? this.localDeliveries.filter(d => d.webhookId === webhookId) : this.localDeliveries;
     return filtered.slice(0, limit);
   }
+
 
   async dispatchWebhook(webhook: WebhookDocument, event: string, payload: any): Promise<WebhookDeliveryRecord> {
     // Re-validate SSRF on dispatch

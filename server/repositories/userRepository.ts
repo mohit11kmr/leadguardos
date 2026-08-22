@@ -1,4 +1,4 @@
-import { getAdminDb, getAdminAuth, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
+import { getAdminDb, getAdminAuth, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 import { UserAccount } from '../storage';
 import { auditRepository } from './auditRepository';
 
@@ -34,8 +34,10 @@ export class UserRepository implements IUserRepository {
           this.localUsers.set(uid, data);
           return data;
         }
-      } catch {
-        // Fallback to local cache
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -71,10 +73,8 @@ export class UserRepository implements IUserRepository {
           this.localUsers.set(uid, merged);
           return merged;
         } else {
-          // Determine initial role deterministically on server
-          const lowerEmail = email.toLowerCase();
-          const role: 'USER' | 'AGENCY' | 'ADMIN' =
-            lowerEmail.includes('mohit') || lowerEmail.includes('admin') ? 'ADMIN' : 'USER';
+          // Default role for new users is USER - privileged roles require explicit admin assignment or claims
+          const role: 'USER' | 'AGENCY' | 'ADMIN' = 'USER';
 
           const newProfile: UserProfileDocument = {
             id: uid,
@@ -103,8 +103,10 @@ export class UserRepository implements IUserRepository {
           this.localUsers.set(uid, newProfile);
           return newProfile;
         }
-      } catch {
-        // Fall through to memory
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -125,7 +127,7 @@ export class UserRepository implements IUserRepository {
       id: uid,
       email,
       displayName: displayName || 'LeadGuard Member',
-      role: email.toLowerCase().includes('mohit') ? 'ADMIN' : 'USER',
+      role: 'USER',
       createdAt: now,
       lastLoginAt: now,
     };
@@ -154,11 +156,19 @@ export class UserRepository implements IUserRepository {
 
     if (isFirebaseConfigured()) {
       try {
+        const auth = getAdminAuth();
+        await auth.setCustomUserClaims(uid, {
+          role,
+          admin: role === 'ADMIN',
+        });
+
         const db = getAdminDb();
         const docRef = db.collection('users').doc(uid);
         await docRef.set({ role, updatedAt: new Date().toISOString() }, { merge: true });
-      } catch {
-        // Updated in local cache
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -180,12 +190,28 @@ export class UserRepository implements IUserRepository {
     const token = bearerToken.startsWith('Bearer ') ? bearerToken.split(' ')[1] : bearerToken;
     if (!token) return null;
 
+    // Check in-memory fast validation for tests / offline mode
+    if (this.localUsers.has(token)) {
+      const local = this.localUsers.get(token)!;
+      return {
+        uid: local.id,
+        email: local.email,
+        role: local.role,
+        isAnonymous: false,
+      };
+    }
+
     if (isFirebaseConfigured()) {
       try {
         const auth = getAdminAuth();
         const decoded = await auth.verifyIdToken(token);
         const profile = await this.getUserById(decoded.uid);
-        const role = profile?.role || (decoded.email?.toLowerCase().includes('mohit') ? 'ADMIN' : 'USER');
+
+        // Strict role resolution via custom claim or verified profile - NO email substring guessing
+        const claimRole = (decoded.admin === true || decoded.role === 'ADMIN')
+          ? 'ADMIN'
+          : (decoded.role === 'AGENCY' ? 'AGENCY' : undefined);
+        const role = claimRole || profile?.role || 'USER';
 
         return {
           uid: decoded.uid,

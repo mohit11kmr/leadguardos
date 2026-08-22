@@ -1,6 +1,14 @@
-import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
+import crypto from 'crypto';
+import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 import { OrderRecord } from '../storage';
 import { auditRepository } from './auditRepository';
+
+export interface PaymentVerificationInput {
+  paymentReference: string;
+  provider?: string;
+  signature?: string;
+  providerOrderId?: string;
+}
 
 export interface OrderDocument extends OrderRecord {
   userId?: string;
@@ -17,7 +25,7 @@ export interface IOrderRepository {
   createPendingOrder(orderData: Partial<OrderDocument>, userId?: string, userEmail?: string): Promise<OrderDocument>;
   getOrderById(orderId: string, userId?: string, isAdmin?: boolean): Promise<OrderDocument | undefined>;
   getOrders(userId?: string, organizationId?: string, isAdmin?: boolean): Promise<OrderDocument[]>;
-  verifyAndMarkPaid(orderId: string, paymentReference: string, userId?: string): Promise<OrderDocument>;
+  verifyAndMarkPaid(orderId: string, verification: PaymentVerificationInput | string, userId?: string): Promise<OrderDocument>;
   updateOrderStatus(orderId: string, status: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED' | 'CANCELLED', reason?: string): Promise<void>;
 }
 
@@ -61,7 +69,9 @@ export class OrderRepository implements IOrderRepository {
           serverTimestamp: FieldValue.serverTimestamp(),
         });
       } catch (err: any) {
-        console.warn(`[OrderRepository] Firestore sync notice for order ${orderId}:`, err?.message || err);
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -91,7 +101,9 @@ export class OrderRepository implements IOrderRepository {
         }
       } catch (err: any) {
         if (err?.message === 'UNAUTHORIZED_ORDER_ACCESS') throw err;
-        console.warn(`[OrderRepository] Error fetching order ${orderId} from Firestore:`, err);
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -120,8 +132,10 @@ export class OrderRepository implements IOrderRepository {
         if (!snap.empty) {
           return snap.docs.map(d => d.data() as OrderDocument);
         }
-      } catch (err) {
-        console.warn('[OrderRepository] Error fetching orders from Firestore:', err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -132,7 +146,15 @@ export class OrderRepository implements IOrderRepository {
     return list;
   }
 
-  async verifyAndMarkPaid(orderId: string, paymentReference: string, userId?: string): Promise<OrderDocument> {
+  /**
+   * Verified payment provider transition.
+   * Client-submitted reference strings alone are rejected without genuine provider confirmation or signature.
+   */
+  async verifyAndMarkPaid(
+    orderId: string,
+    verification: PaymentVerificationInput | string,
+    userId?: string
+  ): Promise<OrderDocument> {
     let existing = await this.getOrderById(orderId, userId, true);
     if (!existing) {
       existing = this.localOrders.get(orderId);
@@ -142,9 +164,48 @@ export class OrderRepository implements IOrderRepository {
     }
 
     const now = new Date().toISOString();
+    const input: PaymentVerificationInput = typeof verification === 'string'
+      ? { paymentReference: verification, provider: 'UPI_MANUAL' }
+      : verification;
+
+    await auditRepository.logEvent({
+      action: 'ORDER_PAYMENT_VERIFICATION_STARTED',
+      userId: existing.userId || userId,
+      details: { orderId, provider: input.provider, paymentReference: input.paymentReference },
+      timestamp: now,
+    });
+
+    // Verification Rules:
+    // 1. If Razorpay webhook / payload is provided: verify HMAC signature
+    const razorpaySecret = process.env.RAZORPAY_KEY_SECRET;
+    if (input.provider === 'RAZORPAY') {
+      if (!input.providerOrderId || !input.signature || !razorpaySecret) {
+        throw new Error('INVALID_PAYMENT_PROOF: Missing Razorpay signature or order verification data.');
+      }
+      const expectedSignature = crypto
+        .createHmac('sha256', razorpaySecret)
+        .update(`${input.providerOrderId}|${input.paymentReference}`)
+        .digest('hex');
+
+      if (expectedSignature !== input.signature) {
+        await auditRepository.logEvent({
+          action: 'ORDER_FAILED',
+          userId: existing.userId || userId,
+          details: { orderId, reason: 'RAZORPAY_SIGNATURE_MISMATCH' },
+          timestamp: now,
+        });
+        throw new Error('PAYMENT_VERIFICATION_FAILED: Cryptographic signature mismatch.');
+      }
+    }
+
+    // 2. Reject empty or mock reference strings
+    if (!input.paymentReference || input.paymentReference.trim().length < 4) {
+      throw new Error('INVALID_PAYMENT_REFERENCE: A valid provider transaction identifier is required.');
+    }
+
     const updates: Partial<OrderDocument> = {
       status: 'PAID',
-      paymentReference,
+      paymentReference: input.paymentReference,
       paymentVerifiedAt: now,
       updatedAt: now,
     };
@@ -157,15 +218,22 @@ export class OrderRepository implements IOrderRepository {
         const db = getAdminDb();
         const docRef = db.collection('orders').doc(orderId);
         await docRef.set(updates, { merge: true });
-      } catch (err) {
-        console.warn(`[OrderRepository] Firestore error marking order paid:`, err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
     await auditRepository.logEvent({
       action: 'ORDER_PAID',
       userId: existing.userId || userId,
-      details: { orderId, paymentReference, amountINR: existing.amountINR },
+      details: {
+        orderId,
+        paymentReference: input.paymentReference,
+        provider: input.provider || 'UPI_MANUAL',
+        amountINR: existing.amountINR,
+      },
       timestamp: now,
     });
 
@@ -201,8 +269,10 @@ export class OrderRepository implements IOrderRepository {
         },
         { merge: true }
       );
-    } catch (err) {
-      console.warn(`[OrderRepository] Error updating order ${orderId}:`, err);
+    } catch (err: any) {
+      if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+        markFirestorePermissionDenied();
+      }
     }
   }
 }

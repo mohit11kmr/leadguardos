@@ -1,4 +1,4 @@
-import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
+import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 import { WatchdogTarget, WatchdogCheckLog } from '../storage';
 import { auditRepository } from './auditRepository';
 
@@ -73,7 +73,9 @@ export class WatchdogRepository implements IWatchdogRepository {
           serverTimestamp: FieldValue.serverTimestamp(),
         });
       } catch (err: any) {
-        console.warn(`[WatchdogRepository] Firestore error saving target ${id}:`, err?.message || err);
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -103,7 +105,9 @@ export class WatchdogRepository implements IWatchdogRepository {
         }
       } catch (err: any) {
         if (err?.message?.includes('Unauthorized')) throw err;
-        console.warn(`[WatchdogRepository] Error fetching target ${id}:`, err);
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -130,8 +134,10 @@ export class WatchdogRepository implements IWatchdogRepository {
         if (!snap.empty) {
           return snap.docs.map(d => d.data() as WatchdogTargetDocument);
         }
-      } catch (err) {
-        console.warn('[WatchdogRepository] Error querying watchdog targets from Firestore:', err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -169,8 +175,10 @@ export class WatchdogRepository implements IWatchdogRepository {
           ...updatedData,
           serverTimestamp: FieldValue.serverTimestamp(),
         }, { merge: true });
-      } catch (err) {
-        console.warn(`[WatchdogRepository] Firestore error updating target ${id}:`, err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -198,8 +206,10 @@ export class WatchdogRepository implements IWatchdogRepository {
       try {
         const db = getAdminDb();
         await db.collection('watchdogTargets').doc(id).delete();
-      } catch (err) {
-        console.warn(`[WatchdogRepository] Firestore error deleting target ${id}:`, err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -240,8 +250,10 @@ export class WatchdogRepository implements IWatchdogRepository {
           ...docData,
           serverTimestamp: FieldValue.serverTimestamp(),
         });
-      } catch (err) {
-        console.warn(`[WatchdogRepository] Error adding check log ${id}:`, err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 
@@ -260,8 +272,10 @@ export class WatchdogRepository implements IWatchdogRepository {
         if (!snap.empty) {
           return snap.docs.map(d => d.data() as WatchdogCheckDocument);
         }
-      } catch (err) {
-        console.warn('[WatchdogRepository] Error fetching check logs from Firestore:', err);
+      } catch (err: any) {
+        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+          markFirestorePermissionDenied();
+        }
       }
     }
 

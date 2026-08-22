@@ -1,4 +1,4 @@
-import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
+import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 
 export interface AuditLogEntry {
   id?: string;
@@ -14,6 +14,7 @@ export interface AuditLogEntry {
     | 'WEBHOOK_DELETED'
     | 'WEBHOOK_DELIVERY'
     | 'ORDER_CREATED'
+    | 'ORDER_PAYMENT_VERIFICATION_STARTED'
     | 'ORDER_PAID'
     | 'ORDER_FAILED'
     | 'ORDER_UPDATED'
@@ -29,37 +30,58 @@ export interface AuditLogEntry {
 }
 
 export class AuditRepository {
+  private localLogs: AuditLogEntry[] = [];
+
   async logEvent(entry: AuditLogEntry): Promise<void> {
+    const record = {
+      ...entry,
+      id: entry.id || `aud_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    };
+    this.localLogs.unshift(record);
+    if (this.localLogs.length > 500) this.localLogs.pop();
+
     try {
       if (!isFirebaseConfigured()) return;
       const db = getAdminDb();
       const col = db.collection('auditLogs');
       const docRef = col.doc();
       await docRef.set({
-        ...entry,
+        ...record,
         id: docRef.id,
         serverTimestamp: FieldValue.serverTimestamp(),
       });
-    } catch (err) {
-      console.warn('[AuditRepository] Error writing audit log:', err);
+    } catch (err: any) {
+      if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+        markFirestorePermissionDenied();
+      }
     }
   }
 
   async getRecentLogs(limit = 50, actionFilter?: string): Promise<AuditLogEntry[]> {
     try {
-      if (!isFirebaseConfigured()) return [];
-      const db = getAdminDb();
-      let q = db.collection('auditLogs').orderBy('timestamp', 'desc').limit(limit);
-      if (actionFilter) {
-        q = q.where('action', '==', actionFilter);
+      if (isFirebaseConfigured()) {
+        const db = getAdminDb();
+        let q = db.collection('auditLogs').orderBy('timestamp', 'desc').limit(limit);
+        if (actionFilter) {
+          q = q.where('action', '==', actionFilter);
+        }
+        const snap = await q.get();
+        if (!snap.empty) {
+          return snap.docs.map(d => d.data() as AuditLogEntry);
+        }
       }
-      const snap = await q.get();
-      return snap.docs.map(d => d.data() as AuditLogEntry);
-    } catch (err) {
-      console.warn('[AuditRepository] Error fetching logs:', err);
-      return [];
+    } catch (err: any) {
+      if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
+        markFirestorePermissionDenied();
+      }
     }
+
+    const filtered = actionFilter
+      ? this.localLogs.filter(l => l.action === actionFilter)
+      : this.localLogs;
+    return filtered.slice(0, limit);
   }
 }
 
 export const auditRepository = new AuditRepository();
+

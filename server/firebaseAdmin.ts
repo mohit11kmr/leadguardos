@@ -7,10 +7,11 @@ let adminApp: App | null = null;
 let firestoreDb: Firestore | null = null;
 let adminAuth: Auth | null = null;
 let isFirestoreAvailable = false;
+let isPermissionDenied = false;
 let initError: string | null = null;
 
 export function initializeFirebaseAdmin(): { app: App; db: Firestore; auth: Auth } | null {
-  if (adminApp && firestoreDb && adminAuth) {
+  if (adminApp && firestoreDb && adminAuth && !isPermissionDenied) {
     return { app: adminApp, db: firestoreDb, auth: adminAuth };
   }
 
@@ -64,20 +65,24 @@ export function initializeFirebaseAdmin(): { app: App; db: Firestore; auth: Auth
     });
 
     adminAuth = getAuth(adminApp);
-    isFirestoreAvailable = true;
+    isFirestoreAvailable = !isPermissionDenied;
     initError = null;
 
-    console.log(`[FirebaseAdmin] Initialized successfully for project '${projectId}', database '${databaseId}'`);
     return { app: adminApp, db: firestoreDb, auth: adminAuth };
   } catch (err: any) {
     initError = err?.message || String(err);
-    console.warn(`[FirebaseAdmin] Initialization warning: ${initError}`);
+    isFirestoreAvailable = false;
     return null;
   }
 }
 
 // Immediately attempt initialization on module load
 initializeFirebaseAdmin();
+
+export function markFirestorePermissionDenied(): void {
+  isPermissionDenied = true;
+  isFirestoreAvailable = false;
+}
 
 export function getAdminDb(): Firestore {
   if (!firestoreDb) {
@@ -101,5 +106,5 @@ export function getAdminAuth(): Auth {
 
 export { FieldValue, Timestamp };
 export function isFirebaseConfigured(): boolean {
-  return isFirestoreAvailable && firestoreDb !== null;
+  return isFirestoreAvailable && !isPermissionDenied && firestoreDb !== null;
 }

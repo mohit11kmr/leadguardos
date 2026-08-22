@@ -1,6 +1,21 @@
-import crypto from 'crypto';
-import { storage, WatchdogTarget, WebhookConfig } from './storage';
+import { watchdogRepository, WatchdogTargetDocument } from './repositories/watchdogRepository';
+import { webhookRepository } from './repositories/webhookRepository';
 import { executeLiveWebsiteScan } from './scannerEngine';
+
+function calculateNextCheckTime(frequency: string = 'DAILY'): string {
+  const now = Date.now();
+  switch (frequency) {
+    case '15MIN':
+      return new Date(now + 15 * 60 * 1000).toISOString();
+    case 'HOURLY':
+      return new Date(now + 60 * 60 * 1000).toISOString();
+    case 'WEEKLY':
+      return new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString();
+    case 'DAILY':
+    default:
+      return new Date(now + 24 * 60 * 60 * 1000).toISOString();
+  }
+}
 
 export class WatchdogScheduler {
   private timer: NodeJS.Timeout | null = null;
@@ -9,7 +24,7 @@ export class WatchdogScheduler {
   public start(intervalMs = 60000) {
     if (this.timer) clearInterval(this.timer);
     console.log(`[WatchdogScheduler] Initializing 24/7 Watchdog Heartbeat Radar (Interval: ${intervalMs / 1000}s)...`);
-    
+
     this.timer = setInterval(() => {
       this.runPeriodicProbes();
     }, intervalMs);
@@ -32,102 +47,137 @@ export class WatchdogScheduler {
     this.isRunningCheck = true;
 
     try {
-      const targets = storage.getWatchdogTargets().filter(t => t.status === 'ACTIVE_TRIAL' || t.status === 'ACTIVE_SUBSCRIPTION');
-      if (targets.length === 0) {
+      // 1. Fetch all targets across database (admin mode = true)
+      const allTargets = await watchdogRepository.getTargets(undefined, undefined, true);
+      const now = new Date();
+
+      // 2. Filter strictly active, non-demo targets whose nextCheckAt has elapsed or is not yet set
+      const eligibleTargets = allTargets.filter(t => {
+        if (t.mode === 'DEMO') return false; // Exclude DEMO mock targets from live customer radar
+        if (t.status !== 'ACTIVE_TRIAL' && t.status !== 'ACTIVE_SUBSCRIPTION') return false;
+
+        // Check if scheduled time has arrived
+        if (!t.nextCheckAt) return true;
+        return new Date(t.nextCheckAt) <= now;
+      });
+
+      if (eligibleTargets.length === 0) {
         this.isRunningCheck = false;
         return;
       }
 
-      for (const target of targets.slice(0, 3)) { // Check up to 3 targets per interval
-        try {
-          const audit = await executeLiveWebsiteScan(target.targetUrl);
-          const hasBrokenWa = audit.whatsappLinks.some((w: any) => !w.isValid);
-          const hasMissingPixel = !audit.metaPixel?.exists;
-          const statusText = hasBrokenWa ? "FAIL (+9191 or broken WA)" : (hasMissingPixel ? "WARN (Missing Pixel)" : "PASS (Healthy)");
-
-          storage.updateWatchdogTarget(target.id, {
-            lastCheckedAt: new Date().toISOString(),
-            lastScore: audit.score,
-            lastStatus: statusText,
-          });
-
-          storage.addWatchdogCheckLog({
-            id: `chk_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
-            domain: target.domain,
-            check: "Automated 4-Pillar Watchdog Probe",
-            status: statusText,
-            score: audit.score,
-            timestamp: new Date().toISOString(),
-            details: audit.allIssues.length > 0 ? `${audit.allIssues.length} issues detected` : "All systems operational",
-          });
-
-          // If a critical leak is found, trigger registered webhooks
-          if (audit.score < 60 || hasBrokenWa) {
-            await this.dispatchWebhooksForIncident(target, audit);
-          }
-        } catch (err: any) {
-          storage.addWatchdogCheckLog({
-            id: `chk_${Date.now()}`,
-            domain: target.domain,
-            check: "Connectivity & Server Probe",
-            status: `FAIL (Unreachable)`,
-            timestamp: new Date().toISOString(),
-            details: err?.message || "Server did not respond",
-          });
-        }
+      // 3. Process eligible targets in concurrency batches of 5
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < eligibleTargets.length; i += BATCH_SIZE) {
+        const chunk = eligibleTargets.slice(i, i + BATCH_SIZE);
+        await Promise.allSettled(chunk.map(target => this.probeSingleTarget(target)));
       }
     } catch (err) {
-      console.warn('[WatchdogScheduler] Probe iteration error:', err);
+      console.warn('[WatchdogScheduler] Periodic probe iteration error:', err);
     } finally {
       this.isRunningCheck = false;
     }
   }
 
-  public async dispatchWebhooksForIncident(target: WatchdogTarget, audit: any) {
-    const webhooks = storage.getWebhooks().filter(w => w.active);
-    if (webhooks.length === 0) return;
+  private async probeSingleTarget(target: WatchdogTargetDocument): Promise<void> {
+    const nextCheckAt = calculateNextCheckTime(target.frequency);
+    const checkStartTime = Date.now();
 
-    const payload = {
-      event: 'watchdog.incident_detected',
-      timestamp: new Date().toISOString(),
-      target: {
-        id: target.id,
+    try {
+      const audit = await executeLiveWebsiteScan(target.targetUrl);
+      const durationMs = Date.now() - checkStartTime;
+
+      const hasBrokenWa = audit.whatsappLinks?.some((w: any) => !w.isValid) || false;
+      const hasMissingPixel = !audit.metaPixel?.exists;
+      const statusText = hasBrokenWa
+        ? 'FAIL (+9191 or broken WhatsApp)'
+        : (hasMissingPixel ? 'WARN (Missing Meta Pixel)' : 'PASS (Healthy)');
+
+      // Update target in repository / Firestore
+      await watchdogRepository.updateTarget(
+        target.id,
+        {
+          lastCheckedAt: new Date().toISOString(),
+          nextCheckAt,
+          lastScore: audit.score,
+          lastStatus: statusText,
+        },
+        undefined,
+        true
+      );
+
+      // Log probe check history
+      await watchdogRepository.addCheckLog({
+        targetId: target.id,
         domain: target.domain,
-        targetUrl: target.targetUrl,
-        contact: target.contact,
-        channel: target.channel,
-      },
-      auditSummary: {
+        check: 'Automated 4-Pillar Watchdog Probe',
+        status: statusText,
         score: audit.score,
-        estimatedMonthlyLoss: audit.estimatedMonthlyLoss,
-        issuesCount: audit.allIssues.length,
-        criticalIssues: audit.allIssues.filter((i: any) => i.severity === 'CRITICAL').map((i: any) => i.title),
-      },
-    };
+        timestamp: new Date().toISOString(),
+        durationMs,
+        details: audit.allIssues?.length > 0
+          ? `${audit.allIssues.length} findings detected (Score: ${audit.score}/100)`
+          : 'All systems fully operational',
+      });
 
-    for (const hook of webhooks) {
-      try {
-        const bodyStr = JSON.stringify(payload);
-        const signature = crypto.createHmac('sha256', hook.secret || 'leadguard_secret').update(bodyStr).digest('hex');
-
-        await fetch(hook.url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-LeadGuard-Signature': signature,
-            'User-Agent': 'LeadGuard-Watchdog-Webhook/2.0',
-          },
-          body: bodyStr,
-        });
-
-        hook.lastTriggeredAt = new Date().toISOString();
-        hook.failureCount = 0;
-      } catch (e) {
-        hook.failureCount = (hook.failureCount || 0) + 1;
-        console.warn(`[Webhook] Failed to dispatch to ${hook.url}:`, e);
+      // If critical leak or degradation detected, trigger incident webhooks
+      if (audit.score < 60 || hasBrokenWa) {
+        await this.dispatchIncidentWebhooks(target, audit);
       }
+    } catch (err: any) {
+      // Record failure log without crashing scheduler
+      await watchdogRepository.updateTarget(
+        target.id,
+        {
+          lastCheckedAt: new Date().toISOString(),
+          nextCheckAt,
+          lastStatus: 'FAIL (Unreachable)',
+        },
+        undefined,
+        true
+      );
+
+      await watchdogRepository.addCheckLog({
+        targetId: target.id,
+        domain: target.domain,
+        check: 'Connectivity & Server Probe',
+        status: 'FAIL (Unreachable)',
+        timestamp: new Date().toISOString(),
+        details: err?.message || 'Host did not respond during probe attempt',
+      });
     }
-    storage.saveToDisk();
+  }
+
+  private async dispatchIncidentWebhooks(target: WatchdogTargetDocument, audit: any): Promise<void> {
+    try {
+      // Get user webhooks or global webhooks
+      const webhooks = await webhookRepository.getWebhooks(target.userId, !target.userId);
+      const activeHooks = webhooks.filter(w => w.active && (w.events.includes('watchdog.alert') || w.events.includes('watchdog.incident_detected')));
+
+      if (activeHooks.length === 0) return;
+
+      const payload = {
+        target: {
+          id: target.id,
+          domain: target.domain,
+          targetUrl: target.targetUrl,
+          contact: target.contact,
+          channel: target.channel,
+        },
+        auditSummary: {
+          score: audit.score,
+          estimatedMonthlyLoss: audit.estimatedMonthlyLoss || 0,
+          issuesCount: audit.allIssues?.length || 0,
+          criticalIssues: audit.allIssues?.filter((i: any) => i.severity === 'CRITICAL').map((i: any) => i.title) || [],
+        },
+      };
+
+      for (const hook of activeHooks) {
+        await webhookRepository.dispatchWebhook(hook, 'watchdog.incident_detected', payload);
+      }
+    } catch (err) {
+      console.warn(`[WatchdogScheduler] Error dispatching incident webhooks for ${target.domain}:`, err);
+    }
   }
 }
 
