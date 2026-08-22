@@ -129,24 +129,21 @@ async function generateGeminiContentWithFallback(prompt: string): Promise<string
   const candidateModels = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"];
   for (const model of candidateModels) {
     try {
-      const res = await ai.models.generateContent({
-        model,
-        contents: prompt,
-      });
-      if (res && res.text) {
-        return res.text.trim();
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500));
+      const generatePromise = ai.models
+        .generateContent({
+          model,
+          contents: prompt,
+        })
+        .then((res) => (res && res.text ? res.text.trim() : null))
+        .catch(() => null);
+
+      const res = await Promise.race([generatePromise, timeoutPromise]);
+      if (res) {
+        return res;
       }
-    } catch (err: any) {
-      const isTemporary =
-        err?.status === 503 ||
-        err?.message?.includes("503") ||
-        err?.message?.includes("high demand") ||
-        err?.message?.includes("UNAVAILABLE") ||
-        err?.message?.includes("429");
-      if (isTemporary) {
-        console.warn(`[Gemini] Model ${model} unavailable, trying fallback...`);
-        continue;
-      }
+    } catch {
+      // Continue to fallback model
     }
   }
   return null;

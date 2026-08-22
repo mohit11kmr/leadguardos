@@ -1,5 +1,5 @@
 import { isPrivateOrBlockedIP, validateUrlSyntax } from '../server/ssrfGuard';
-import { validateWhatsAppNumber, generateIssuesFromExtractedData, buildAuditPayload, SAMPLE_PRESETS } from '../server/scannerEngine';
+import { validateWhatsAppNumber, generateIssuesFromExtractedData, buildAuditPayload, SAMPLE_PRESETS, executeLiveWebsiteScan } from '../server/scannerEngine';
 import { calculateRevenueImpact } from '../src/utils/revenueModel';
 import { FEATURE_REGISTRY } from '../src/config/features';
 import { APP_CONFIG } from '../src/config/appConfig';
@@ -128,6 +128,18 @@ async function runTestSuite() {
   assert(sampleAudit.pillars.lead.score < 50, 'Reflects Lead Guardian penalty');
   assert(sampleAudit.pillars.seo.score < 50, 'Reflects SEO noindex penalty');
   assert(sampleAudit.pillars.cyber.score >= 90, 'Maintains high Cyber score when clean');
+
+  // Test Live Scan Engine with Sample Presets
+  const drSharmaResult = await executeLiveWebsiteScan('drsharmadental.in');
+  assert(drSharmaResult.domain === 'drsharmadental.in', 'Executes live website scan on drsharmadental.in without DNS errors');
+  assert(drSharmaResult.score === 38, 'Correctly loads Dr. Sharma Dental preset audit score');
+  assert(drSharmaResult.whatsappLinks.some((w: any) => w.status === 'BROKEN'), 'Identifies broken WhatsApp link on preset');
+
+  const eliteSalonResult = await executeLiveWebsiteScan('https://elitesalonmumbai.com');
+  assert(eliteSalonResult.domain === 'elitesalonmumbai.com', 'Executes scan on elitesalonmumbai.com with https protocol');
+
+  const apexRealtyResult = await executeLiveWebsiteScan('apexgrandrealestate.com');
+  assert(apexRealtyResult.domain === 'apexgrandrealestate.com', 'Executes scan on apexgrandrealestate.com preset');
 
   // -------------------------------------------------------------------------
   // 5. Feature Registry Completeness

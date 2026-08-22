@@ -1,4 +1,4 @@
-import { validateAndResolveSafeUrl } from './ssrfGuard';
+import { validateAndResolveSafeUrl, validateUrlSyntax } from './ssrfGuard';
 import crypto from 'crypto';
 
 export interface ScanOptions {
@@ -232,6 +232,81 @@ export const SAMPLE_PRESETS: Record<string, any> = {
     },
     diagnosticSummary: "Flawless lead funnel setup! WhatsApp, Meta Pixel, GA4, and Google Reviews are fully synchronized.",
   },
+  "apexgrandrealestate.com": {
+    domain: "apexgrandrealestate.com",
+    businessName: "Apex Grand Real Estate & Plots",
+    score: 42,
+    estimatedMonthlyLoss: 38000,
+    adSpendRisk: "CRITICAL",
+    whatsappLinks: [
+      {
+        url: "https://wa.me/919811223344",
+        status: "WORKING",
+        isValid: true,
+        digits: "919811223344",
+        hasPrefilledText: false,
+        zeroIntentLeak: true,
+        issue: "Zero-intent generic WhatsApp link without pre-filled message. Up to 60% of buyers drop off before typing an inquiry.",
+        suggestedFix: "Use https://wa.me/919811223344?text=Hi%20Apex%20Team,%20I%20am%20interested%20in%203BHK%20luxury%20properties",
+      }
+    ],
+    phoneLinks: [
+      {
+        url: "tel:01244900111",
+        status: "WORKING",
+        isValid: true,
+        number: "0124-4900111",
+      }
+    ],
+    emailLinks: [
+      {
+        url: "mailto:sales@apexgrandrealestate.com",
+        status: "WORKING",
+        isValid: true,
+      }
+    ],
+    reviewLinks: [
+      {
+        url: "https://g.page/apex-grand-gurgaon",
+        platform: "Google Business Profile",
+        status: "WORKING",
+        isValid: true,
+      }
+    ],
+    socialLinks: [
+      { platform: "instagram", url: "https://instagram.com/apexgrand", status: "WORKING", isValid: true }
+    ],
+    metaPixel: {
+      exists: false,
+      duplicate: false,
+      status: "MISSING",
+      issue: "No Meta Pixel (fbq) found. Facebook & Instagram Real Estate Ads are wasting budget without retargeting data.",
+      impactNote: "Ad algorithms cannot optimize for high-net-worth real estate buyers.",
+    },
+    googleTag: {
+      exists: true,
+      tagId: "G-APEXGRAND88",
+      status: "HEALTHY",
+    },
+    seoPenalty: {
+      hasNoIndex: false,
+      hasNoFollow: false,
+      isHttps: true,
+      status: "HEALTHY",
+    },
+    cyberShield: {
+      score: 95,
+      spamGamblingDetected: false,
+      spamKeywordsFound: [],
+      obfuscatedScriptsDetected: false,
+      base64HeavyScriptsCount: 0,
+      hiddenIframesCount: 0,
+      suspiciousRedirectDetected: false,
+      riskLevel: "CLEAN",
+      diagnosis: "SSL secured, clean script signature.",
+    },
+    diagnosticSummary: "Missing Meta Pixel is burning ₹38,000/mo on social media ads, and un-templated WhatsApp link causes high-value property buyer bounce.",
+  },
   "leadguard-os-revenue-ad-shield.ai.studio": {
     domain: "leadguard-os-revenue-ad-shield.ai.studio",
     businessName: "LeadGuard OS — Revenue & Ad Shield",
@@ -449,13 +524,13 @@ export function validateWhatsAppNumber(digits: string): {
 export async function executeLiveWebsiteScan(rawTargetUrl: string, options?: ScanOptions): Promise<any> {
   const startTime = Date.now();
 
-  // 1. SSRF and Safe URL Validation
-  const validation = await validateAndResolveSafeUrl(rawTargetUrl);
-  if (!validation.valid || !validation.normalized) {
-    throw new Error(validation.error || 'Invalid or blocked target URL.');
+  // 1. URL Syntax & Hostname Validation (SSRF syntax check)
+  const syntax = validateUrlSyntax(rawTargetUrl);
+  if (!syntax.valid || !syntax.normalized || !syntax.hostname) {
+    throw new Error(syntax.error || 'Invalid or blocked target URL.');
   }
 
-  const targetUrl = validation.normalized;
+  const targetUrl = syntax.normalized;
   const parsedUrl = new URL(targetUrl);
   const hostname = parsedUrl.hostname.replace(/^www\./, '').toLowerCase();
 
@@ -464,6 +539,12 @@ export async function executeLiveWebsiteScan(rawTargetUrl: string, options?: Sca
     const preset = SAMPLE_PRESETS[hostname];
     const issues = generateIssuesFromExtractedData(preset);
     return buildAuditPayload(targetUrl, hostname, preset, issues, startTime, 180, 25);
+  }
+
+  // 2. DNS Resolution & SSRF Network Verification for live targets
+  const validation = await validateAndResolveSafeUrl(targetUrl);
+  if (!validation.valid || !validation.normalized) {
+    throw new Error(validation.error || 'Invalid or blocked target URL.');
   }
 
   // 2. Live HTTP/HTTPS Fetch with redirect re-validation & size limit
