@@ -472,6 +472,52 @@ async function runTestSuite() {
   assert(revoked && ApiKeyManager.verifyApiKey(apiKey) === null, 'ApiKeyManager revokes API key cleanly');
 
   // -------------------------------------------------------------------------
+  // 14. Phase 5 Entitlements, Onboarding & Usage Limits Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 14: Entitlements, Onboarding & Usage Limits');
+  const { EntitlementService } = await import('../server/services/entitlementService');
+  const { PLAN_CONFIG } = await import('../server/config/pricing');
+  const freeUser = { id: 'usr_free', email: 'free@leadguard.os', role: 'USER' as const };
+  const freePlan = EntitlementService.getUserPlan(freeUser);
+  assert(freePlan === 'FREE', 'EntitlementService assigns FREE plan to standard users');
+
+  const canScanAllowed = EntitlementService.canRunScan(freeUser, { scansThisMonth: 1, watchdogTargetsCount: 0, exportsThisMonth: 0 });
+  assert(canScanAllowed.allowed, 'EntitlementService permits scan when within monthly limit');
+
+  const canScanBlocked = EntitlementService.canRunScan(freeUser, { scansThisMonth: 5, watchdogTargetsCount: 0, exportsThisMonth: 0 });
+  assert(!canScanBlocked.allowed && canScanBlocked.reason?.includes('limit reached'), 'EntitlementService blocks scan when limit is reached');
+
+  const adminUser = { id: 'usr_admin', email: 'admin@leadguard.os', role: 'ADMIN' as const };
+  const adminPlan = EntitlementService.getUserPlan(adminUser);
+  assert(adminPlan === 'AGENCY', 'EntitlementService assigns AGENCY plan to ADMIN users');
+
+  // -------------------------------------------------------------------------
+  // 15. Phase 5 Product Analytics, Webhook Security & Account Deletion Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 15: Product Analytics & Account Deletion');
+  const { ProductAnalytics } = await import('../server/observability/analytics');
+  ProductAnalytics.track('first_scan_started', 'usr_test_1', { domain: 'drsharmadental.in' });
+  ProductAnalytics.track('first_scan_completed', 'usr_test_1', { score: 45 });
+  const funnel = ProductAnalytics.getFunnelStats();
+  assert(funnel['first_scan_completed'] >= 1, 'ProductAnalytics tracks onboarding activation steps');
+
+  const { storage } = await import('../server/storage');
+  storage.addWatchdogTarget({
+    id: 'wd_del_test',
+    userId: 'usr_delete_test',
+    targetUrl: 'https://sample.in',
+    domain: 'sample.in',
+    contact: '@test',
+    channel: 'TELEGRAM',
+    frequency: 'DAILY',
+    status: 'ACTIVE_TRIAL',
+    createdAt: new Date().toISOString(),
+    trialExpiresAt: new Date().toISOString(),
+  });
+  const deletedAccount = storage.deleteAccount('usr_delete_test');
+  assert(deletedAccount && storage.getWatchdogTargetsForUser('usr_delete_test').length === 0, 'storage.deleteAccount revokes watchdog jobs and clears user data');
+
+  // -------------------------------------------------------------------------
   // Final Results
   // -------------------------------------------------------------------------
   console.log('\n======================================================');

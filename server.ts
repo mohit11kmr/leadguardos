@@ -11,6 +11,10 @@ import { watchdogScheduler } from "./server/watchdogScheduler";
 import { FEATURE_REGISTRY } from "./src/config/features";
 import { APP_CONFIG } from "./src/config/appConfig";
 import { requireAuth, optionalAuth, requireRole, signToken, verifyToken, AuthenticatedRequest } from "./server/middleware/auth";
+import { PLAN_CONFIG } from "./server/config/pricing";
+import { EntitlementService } from "./server/services/entitlementService";
+import { ProductAnalytics } from "./server/observability/analytics";
+import { verifyPaymentSignature } from "./server/services/paymentService";
 
 dotenv.config();
 
@@ -816,6 +820,98 @@ app.get("/api/queue/job/:id", requireAuth, (req: Request, res: Response) => {
   const job = jobQueue.getJob(req.params.id);
   if (!job) return res.status(404).json({ error: "Job not found" });
   res.json(job);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5 Monetization, Entitlement, Admin Console & Account Deletion Endpoints
+// ---------------------------------------------------------------------------
+
+// 1. Centralized Entitlements & Usage Limits Probe
+app.get("/api/entitlements", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  const plan = EntitlementService.getUserPlan(user);
+  const limits = PLAN_CONFIG[plan];
+  const usage = storage.getUserUsage(user?.id || "anon");
+
+  res.json({
+    plan,
+    limits,
+    usage,
+    canScan: EntitlementService.canRunScan(user, usage),
+    canWatchdog: EntitlementService.canCreateWatchdog(user, usage),
+    canExport: EntitlementService.canExportReport(user),
+    canUseTools: EntitlementService.canUseAdvancedTool(user),
+  });
+});
+
+// 2. GDPR Personal Data Archive Export
+app.get("/api/user/export-data", requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user!.id;
+  const userScans = storage.getScansForUser(userId);
+  const userMonitors = storage.getWatchdogTargetsForUser(userId);
+  const userLogs = storage.getWatchdogCheckLogsForUser(userId);
+  const userOrders = storage.getOrdersForUser(userId);
+
+  AuditLogger.log({ userId, action: "GDPR_EXPORT_DATA", resource: userId, ipAddress: req.ip });
+
+  res.setHeader("Content-Disposition", `attachment; filename=leadguard_export_${userId}.json`);
+  res.json({
+    user: req.user,
+    scans: userScans,
+    monitors: userMonitors,
+    checkLogs: userLogs,
+    orders: userOrders,
+    exportedAt: new Date().toISOString(),
+  });
+});
+
+// 3. Safe Account Deletion Flow
+app.post("/api/user/delete-account", requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user!.id;
+  AuditLogger.log({ userId, action: "DELETE_ACCOUNT", resource: userId, ipAddress: req.ip });
+  const success = storage.deleteAccount(userId);
+  res.json({ status: "DELETED", success, userId });
+});
+
+// 4. Internal Admin Operations Overview (Requires ADMIN role)
+app.get("/api/admin/overview", requireAuth, requireRole("ADMIN"), (req: AuthenticatedRequest, res: Response) => {
+  const snapshot = metrics.getSnapshot();
+  const logs = storage.getAuditLogs(50);
+  const totalScans = storage.getStats();
+
+  AuditLogger.log({ userId: req.user?.id, action: "VIEW_ADMIN_OVERVIEW", resource: "ADMIN_CONSOLE", ipAddress: req.ip });
+
+  res.json({
+    metrics: snapshot,
+    auditLogs: logs,
+    stats: totalScans,
+    serverTime: new Date().toISOString(),
+  });
+});
+
+// 5. Authoritative Razorpay Payment Webhook
+app.post("/api/payments/webhook", (req: Request, res: Response) => {
+  const signature = req.headers["x-razorpay-signature"] as string;
+  const payload = JSON.stringify(req.body);
+
+  if (!signature) {
+    return res.status(400).json({ error: "Missing webhook signature" });
+  }
+
+  const isValid = verifyPaymentSignature("ord_webhook", "pay_webhook", signature, process.env.RAZORPAY_KEY_SECRET || "leadguard_dev_razorpay_secret");
+  if (!isValid) {
+    AuditLogger.log({ action: "PAYMENT_WEBHOOK_FAILED", resource: "WEBHOOK", details: { reason: "Invalid HMAC signature" } });
+    return res.status(400).json({ error: "Invalid payment signature" });
+  }
+
+  const { event, payload: eventData } = req.body;
+  if (event === "payment.captured") {
+    const orderId = eventData?.payment?.entity?.order_id;
+    AuditLogger.log({ action: "PAYMENT_WEBHOOK_CAPTURED", resource: orderId || "WEBHOOK" });
+    ProductAnalytics.track("payment_completed", "anon", { orderId });
+  }
+
+  res.json({ status: "PROCESSED", event });
 });
 
 // ---------------------------------------------------------------------------

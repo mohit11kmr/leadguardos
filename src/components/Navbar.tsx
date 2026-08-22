@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Shield, TrendingDown, Layers, Radio, Zap, ChevronDown, Swords, MessageCircle, ShoppingCart, Crosshair, Phone, Globe, User, LogIn, LogOut, Wrench } from 'lucide-react';
+import { Shield, TrendingDown, Layers, Radio, Zap, ChevronDown, Swords, MessageCircle, ShoppingCart, Crosshair, Phone, Globe, User, LogIn, LogOut, Wrench, Settings, CreditCard, ShieldCheck } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
-export type AppTab = 'scanner' | 'sabotage-radar' | 'zero-intent' | 'cart-death' | 'hunter' | 'funnel' | 'agency' | 'watchdog' | 'pricing';
+export type AppTab = 'scanner' | 'sabotage-radar' | 'zero-intent' | 'cart-death' | 'hunter' | 'funnel' | 'agency' | 'watchdog' | 'pricing' | 'billing' | 'settings' | 'admin';
 
 interface NavbarProps {
   activeTab: AppTab;
@@ -19,8 +19,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenContact,
 }) => {
   const { lang, setLang, t } = useLanguage();
-  const { user, profile, signInWithGoogle, signOut } = useAuth();
+  const { user, profile, signInWithGoogle, signOut, isAdmin } = useAuth();
   const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   const primaryTabs = [
     { id: 'scanner', label: t('nav.liveAudit', 'Audit Dashboard'), icon: Shield },

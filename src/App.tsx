@@ -24,6 +24,10 @@ import { HunterMode } from './components/HunterMode';
 import { ScanCounterStats } from './components/ScanCounterStats';
 import { LiveScanningRadar } from './components/LiveScanningRadar';
 import { PublicReportView } from './components/PublicReportView';
+import { BillingView } from './components/BillingView';
+import { AccountSettingsView } from './components/AccountSettingsView';
+import { AdminDashboardView } from './components/AdminDashboardView';
+import { OnboardingBanner } from './components/OnboardingBanner';
 import { AuditResult, GlobalScanStats, PillarType } from './types';
 import { Shield, AlertCircle, Sparkles, CheckCircle2, ArrowRight, Search, ShieldCheck, Zap } from 'lucide-react';
 
@@ -397,6 +401,27 @@ export default function App() {
               onOpenWatchdog={() => setIsWatchdogOpen(true)}
               onOpenExpressFix={() => setIsExpressFixOpen(true)}
             />
+          </div>
+        )}
+
+        {/* TAB 6: BILLING VIEW */}
+        {activeTab === 'billing' && (
+          <div className="space-y-6">
+            <BillingView onOpenExpressFix={() => setIsExpressFixOpen(true)} />
+          </div>
+        )}
+
+        {/* TAB 7: ACCOUNT SETTINGS & DANGER ZONE */}
+        {activeTab === 'settings' && (
+          <div className="space-y-6">
+            <AccountSettingsView />
+          </div>
+        )}
+
+        {/* TAB 8: ADMIN OPERATIONS DASHBOARD */}
+        {activeTab === 'admin' && (
+          <div className="space-y-6">
+            <AdminDashboardView />
           </div>
         )}
 

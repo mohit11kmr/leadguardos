@@ -239,6 +239,10 @@ class StorageEngine {
     return this.scans.get(scanId);
   }
 
+  public getScansForUser(userId: string): ScanRecord[] {
+    return Array.from(this.scans.values()).filter(s => s.userId === userId);
+  }
+
   public getScansHistory(limit = 20): ScanRecord[] {
     return Array.from(this.scans.values())
       .sort((a, b) => new Date(b.scannedAt).getTime() - new Date(a.scannedAt).getTime())
@@ -357,6 +361,7 @@ class StorageEngine {
 
   // --- Audit Log Methods ---
   private auditLogs: any[] = [];
+  private userUsageMap = new Map<string, { scansThisMonth: number; exportsThisMonth: number }>();
 
   public addAuditLog(entry: any) {
     this.auditLogs.unshift(entry);
@@ -366,6 +371,44 @@ class StorageEngine {
 
   public getAuditLogs(limit = 50): any[] {
     return this.auditLogs.slice(0, limit);
+  }
+
+  public getUserUsage(userId: string) {
+    const current = this.userUsageMap.get(userId) || { scansThisMonth: 0, exportsThisMonth: 0 };
+    const watchdogCount = this.getWatchdogTargetsForUser(userId).length;
+    return {
+      ...current,
+      watchdogTargetsCount: watchdogCount,
+    };
+  }
+
+  public incrementUserScanUsage(userId: string) {
+    const current = this.userUsageMap.get(userId) || { scansThisMonth: 0, exportsThisMonth: 0 };
+    current.scansThisMonth += 1;
+    this.userUsageMap.set(userId, current);
+    this.saveToDisk();
+  }
+
+  public deleteAccount(userId: string): boolean {
+    if (!userId) return false;
+
+    // 1. Delete user watchdog targets
+    const userTargets = this.getWatchdogTargetsForUser(userId);
+    for (const target of userTargets) {
+      this.deleteWatchdogTarget(target.id);
+    }
+
+    // 2. Delete webhooks
+    const userWebhooks = this.getWebhooksForUser(userId);
+    for (const hook of userWebhooks) {
+      this.deleteWebhook(hook.id);
+    }
+
+    // 3. Remove usage map
+    this.userUsageMap.delete(userId);
+
+    this.saveToDisk();
+    return true;
   }
 }
 

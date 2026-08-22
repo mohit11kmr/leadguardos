@@ -37,11 +37,19 @@
       "channel": "EMAIL",
       "frequency": "DAILY",
       "status": "ACTIVE_TRIAL",
-      "createdAt": "2026-08-22T04:40:39.375Z",
-      "trialExpiresAt": "2026-08-22T04:40:39.375Z"
+      "createdAt": "2026-08-22T05:00:15.999Z",
+      "trialExpiresAt": "2026-08-22T05:00:15.999Z"
     }
   ],
   "watchdogChecks": [
+    {
+      "id": "chk_1787374816131",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T05:00:16.131Z",
+      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
+    },
     {
       "id": "chk_1787373639555",
       "domain": "drsharmadental.in",
@@ -866,17 +874,19 @@
       "check": "Meta Pixel & GA4 Ping",
       "status": "PASS (Healthy)",
       "timestamp": "2026-08-22T00:47:38.692Z"
-    },
-    {
-      "id": "chk_4",
-      "domain": "apexgrandrealestate.com",
-      "check": "Toll Free Dialer",
-      "status": "FAIL (8-digit cut)",
-      "timestamp": "2026-08-22T00:40:38.692Z"
     }
   ],
   "webhooks": [],
   "orders": [
+    {
+      "orderId": "ord_test_99",
+      "tierId": "tier-express-fix",
+      "tierName": "Express Fix",
+      "amountINR": 4999,
+      "paymentMethod": "UPI",
+      "status": "PAID",
+      "createdAt": "2026-08-22T05:00:16.002Z"
+    },
     {
       "orderId": "ord_test_99",
       "tierId": "tier-express-fix",
