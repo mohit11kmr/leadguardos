@@ -751,11 +751,88 @@ Draft a personalized cold WhatsApp outreach pitch pointing out the exact convers
 });
 
 // ---------------------------------------------------------------------------
+// Phase 4 Observability, Readiness Probe, Queue & API Key Endpoints
+// ---------------------------------------------------------------------------
+
+// 1. Health Probe (Lightweight)
+app.get("/api/health", (_req: Request, res: Response) => {
+  res.json({ status: "OK", timestamp: new Date().toISOString() });
+});
+
+// 2. Readiness Probe (Verifies DB, Queue, Storage)
+app.get("/api/ready", async (_req: Request, res: Response) => {
+  try {
+    const dbHealth = await db.checkHealth();
+    const queueDepth = jobQueue.getQueueDepth();
+    const memoryUsage = process.memoryUsage();
+
+    res.json({
+      status: "READY",
+      database: dbHealth,
+      queue: { activeJobs: queueDepth },
+      memory: { rssMB: Math.round(memoryUsage.rss / 1024 / 1024) },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(503).json({ status: "UNREADY", error: err?.message || "Service unready" });
+  }
+});
+
+// 3. Operational Metrics Endpoint
+app.get("/api/metrics", requireAuth, requireRole("ADMIN"), (_req: Request, res: Response) => {
+  res.json(metrics.getSnapshot());
+});
+
+// 4. API Key Creation & Revocation Endpoints
+app.post("/api/keys/create", requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user?.id || "anon";
+  const { apiKey, keyId, record } = ApiKeyManager.generateApiKey(userId);
+  AuditLogger.log({ userId, action: "CREATE_API_KEY", resource: keyId, ipAddress: req.ip });
+  res.json({ apiKey, keyId, prefix: record.keyPrefix, createdAt: record.createdAt });
+});
+
+app.post("/api/keys/revoke", requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const { keyId } = req.body;
+  if (!keyId) return res.status(400).json({ error: "keyId is required" });
+  const success = ApiKeyManager.revokeApiKey(keyId);
+  if (success) {
+    AuditLogger.log({ userId: req.user?.id, action: "REVOKE_API_KEY", resource: keyId, ipAddress: req.ip });
+    res.json({ status: "REVOKED", keyId });
+  } else {
+    res.status(404).json({ error: "API Key not found" });
+  }
+});
+
+// 5. Asynchronous Job Queue Enqueue & Status Endpoints
+app.post("/api/queue/enqueue", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const { type, data } = req.body;
+  if (!type || !data) return res.status(400).json({ error: "type and data are required" });
+
+  const job = await jobQueue.enqueue(type, data, req.user?.id);
+  res.json({ jobId: job.id, status: job.status, createdAt: job.createdAt });
+});
+
+app.get("/api/queue/job/:id", requireAuth, (req: Request, res: Response) => {
+  const job = jobQueue.getJob(req.params.id);
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  res.json(job);
+});
+
+// ---------------------------------------------------------------------------
 // 4. Vite Middleware & Production Server Start
 // ---------------------------------------------------------------------------
+import { backgroundWorker } from "./server/queue/worker";
+import { GracefulShutdownHandler } from "./server/utils/shutdown";
+import { db } from "./server/db/database";
+import { jobQueue } from "./server/queue/jobQueue";
+import { metrics } from "./server/observability/metrics";
+import { AuditLogger } from "./server/observability/auditLogger";
+import { ApiKeyManager } from "./server/security/apiKeyManager";
+
 async function startServer() {
-  // Start background watchdog heartbeat scheduler
+  // Start background watchdog heartbeat & background queue worker
   watchdogScheduler.start(60000);
+  backgroundWorker.start(1000);
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -771,9 +848,12 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`LeadGuard OS Production Diagnostic Server active on http://0.0.0.0:${PORT}`);
   });
+
+  // Register graceful shutdown handler
+  GracefulShutdownHandler.registerSignalHandlers(server);
 }
 
 startServer();

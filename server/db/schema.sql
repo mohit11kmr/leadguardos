@@ -1,0 +1,159 @@
+-- LeadGuard OS Relational Database Schema DDL (PostgreSQL Compatible)
+
+CREATE TABLE IF NOT EXISTS users (
+  id VARCHAR(64) PRIMARY KEY,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  role VARCHAR(32) NOT NULL DEFAULT 'USER',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS scans (
+  scan_id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+  public_token VARCHAR(64) UNIQUE NOT NULL,
+  target_url TEXT NOT NULL,
+  domain VARCHAR(255) NOT NULL,
+  business_name VARCHAR(255),
+  score INTEGER NOT NULL,
+  estimated_monthly_loss INTEGER NOT NULL,
+  ad_spend_risk VARCHAR(32) NOT NULL,
+  pillars_json TEXT NOT NULL,
+  scanned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS scan_findings (
+  id VARCHAR(64) PRIMARY KEY,
+  scan_id VARCHAR(64) NOT NULL REFERENCES scans(scan_id) ON DELETE CASCADE,
+  category VARCHAR(64) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  severity VARCHAR(32) NOT NULL,
+  confidence VARCHAR(32) NOT NULL,
+  detected_by VARCHAR(32) NOT NULL,
+  observed TEXT NOT NULL,
+  inferred TEXT NOT NULL,
+  evidence TEXT NOT NULL,
+  impact TEXT NOT NULL,
+  recommendation TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS scan_jobs (
+  job_id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+  target_url TEXT NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'QUEUED',
+  attempt INTEGER NOT NULL DEFAULT 1,
+  scheduled_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  started_at TIMESTAMP WITH TIME ZONE,
+  finished_at TIMESTAMP WITH TIME ZONE,
+  error_message TEXT,
+  result_json TEXT
+);
+
+CREATE TABLE IF NOT EXISTS watchdog_targets (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+  target_url TEXT NOT NULL,
+  domain VARCHAR(255) NOT NULL,
+  contact VARCHAR(255) NOT NULL,
+  channel VARCHAR(32) NOT NULL DEFAULT 'TELEGRAM',
+  frequency VARCHAR(32) NOT NULL DEFAULT 'DAILY',
+  status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE_TRIAL',
+  last_checked_at TIMESTAMP WITH TIME ZONE,
+  last_score INTEGER,
+  last_status VARCHAR(255),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  trial_expires_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE IF NOT EXISTS watchdog_checks (
+  id VARCHAR(64) PRIMARY KEY,
+  target_id VARCHAR(64) REFERENCES watchdog_targets(id) ON DELETE CASCADE,
+  user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+  domain VARCHAR(255) NOT NULL,
+  check_type VARCHAR(255) NOT NULL,
+  status VARCHAR(255) NOT NULL,
+  score INTEGER,
+  details TEXT,
+  timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS webhooks (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  url TEXT NOT NULL,
+  secret VARCHAR(255) NOT NULL,
+  events_json TEXT NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  last_triggered_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+  order_id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+  tier_id VARCHAR(64) NOT NULL,
+  tier_name VARCHAR(255) NOT NULL,
+  amount_inr INTEGER NOT NULL,
+  payment_method VARCHAR(64) NOT NULL,
+  customer_name VARCHAR(255),
+  customer_phone VARCHAR(255),
+  customer_email VARCHAR(255),
+  domain VARCHAR(255),
+  status VARCHAR(32) NOT NULL DEFAULT 'PAYMENT_PENDING',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+  payment_id VARCHAR(64) PRIMARY KEY,
+  order_id VARCHAR(64) REFERENCES orders(order_id) ON DELETE CASCADE,
+  razorpay_payment_id VARCHAR(255),
+  razorpay_signature VARCHAR(255),
+  amount_inr INTEGER NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  verified_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+  action VARCHAR(128) NOT NULL,
+  resource VARCHAR(128) NOT NULL,
+  details_json TEXT,
+  ip_address VARCHAR(64),
+  timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+  key_id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key_hash VARCHAR(255) NOT NULL UNIQUE,
+  key_prefix VARCHAR(32) NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  revoked_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  channel VARCHAR(32) NOT NULL,
+  recipient VARCHAR(255) NOT NULL,
+  payload_json TEXT NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'QUEUED',
+  sent_at TIMESTAMP WITH TIME ZONE,
+  error_message TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Production Performance Indexes
+CREATE INDEX IF NOT EXISTS idx_scans_user_id ON scans(user_id);
+CREATE INDEX IF NOT EXISTS idx_scans_domain ON scans(domain);
+CREATE INDEX IF NOT EXISTS idx_watchdog_next_run ON watchdog_targets(last_checked_at, status);
+CREATE INDEX IF NOT EXISTS idx_watchdog_user_id ON watchdog_targets(user_id);
+CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_scan_jobs_status ON scan_jobs(status, scheduled_time);

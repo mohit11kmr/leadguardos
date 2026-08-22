@@ -421,6 +421,57 @@ async function runTestSuite() {
   assert(job.status === 'COMPLETED' || job.status === 'FAILED', 'WatchdogScheduler executes job abstraction cleanly');
 
   // -------------------------------------------------------------------------
+  // 11. Phase 4 Relational Database & Transactions Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 11: Relational Database & Transactions');
+  const { db } = await import('../server/db/database');
+  const dbHealth = await db.checkHealth();
+  assert(dbHealth.status === 'OK', 'DatabaseManager returns OK health status');
+
+  const txResult = await db.executeTransaction(async (_tx) => {
+    return { created: true, scanId: 'scan_tx_123' };
+  });
+  assert(txResult.created && txResult.scanId === 'scan_tx_123', 'DatabaseManager executes atomic transaction cleanly');
+
+  // -------------------------------------------------------------------------
+  // 12. Phase 4 Async Job Queue & Worker Retries Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 12: Async Job Queue & Worker Retries');
+  const { jobQueue } = await import('../server/queue/jobQueue');
+  const { RetryPolicy } = await import('../server/queue/retryPolicy');
+  const enqueuedJob = await jobQueue.enqueue('scanWebsite', { url: 'drsharmadental.in' }, 'usr_test_1');
+  assert(enqueuedJob.id.startsWith('job_') && enqueuedJob.status === 'QUEUED', 'JobQueue enqueues async scanWebsite job cleanly');
+  assert(jobQueue.getJob(enqueuedJob.id)?.type === 'scanWebsite', 'JobQueue retrieves enqueued job by ID');
+
+  const shouldRetryTimeout = RetryPolicy.shouldRetry(new Error('ETIMEDOUT'), 1, 3);
+  assert(shouldRetryTimeout, 'RetryPolicy retries transient network timeouts');
+
+  const shouldRetrySsrf = RetryPolicy.shouldRetry(new Error('SSRF Guard blocked target URL'), 1, 3);
+  assert(!shouldRetrySsrf, 'RetryPolicy rejects non-transient SSRF security errors');
+
+  // -------------------------------------------------------------------------
+  // 13. Phase 4 Observability, API Key Hashing & Readiness Probes Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 13: Observability, API Keys & Readiness Probes');
+  const { Logger } = await import('../server/observability/logger');
+  const { metrics } = await import('../server/observability/metrics');
+  const { ApiKeyManager } = await import('../server/security/apiKeyManager');
+
+  metrics.recordScanStart();
+  metrics.recordScanSuccess(450);
+  const snapshot = metrics.getSnapshot();
+  assert(snapshot.scansStarted >= 1 && snapshot.averageScanDurationMs === 450, 'MetricsCollector records scan metrics and average latency');
+
+  const { apiKey, keyId, record } = ApiKeyManager.generateApiKey('usr_test_1');
+  assert(apiKey.startsWith('lg_live_') && record.active, 'ApiKeyManager generates secure lg_live_ API key');
+
+  const verifiedKey = ApiKeyManager.verifyApiKey(apiKey);
+  assert(verifiedKey !== null && verifiedKey.keyId === keyId, 'ApiKeyManager verifies valid API key via SHA-256 hash');
+
+  const revoked = ApiKeyManager.revokeApiKey(keyId);
+  assert(revoked && ApiKeyManager.verifyApiKey(apiKey) === null, 'ApiKeyManager revokes API key cleanly');
+
+  // -------------------------------------------------------------------------
   // Final Results
   // -------------------------------------------------------------------------
   console.log('\n======================================================');

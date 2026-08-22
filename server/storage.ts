@@ -354,6 +354,19 @@ class StorageEngine {
     this.stats.lastUpdated = new Date().toISOString();
     this.saveToDisk();
   }
+
+  // --- Audit Log Methods ---
+  private auditLogs: any[] = [];
+
+  public addAuditLog(entry: any) {
+    this.auditLogs.unshift(entry);
+    if (this.auditLogs.length > 500) this.auditLogs.pop();
+    this.saveToDisk();
+  }
+
+  public getAuditLogs(limit = 50): any[] {
+    return this.auditLogs.slice(0, limit);
+  }
 }
 
 export const storage = new StorageEngine();
