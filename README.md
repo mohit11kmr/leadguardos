@@ -1,84 +1,163 @@
-# LeadGuard OS — Website Revenue & Conversion Diagnostic Engine
+# 🛡️ LeadGuard OS — Revenue & Ad Spend Shield
 
-LeadGuard OS is an enterprise diagnostic and funnel security platform that audits websites for revenue leakage, broken communication routes (e.g. WhatsApp double country code errors `+9191`), missing ad attribution pixels, robots indexing traps, and transport security defects.
+> **Autonomous Lead Leakage, Conversion Audit & Ad Spend Shield for Indian & Global SMBs and Digital Agencies.**
 
----
-
-## 🚀 Key Capabilities
-
-1. **4-Pillar Diagnostic Engine**:
-   - **Lead Guardian (35%)**: Validates WhatsApp routing, phone click-to-call formats, form action tags, and mobile CTAs.
-   - **Ad Spend Protection (30%)**: Detects Meta Pixel, Google Tag Manager, Google Analytics 4, and TikTok Pixel attribution scripts.
-   - **SEO & Discoverability (20%)**: Flags active `noindex` / `nofollow` tags, canonical status, and mobile viewport compliance.
-   - **Cyber & SSL (15%)**: Checks HTTPS enforcement, mixed-content security, and header hygiene.
-
-2. **24/7 Watchdog Heartbeat & Monitoring**:
-   - Distributed worker lease locking (`acquireTargetLease` / `releaseTargetLease`) to eliminate probe collisions across multi-instance containers.
-   - SHA-256 finding fingerprinting with automated 6-hour incident deduplication.
-
-3. **Enterprise Security & Data Isolation**:
-   - Multi-layer SSRF filter blocking IPv4 private subnets (RFC 1918), loopbacks, link-local, IPv6 unique local, and AWS/GCP cloud metadata (`169.254.169.254`).
-   - Role-Based Access Control (RBAC) with secure Firestore user profile syncing.
-   - Secret masking on webhook and API listings (`********`).
-   - Public scan token isolation (`/report/:token`) with strict owner-only ID access.
-
-4. **Multi-Provider Monetization & Webhooks**:
-   - Webhook integrations for Razorpay (HMAC-SHA256 signature verification), Stripe, and Cashfree.
-   - Guarded order state transitions preventing unverified status mutation.
+LeadGuard OS is an enterprise-grade web application and SaaS platform engineered to detect broken lead conversion channels, dead WhatsApp routing (+9191 bug, 0-prefix, missing country code), click-to-call failures, absent Meta Pixels/GA4 tags, Google search `noindex` penalties, and security risks.
 
 ---
 
-## 🛠️ Environment Configuration
+## 📑 Table of Contents
+- [Architecture & Tech Stack](#-architecture--tech-stack)
+- [4-Pillar Diagnostic Engine](#-4-pillar-diagnostic-engine)
+- [Security & SSRF Hardening](#-security--ssrf-hardening)
+- [Payment & Order Security](#-payment--order-security)
+- [Feature Registry (LG-001 to LG-028)](#-feature-registry-lg-001-to-lg-028)
+- [API Reference](#-api-reference)
+- [Local Setup & Testing](#-local-setup--testing)
 
-Copy `.env.example` to `.env` and configure credentials:
+---
 
-```env
-# Server & Runtime
-NODE_ENV=production
-STORAGE_MODE=firestore
+## 🏗️ Architecture & Tech Stack
 
-# AI Diagnostics
-GEMINI_API_KEY=your_gemini_api_key_here
+```
+                              ┌────────────────────────────────────────┐
+                              │       Express.js Server (server.ts)    │
+                              └───────────────────┬────────────────────┘
+                                                  │
+         ┌────────────────────────┬───────────────┴───────────────┬────────────────────────┐
+         ▼                        ▼                               ▼                        ▼
+┌──────────────────┐    ┌──────────────────┐            ┌──────────────────┐     ┌──────────────────┐
+│ Middleware Layer │    │ Security Module  │            │ Payment Services │     │ Storage Engine   │
+│ - auth.ts (JWT)  │    │ - safeFetch.ts   │            │ - paymentService │     │ - storage.ts     │
+│ - rateLimiter    │    │ - ssrfGuard.ts   │            │   (HMAC Razorpay)│     │ - repositories/  │
+└──────────────────┘    └──────────────────┘            └──────────────────┘     └──────────────────┘
+```
 
-# Firebase Admin SDK (Cloud Firestore)
-FIREBASE_PROJECT_ID=your_firebase_project_id
-FIREBASE_CLIENT_EMAIL=your_service_account_email@project.iam.gserviceaccount.com
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+### Stack Components:
+* **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, Motion (Framer Motion), Lucide Icons, jsPDF.
+* **Backend**: Node.js, Express, TypeScript, Google Gemini AI (`@google/genai`).
+* **Security & Auth**: JWT Bearer Auth, API Keys, SSRF Guard (`safeFetch`), HMAC SHA-256 Webhook/Payment signing.
+* **Storage**: In-memory Map data structure with atomic disk JSON persistence and clean repository pattern.
 
-# Payment Gateways (Optional)
-RAZORPAY_KEY_ID=your_razorpay_key_id
-RAZORPAY_KEY_SECRET=your_razorpay_key_secret
-RAZORPAY_WEBHOOK_SECRET=your_razorpay_webhook_secret
-STRIPE_SECRET_KEY=your_stripe_secret_key
-STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
+---
+
+## 🛡️ 4-Pillar Diagnostic Engine
+
+1. **Lead Capture Shield (35% Weight)**
+   - WhatsApp link syntax verification (+9191 double prefix, leading 0 prefix, missing +91).
+   - Click-to-call `tel:` link format inspection.
+   - Contact form & CTA button validation.
+
+2. **Ad & Attribution Shield (25% Weight)**
+   - Meta Pixel (`fbq`) tracking script presence.
+   - Google Analytics 4 (`G-XXXXX`) & GTM tags.
+   - Conversion event tracking & ad spend wastage calculator.
+
+3. **SEO & Visibility Shield (20% Weight)**
+   - Google indexing check (`<meta name="robots" content="noindex">`).
+   - Canonical URL consistency.
+   - XML Sitemap & Robots.txt health.
+
+4. **Cyber & Security Shield (20% Weight)**
+   - SSL/HTTPS encryption status.
+   - Mixed content HTTP resources on HTTPS pages.
+   - Security headers (`Content-Security-Policy`, `X-Frame-Options`).
+   - Open admin/config path exposure.
+
+---
+
+## 🔒 Security & SSRF Hardening
+
+LeadGuard OS includes a centralized **SSRF Guard (`safeFetch`)** in `server/security/safeFetch.ts`:
+* **Pre-resolution DNS validation**: Resolves hostname via `dns.promises.lookup` before connection.
+* **Restricted Network Blocking**: Blocks IPv4 loopback (`127.0.0.0/8`), RFC 1918 private subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), Carrier-Grade NAT (`100.64.0.0/10`), Link-Local (`169.254.0.0/16`), Cloud Metadata (`169.254.169.254`, `metadata.google.internal`), and IPv6 loopback/ULA.
+* **Safe Redirect Follower**: Re-evaluates redirect destination URLs against the SSRF guard on every hop (max 3 redirects).
+* **Timeouts & Limits**: Enforces 10s connection timeout and 5MB response size limit.
+
+---
+
+## 💳 Payment & Order Security
+
+- **Server-Side Price Calculation**: Product prices are strictly calculated on the server via `calculateTierPrice(tierId)` lookup. Client-supplied amounts are ignored.
+- **State Machine**: Orders transition through `CREATED` ➔ `PAYMENT_PENDING` ➔ `PAID` / `FAILED`.
+- **HMAC Verification**: Payments must be verified via HMAC-SHA256 signature verification (`POST /api/monetization/verify-payment`) matching Razorpay/Stripe payload format.
+
+---
+
+## 📋 API Reference
+
+### 1. Website Scan API
+```http
+POST /api/scan
+Content-Type: application/json
+
+{
+  "url": "https://example.com"
+}
+```
+
+### 2. 24/7 Watchdog Registration
+```http
+POST /api/watchdog/subscribe
+Content-Type: application/json
+
+{
+  "targetUrl": "https://example.com",
+  "contact": "+919876543210",
+  "channel": "WHATSAPP",
+  "frequency": "DAILY"
+}
+```
+
+### 3. Order Creation API
+```http
+POST /api/monetization/order
+Content-Type: application/json
+
+{
+  "tierId": "tier-express-fix",
+  "paymentMethod": "UPI"
+}
+```
+
+### 4. Verify Payment Signature API
+```http
+POST /api/monetization/verify-payment
+Content-Type: application/json
+
+{
+  "orderId": "ord_1700000000_abcd",
+  "razorpayOrderId": "order_xyz123",
+  "razorpayPaymentId": "pay_999",
+  "razorpaySignature": "hmac_sha256_signature_string"
+}
 ```
 
 ---
 
-## 🧪 Testing & Verification
+## 🚀 Local Setup & Testing
 
-Run the automated test suite covering SSRF defense, regex accuracy, scoring models, feature registry, and distributed locking:
-
+### 1. Install Dependencies
 ```bash
-# Run all automated tests
-npm test
-
-# Run type check and lint
-npm run lint
-
-# Compile production bundle
-npm run build
+bun install  # or npm install
 ```
 
----
+### 2. Run Automated Test Suite
+```bash
+npx tsx tests/run-tests.ts
+```
 
-## 📦 Production Deployment
+### 3. Run Typecheck & Lint
+```bash
+npx tsc --noEmit
+```
 
-The project builds a dual-target production artifact:
-- Client SPA static assets output to `dist/`
-- Express API server bundled to `dist/server.cjs` via `esbuild`
+### 4. Start Development Server
+```bash
+npm run dev
+```
 
-Start the production server:
+### 5. Production Build
 ```bash
 npm run build
 npm start
