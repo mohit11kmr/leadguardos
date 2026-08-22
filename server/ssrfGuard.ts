@@ -1,0 +1,173 @@
+import dns from 'dns';
+import net from 'net';
+
+/**
+ * LeadGuard OS — Production SSRF Defense Engine
+ * Protects server against Server-Side Request Forgery by performing pre-resolution
+ * and checking IP addresses against RFC 1918, Loopback, Carrier NAT, Link-Local, and Cloud Metadata addresses.
+ */
+
+export interface SSRFValidationResult {
+  valid: boolean;
+  error?: string;
+  normalized?: string;
+  ip?: string;
+}
+
+export function isPrivateOrBlockedIP(ip: string): boolean {
+  if (!ip) return true;
+
+  // Trim and strip IPv6 bracket/zone if present
+  const cleanIp = ip.trim().replace(/^\[|\]$/g, '');
+
+  // Exact matches for loopback and zero
+  if (cleanIp === '127.0.0.1' || cleanIp === '::1' || cleanIp === '0.0.0.0' || cleanIp === '::') {
+    return true;
+  }
+
+  // IPv4 Checks
+  if (net.isIPv4(cleanIp)) {
+    const parts = cleanIp.split('.').map(Number);
+    if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) {
+      return true;
+    }
+
+    // 0.0.0.0/8 (Current network)
+    if (parts[0] === 0) return true;
+
+    // 10.0.0.0/8 (RFC 1918 Private)
+    if (parts[0] === 10) return true;
+
+    // 100.64.0.0/10 (Carrier Grade NAT)
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+
+    // 127.0.0.0/8 (Loopback)
+    if (parts[0] === 127) return true;
+
+    // 169.254.0.0/16 (Link Local & AWS/GCP/Azure Metadata: 169.254.169.254)
+    if (parts[0] === 169 && parts[1] === 254) return true;
+
+    // 172.16.0.0/12 (RFC 1918 Private)
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+
+    // 192.0.0.0/24 (IETF Protocol Assignments)
+    if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true;
+
+    // 192.168.0.0/16 (RFC 1918 Private)
+    if (parts[0] === 192 && parts[1] === 168) return true;
+
+    // 198.18.0.0/15 (Network Interconnect Benchmark Testing)
+    if (parts[0] === 198 && (parts[1] === 18 || parts[1] === 19)) return true;
+
+    // 224.0.0.0/4 (Multicast)
+    if (parts[0] >= 224 && parts[0] <= 239) return true;
+
+    // 240.0.0.0/4 (Reserved for future use & Broadcast)
+    if (parts[0] >= 240) return true;
+  }
+
+  // IPv6 Checks
+  if (net.isIPv6(cleanIp)) {
+    const lower = cleanIp.toLowerCase();
+    // Loopback
+    if (lower === '::1' || lower === '0:0:0:0:0:0:0:1') return true;
+    // IPv4-mapped IPv6 (::ffff:127.0.0.1 etc)
+    if (lower.startsWith('::ffff:')) {
+      const ipv4Part = lower.substring(7);
+      if (net.isIPv4(ipv4Part)) {
+        return isPrivateOrBlockedIP(ipv4Part);
+      }
+    }
+    // Unique Local Addresses (fc00::/7)
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
+    // Link-local unicast (fe80::/10)
+    if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true;
+  }
+
+  return false;
+}
+
+export function validateUrlSyntax(rawUrl: string): { valid: boolean; error?: string; normalized?: string; hostname?: string } {
+  let url = (rawUrl || '').trim();
+  if (!url) return { valid: false, error: 'URL cannot be empty' };
+
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return { valid: false, error: 'Only HTTP and HTTPS protocols are supported' };
+    }
+
+    const host = parsed.hostname.toLowerCase();
+
+    // Check blocked hostnames
+    if (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      host === '0.0.0.0' ||
+      host === '169.254.169.254' ||
+      host === 'metadata.google.internal' ||
+      host === 'metadata' ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal') ||
+      host.endsWith('.localhost') ||
+      host.endsWith('.arpa') ||
+      host.endsWith('.test') ||
+      host.endsWith('.invalid')
+    ) {
+      return { valid: false, error: 'Scanning internal, localhost, or cloud metadata hosts is blocked (SSRF Guard).' };
+    }
+
+    if (net.isIP(host) && isPrivateOrBlockedIP(host)) {
+      return { valid: false, error: 'Scanning private or loopback IP ranges is blocked.' };
+    }
+
+    return { valid: true, normalized: parsed.toString(), hostname: host };
+  } catch {
+    return { valid: false, error: 'Invalid website URL format.' };
+  }
+}
+
+/**
+ * Resolves hostname via DNS and verifies that all resolved IP addresses are public and safe.
+ */
+export async function validateAndResolveSafeUrl(rawUrl: string): Promise<SSRFValidationResult> {
+  const syntax = validateUrlSyntax(rawUrl);
+  if (!syntax.valid || !syntax.normalized || !syntax.hostname) {
+    return { valid: false, error: syntax.error };
+  }
+
+  const hostname = syntax.hostname;
+
+  // If hostname is already an IP, we already verified it
+  if (net.isIP(hostname)) {
+    if (isPrivateOrBlockedIP(hostname)) {
+      return { valid: false, error: 'Target IP is within a private/restricted network range.' };
+    }
+    return { valid: true, normalized: syntax.normalized, ip: hostname };
+  }
+
+  try {
+    const lookupResult = await dns.promises.lookup(hostname, { all: true });
+    if (!lookupResult || lookupResult.length === 0) {
+      return { valid: false, error: `Could not resolve domain ${hostname}. Please verify DNS configuration.` };
+    }
+
+    for (const entry of lookupResult) {
+      if (isPrivateOrBlockedIP(entry.address)) {
+        return {
+          valid: false,
+          error: `Domain ${hostname} resolves to a private or restricted IP address (${entry.address}). Scanning is blocked.`,
+        };
+      }
+    }
+
+    return { valid: true, normalized: syntax.normalized, ip: lookupResult[0].address };
+  } catch (err: any) {
+    return { valid: false, error: `DNS resolution failed for ${hostname}: ${err?.message || 'Host not found'}` };
+  }
+}
