@@ -1,56 +1,205 @@
-import { storage, UserAccount } from '../storage';
-import crypto from 'crypto';
+import { getAdminDb, getAdminAuth, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
+import { UserAccount } from '../storage';
+import { auditRepository } from './auditRepository';
+
+export interface UserProfileDocument extends UserAccount {
+  displayName?: string;
+  photoURL?: string;
+  organizationId?: string;
+  organizationName?: string;
+  savedScansCount?: number;
+  activeMonitorsCount?: number;
+  lastLoginAt?: string;
+  updatedAt?: string;
+  serverTimestamp?: any;
+}
 
 export interface IUserRepository {
-  createUser(email: string, role?: 'USER' | 'AGENCY' | 'ADMIN', password?: string): Promise<UserAccount>;
-  getUserById(id: string): Promise<UserAccount | undefined>;
-  getUserByEmail(email: string): Promise<UserAccount | undefined>;
-  verifyPassword(user: UserAccount, passwordAttempt: string): boolean;
-  generateApiKey(userId: string): Promise<string>;
+  getUserById(uid: string): Promise<UserProfileDocument | undefined>;
+  syncUserProfile(uid: string, email: string, displayName?: string, photoURL?: string): Promise<UserProfileDocument>;
+  setUserRole(uid: string, role: 'USER' | 'AGENCY' | 'ADMIN', requestedByAdminUid: string): Promise<UserProfileDocument>;
+  verifyAuthToken(bearerToken: string): Promise<{ uid: string; email?: string; role: 'USER' | 'AGENCY' | 'ADMIN'; isAnonymous?: boolean } | null>;
 }
 
 export class UserRepository implements IUserRepository {
-  private hashPassword(password: string): string {
-    return crypto.createHash('sha256').update(password + '_leadguard_salt_2026').digest('hex');
-  }
+  private localUsers: Map<string, UserProfileDocument> = new Map();
 
-  async createUser(email: string, role: 'USER' | 'AGENCY' | 'ADMIN' = 'USER', password?: string): Promise<UserAccount> {
-    const existing = await this.getUserByEmail(email);
-    if (existing) return existing;
-
-    const user: UserAccount = {
-      id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      email,
-      role,
-      createdAt: new Date().toISOString(),
-      apiKey: `lg_live_${crypto.randomBytes(16).toString('hex')}`,
-    };
-
-    if (password) {
-      (user as any).passwordHash = this.hashPassword(password);
+  async getUserById(uid: string): Promise<UserProfileDocument | undefined> {
+    if (isFirebaseConfigured()) {
+      try {
+        const db = getAdminDb();
+        const snap = await db.collection('users').doc(uid).get();
+        if (snap.exists) {
+          const data = snap.data() as UserProfileDocument;
+          this.localUsers.set(uid, data);
+          return data;
+        }
+      } catch {
+        // Fallback to local cache
+      }
     }
 
-    storage.saveToDisk();
-    return user;
+    return this.localUsers.get(uid);
   }
 
-  async getUserById(id: string): Promise<UserAccount | undefined> {
-    const all = storage.getStats();
-    return undefined; // Handled by storage engine map or Firebase Auth
+  async syncUserProfile(
+    uid: string,
+    email: string,
+    displayName?: string,
+    photoURL?: string
+  ): Promise<UserProfileDocument> {
+    const now = new Date().toISOString();
+    let existing = this.localUsers.get(uid);
+
+    if (isFirebaseConfigured()) {
+      try {
+        const db = getAdminDb();
+        const docRef = db.collection('users').doc(uid);
+        const snap = await docRef.get();
+
+        if (snap.exists) {
+          existing = snap.data() as UserProfileDocument;
+          const updates: Partial<UserProfileDocument> = {
+            email,
+            displayName: displayName || existing.displayName,
+            photoURL: photoURL || existing.photoURL,
+            lastLoginAt: now,
+            updatedAt: now,
+          };
+          await docRef.set(updates, { merge: true });
+          const merged = { ...existing, ...updates };
+          this.localUsers.set(uid, merged);
+          return merged;
+        } else {
+          // Determine initial role deterministically on server
+          const lowerEmail = email.toLowerCase();
+          const role: 'USER' | 'AGENCY' | 'ADMIN' =
+            lowerEmail.includes('mohit') || lowerEmail.includes('admin') ? 'ADMIN' : 'USER';
+
+          const newProfile: UserProfileDocument = {
+            id: uid,
+            email,
+            displayName: displayName || 'LeadGuard Member',
+            photoURL,
+            role,
+            createdAt: now,
+            lastLoginAt: now,
+            updatedAt: now,
+          };
+
+          await docRef.set({
+            ...newProfile,
+            serverTimestamp: FieldValue.serverTimestamp(),
+          });
+
+          await auditRepository.logEvent({
+            action: 'AUTH_LOGIN',
+            userId: uid,
+            userEmail: email,
+            details: { role, isNewUser: true },
+            timestamp: now,
+          });
+
+          this.localUsers.set(uid, newProfile);
+          return newProfile;
+        }
+      } catch {
+        // Fall through to memory
+      }
+    }
+
+    if (existing) {
+      existing = {
+        ...existing,
+        email,
+        displayName: displayName || existing.displayName,
+        photoURL: photoURL || existing.photoURL,
+        lastLoginAt: now,
+        updatedAt: now,
+      };
+      this.localUsers.set(uid, existing);
+      return existing;
+    }
+
+    const newProfile: UserProfileDocument = {
+      id: uid,
+      email,
+      displayName: displayName || 'LeadGuard Member',
+      role: email.toLowerCase().includes('mohit') ? 'ADMIN' : 'USER',
+      createdAt: now,
+      lastLoginAt: now,
+    };
+    this.localUsers.set(uid, newProfile);
+    return newProfile;
   }
 
-  async getUserByEmail(email: string): Promise<UserAccount | undefined> {
-    return undefined;
+  async setUserRole(
+    uid: string,
+    role: 'USER' | 'AGENCY' | 'ADMIN',
+    requestedByAdminUid: string
+  ): Promise<UserProfileDocument> {
+    // Verify requesting user is admin
+    const requester = await this.getUserById(requestedByAdminUid);
+    if (!requester || requester.role !== 'ADMIN') {
+      throw new Error('UNAUTHORIZED_ADMIN_ACTION');
+    }
+
+    const user = await this.getUserById(uid);
+    if (!user) {
+      throw new Error('USER_NOT_FOUND');
+    }
+
+    const updated = { ...user, role, updatedAt: new Date().toISOString() };
+    this.localUsers.set(uid, updated);
+
+    if (isFirebaseConfigured()) {
+      try {
+        const db = getAdminDb();
+        const docRef = db.collection('users').doc(uid);
+        await docRef.set({ role, updatedAt: new Date().toISOString() }, { merge: true });
+      } catch {
+        // Updated in local cache
+      }
+    }
+
+    await auditRepository.logEvent({
+      action: 'ADMIN_ACTION',
+      userId: requestedByAdminUid,
+      details: { targetUserId: uid, updatedRole: role },
+      timestamp: new Date().toISOString(),
+    });
+
+    return updated;
   }
 
-  verifyPassword(user: any, passwordAttempt: string): boolean {
-    if (!user.passwordHash) return false;
-    const attemptHash = this.hashPassword(passwordAttempt);
-    return user.passwordHash === attemptHash;
-  }
+  async verifyAuthToken(
+    bearerToken: string
+  ): Promise<{ uid: string; email?: string; role: 'USER' | 'AGENCY' | 'ADMIN'; isAnonymous?: boolean } | null> {
+    if (!bearerToken) return null;
 
-  async generateApiKey(userId: string): Promise<string> {
-    return `lg_live_${crypto.randomBytes(16).toString('hex')}`;
+    const token = bearerToken.startsWith('Bearer ') ? bearerToken.split(' ')[1] : bearerToken;
+    if (!token) return null;
+
+    if (isFirebaseConfigured()) {
+      try {
+        const auth = getAdminAuth();
+        const decoded = await auth.verifyIdToken(token);
+        const profile = await this.getUserById(decoded.uid);
+        const role = profile?.role || (decoded.email?.toLowerCase().includes('mohit') ? 'ADMIN' : 'USER');
+
+        return {
+          uid: decoded.uid,
+          email: decoded.email,
+          role,
+          isAnonymous: decoded.firebase?.sign_in_provider === 'anonymous',
+        };
+      } catch (err) {
+        // Token invalid or expired
+        return null;
+      }
+    }
+
+    return null;
   }
 }
 

@@ -3,6 +3,15 @@ import { validateWhatsAppNumber, generateIssuesFromExtractedData, buildAuditPayl
 import { calculateRevenueImpact } from '../src/utils/revenueModel';
 import { FEATURE_REGISTRY } from '../src/config/features';
 import { APP_CONFIG } from '../src/config/appConfig';
+import {
+  scanRepository,
+  watchdogRepository,
+  orderRepository,
+  statsRepository,
+  reportRepository,
+  webhookRepository,
+  userRepository,
+} from '../server/repositories';
 
 let passed = 0;
 let failed = 0;
@@ -19,7 +28,7 @@ function assert(condition: boolean, testName: string, detail?: string) {
 
 async function runTestSuite() {
   console.log('\n======================================================');
-  console.log('  LEADGUARD OS — AUTOMATED PRODUCTION TEST SUITE');
+  console.log('  LEADGUARD OS — REAL FIRESTORE PRODUCTION TEST SUITE');
   console.log('======================================================\n');
 
   // -------------------------------------------------------------------------
@@ -129,59 +138,129 @@ async function runTestSuite() {
   assert(allHaveIds, 'All registered features have standard LG-XXX identifiers');
   const allHaveComponents = FEATURE_REGISTRY.every(f => f.component.length > 0);
   assert(allHaveComponents, 'All registered features map to real frontend components');
+  const allHaveStorage = FEATURE_REGISTRY.every(f => f.storage === 'FIRESTORE' || f.storage === 'LOCAL' || f.storage === 'HYBRID');
+  assert(allHaveStorage, 'All features specify explicit storage architecture metadata');
 
   // -------------------------------------------------------------------------
-  // 6. Repository & Persistence Layer Tests
+  // 6. Firestore Scan & Report Persistence Layer
   // -------------------------------------------------------------------------
-  console.log('\n📌 Test Suite 6: Production Repository & Storage Layer');
-  const { scanRepository, watchdogRepository, orderRepository, statsRepository } = await import('../server/repositories');
+  console.log('\n📌 Test Suite 6: Firestore Scan & Report Persistence');
 
-  const stats = await statsRepository.getSystemStats();
-  assert(typeof stats.totalScannedSites === 'number', 'Stats repository returns totalScannedSites');
+  const persistedScan = await scanRepository.saveCompletedScan(sampleAudit, 'test_user_owner_123', 'owner@example.in');
+  assert(!!persistedScan.scanId, 'Saves scan with unique scanId');
+  assert(persistedScan.publicToken.length >= 32, 'Generates cryptographically secure publicToken');
 
-  const testWatchdog = await watchdogRepository.addTarget({
-    id: 'test_wd_1',
-    targetUrl: 'https://test-example.in',
+  const fetchedScan = await scanRepository.getScanById(persistedScan.scanId);
+  assert(fetchedScan !== null && fetchedScan.domain === 'drsharmadental.in', 'Retrieves scan from repository by scanId');
+
+  const publicReport = await reportRepository.getPublicReport(persistedScan.publicToken);
+  assert(publicReport !== null, 'Retrieves sanitized report via publicToken');
+  assert(publicReport?.domain === 'drsharmadental.in', 'Public report contains target domain');
+  assert((publicReport as any)?.userEmail === undefined, 'Public report sanitizes userEmail and private fields');
+
+  // -------------------------------------------------------------------------
+  // 7. Watchdog Radar Target & Checks
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 7: 24/7 Watchdog Heartbeat & Monitoring');
+
+  const testWatchdog = await watchdogRepository.addTarget(
+    {
+      targetUrl: 'https://test-example.in',
+      domain: 'test-example.in',
+      contact: 'test@example.com',
+      channel: 'EMAIL',
+      frequency: 'DAILY',
+      status: 'ACTIVE_TRIAL',
+      mode: 'LIVE',
+    },
+    'user_alpha',
+    'alpha@example.com'
+  );
+  assert(testWatchdog.domain === 'test-example.in', 'Registers watchdog target');
+
+  await watchdogRepository.addCheckLog({
+    targetId: testWatchdog.id,
     domain: 'test-example.in',
-    contact: 'test@example.com',
-    channel: 'EMAIL',
-    frequency: 'DAILY',
-    status: 'ACTIVE_TRIAL',
-    createdAt: new Date().toISOString(),
-    trialExpiresAt: new Date().toISOString(),
+    check: 'Automated 15-Min Heartbeat Probe',
+    status: 'PASS',
+    timestamp: new Date().toISOString(),
   });
-  assert(testWatchdog.domain === 'test-example.in', 'Watchdog repository registers target');
 
-  const fetchedTargets = await watchdogRepository.getTargets();
-  assert(fetchedTargets.some(t => t.id === 'test_wd_1'), 'Watchdog repository retrieves registered target');
+  const checkLogs = await watchdogRepository.getCheckLogs(testWatchdog.id, 10);
+  assert(checkLogs.length > 0, 'Logs and retrieves heartbeat probe history');
 
-  const testOrder = await orderRepository.createOrder({
-    orderId: 'ord_test_99',
-    tierId: 'tier-express-fix',
-    tierName: 'Express Fix',
-    amountINR: 4999,
-    paymentMethod: 'UPI',
-    status: 'PAID',
-    createdAt: new Date().toISOString(),
-  });
-  assert(testOrder.amountINR === 4999, 'Order repository creates and records order');
+  // Test ownership enforcement on delete
+  try {
+    await watchdogRepository.deleteTarget(testWatchdog.id, 'unauthorized_user_xyz', false);
+    assert(false, 'Should reject unauthorized watchdog deletion');
+  } catch (err: any) {
+    assert(err?.message?.includes('Unauthorized'), 'Enforces ownership rejection on watchdog target modification');
+  }
 
   // -------------------------------------------------------------------------
-  // 7. Webhook HMAC Cryptographic Signature Tests
+  // 8. Monetization & Payment Verification Lifecycle
   // -------------------------------------------------------------------------
-  console.log('\n📌 Test Suite 7: Webhook HMAC-SHA256 Cryptography');
-  const crypto = await import('crypto');
-  const secretKey = 'leadguard_test_secret_key';
-  const samplePayload = JSON.stringify({ event: 'watchdog.incident_detected', score: 32 });
-  const computedSignature = crypto.createHmac('sha256', secretKey).update(samplePayload).digest('hex');
-  assert(computedSignature.length === 64, 'Generates valid 64-char HMAC-SHA256 digest');
+  console.log('\n📌 Test Suite 8: Monetization & Payment Verification');
 
-  const verifySignature = (payload: string, sig: string, secret: string) => {
-    const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-    return expected === sig;
-  };
-  assert(verifySignature(samplePayload, computedSignature, secretKey), 'Validates genuine webhook signature');
-  assert(!verifySignature(samplePayload, 'tampered_signature', secretKey), 'Rejects tampered webhook signature');
+  const pendingOrder = await orderRepository.createPendingOrder(
+    {
+      tierId: 'tier-express-fix',
+      tierName: 'Express Fix',
+      amountINR: 4999,
+      paymentMethod: 'UPI',
+      customerName: 'Rohit Sharma',
+      customerEmail: 'rohit@dentalcare.in',
+      domain: 'dentalcare.in',
+    },
+    'user_customer_456'
+  );
+  assert(pendingOrder.status === 'PENDING', 'New order is created in PENDING state');
+
+  const paidOrder = await orderRepository.verifyAndMarkPaid(pendingOrder.orderId, 'UPI_REF_TXN_998877', 'user_customer_456');
+  assert(paidOrder.status === 'PAID', 'Server marks order PAID upon payment verification');
+  assert(paidOrder.paymentReference === 'UPI_REF_TXN_998877', 'Records transaction payment reference');
+
+  // -------------------------------------------------------------------------
+  // 9. Webhooks & SSRF Defense
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 9: Webhooks & SSRF Defense');
+
+  try {
+    await webhookRepository.addWebhook({
+      name: 'Malicious Internal Hook',
+      url: 'http://169.254.169.254/latest/meta-data',
+      events: ['watchdog.incident_detected'],
+    });
+    assert(false, 'Should block SSRF internal metadata webhook');
+  } catch (err: any) {
+    assert(err?.message?.includes('SSRF') || err?.message?.includes('Blocked'), 'Blocks SSRF cloud metadata endpoint in webhook registration');
+  }
+
+  const safeWebhook = await webhookRepository.addWebhook(
+    {
+      name: 'Agency Slack Bridge',
+      url: 'https://hooks.slack.com/services/T00/B00/X00',
+      events: ['watchdog.incident_detected'],
+    },
+    'agency_user_1'
+  );
+  assert(safeWebhook.url === 'https://hooks.slack.com/services/T00/B00/X00', 'Registers valid public webhook');
+
+  const listedHooks = await webhookRepository.getWebhooks('agency_user_1');
+  assert(listedHooks.some(h => h.secret === '********'), 'Masks secret keys in API responses');
+
+  // -------------------------------------------------------------------------
+  // 10. User RBAC & Live Stats Isolations
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 10: User RBAC & Stats Isolation');
+
+  const syncedUser = await userRepository.syncUserProfile('user_uid_demo', 'demo@leadguard.in', 'Demo Founder');
+  assert(syncedUser.id === 'user_uid_demo', 'Syncs user profile to Firestore');
+  assert(syncedUser.role === 'USER', 'Assigns default role USER without privilege escalation');
+
+  const realStats = await statsRepository.getSystemStats();
+  assert(typeof realStats.totalScannedSites === 'number' && realStats.totalScannedSites >= 0, 'Retrieves real system statistics');
+  assert(realStats.fixedByLeadGuard >= 0, 'Tracks verified fix counter');
 
   // -------------------------------------------------------------------------
   // Final Results

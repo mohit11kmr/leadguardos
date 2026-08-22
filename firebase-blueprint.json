@@ -1,52 +1,185 @@
 {
   "entities": {
     "UserProfile": {
-      "collection": "users",
-      "fields": {
+      "title": "UserProfile",
+      "description": "User account and profile document",
+      "type": "object",
+      "properties": {
         "id": { "type": "string", "description": "Firebase Auth UID" },
-        "email": { "type": "string", "description": "User email address" },
-        "displayName": { "type": "string", "description": "User full name" },
-        "photoURL": { "type": "string", "description": "User avatar URL" },
-        "role": { "type": "string", "description": "Role: USER | AGENCY | ADMIN" },
-        "createdAt": { "type": "string", "description": "ISO timestamp" }
-      }
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "displayName": { "type": "string", "description": "Display name" },
+        "photoURL": { "type": "string", "description": "Avatar URL" },
+        "role": { "type": "string", "enum": ["USER", "AGENCY", "ADMIN"], "description": "Access role" },
+        "organizationId": { "type": "string", "description": "Organization scope ID" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" },
+        "lastLoginAt": { "type": "string", "description": "ISO timestamp" }
+      },
+      "required": ["id", "email", "role", "createdAt"]
     },
     "Scan": {
-      "collection": "scans",
-      "fields": {
-        "scanId": { "type": "string", "description": "Unique scan identifier" },
-        "publicToken": { "type": "string", "description": "Token for public reports" },
-        "targetUrl": { "type": "string", "description": "Target website URL" },
-        "domain": { "type": "string", "description": "Extracted hostname" },
+      "title": "Scan",
+      "description": "Website diagnostic scan audit record",
+      "type": "object",
+      "properties": {
+        "scanId": { "type": "string", "description": "Scan unique identifier" },
+        "publicToken": { "type": "string", "description": "Cryptographically secure public share token" },
+        "mode": { "type": "string", "enum": ["LIVE", "DEMO"], "description": "Scan data mode" },
+        "targetUrl": { "type": "string", "description": "Raw target URL" },
+        "normalizedUrl": { "type": "string", "description": "Normalized target URL" },
+        "domain": { "type": "string", "description": "Extracted domain" },
         "businessName": { "type": "string", "description": "Detected brand name" },
-        "score": { "type": "number", "description": "Overall score 0-100" },
-        "estimatedMonthlyLoss": { "type": "number", "description": "Potential revenue loss" },
-        "adSpendRisk": { "type": "string", "description": "CRITICAL | HIGH | MEDIUM | LOW" },
-        "scannedAt": { "type": "string", "description": "ISO timestamp" }
-      }
+        "status": { "type": "string", "enum": ["PENDING", "IN_PROGRESS", "COMPLETED", "FAILED"], "description": "Status" },
+        "overallScore": { "type": "number", "description": "Overall score from 0 to 100" },
+        "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"], "description": "Confidence level" },
+        "estimatedMonthlyLoss": { "type": "number", "description": "Calculated revenue loss in INR" },
+        "adSpendRisk": { "type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"], "description": "Risk tier" },
+        "findingsCount": { "type": "number", "description": "Total findings count" },
+        "criticalFindings": { "type": "number", "description": "Critical issues count" },
+        "scannerVersion": { "type": "string", "description": "Engine version" },
+        "scannedAt": { "type": "string", "description": "ISO timestamp" },
+        "userId": { "type": "string", "description": "Owner user ID" }
+      },
+      "required": ["scanId", "publicToken", "mode", "targetUrl", "domain", "status", "overallScore", "scannedAt"]
     },
     "WatchdogTarget": {
-      "collection": "watchdogTargets",
-      "fields": {
-        "id": { "type": "string", "description": "Monitor identifier" },
+      "title": "WatchdogTarget",
+      "description": "24/7 Heartbeat and conversion monitoring target",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Target ID" },
         "targetUrl": { "type": "string", "description": "Monitored URL" },
         "domain": { "type": "string", "description": "Monitored domain" },
-        "contact": { "type": "string", "description": "Alert recipient phone/email/handle" },
-        "channel": { "type": "string", "description": "TELEGRAM | WHATSAPP | EMAIL" },
-        "frequency": { "type": "string", "description": "DAILY | HOURLY | 15MIN" },
-        "status": { "type": "string", "description": "ACTIVE_TRIAL | ACTIVE_SUBSCRIPTION | PAUSED" }
-      }
+        "contact": { "type": "string", "description": "Alert recipient phone/handle/email" },
+        "channel": { "type": "string", "enum": ["TELEGRAM", "WHATSAPP", "EMAIL"], "description": "Notification channel" },
+        "frequency": { "type": "string", "enum": ["DAILY", "HOURLY", "WEEKLY", "15MIN"], "description": "Check cadence" },
+        "status": { "type": "string", "enum": ["ACTIVE_TRIAL", "ACTIVE_SUBSCRIPTION", "EXPIRED", "CONVERTED", "PAUSED"], "description": "Status" },
+        "mode": { "type": "string", "enum": ["LIVE", "DEMO"], "description": "Monitoring mode" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" },
+        "userId": { "type": "string", "description": "Owner user ID" }
+      },
+      "required": ["id", "targetUrl", "domain", "contact", "channel", "frequency", "status", "mode", "createdAt"]
+    },
+    "WatchdogCheck": {
+      "title": "WatchdogCheck",
+      "description": "Individual watchdog probe execution log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Check log ID" },
+        "targetId": { "type": "string", "description": "Target monitor ID" },
+        "domain": { "type": "string", "description": "Inspected domain" },
+        "check": { "type": "string", "description": "Check name" },
+        "status": { "type": "string", "description": "Pass or failure reason" },
+        "score": { "type": "number", "description": "Score" },
+        "timestamp": { "type": "string", "description": "Execution timestamp" }
+      },
+      "required": ["id", "domain", "check", "status", "timestamp"]
+    },
+    "Webhook": {
+      "title": "Webhook",
+      "description": "Automated incident and alert webhook dispatcher endpoint",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Webhook ID" },
+        "name": { "type": "string", "description": "Webhook name" },
+        "url": { "type": "string", "description": "Destination endpoint URL" },
+        "secret": { "type": "string", "description": "HMAC-SHA256 signature secret" },
+        "active": { "type": "boolean", "description": "Active status" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "userId": { "type": "string", "description": "Owner user ID" }
+      },
+      "required": ["id", "name", "url", "secret", "active", "createdAt"]
+    },
+    "WebhookDelivery": {
+      "title": "WebhookDelivery",
+      "description": "Webhook delivery dispatch log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Delivery ID" },
+        "webhookId": { "type": "string", "description": "Webhook ID" },
+        "event": { "type": "string", "description": "Event name" },
+        "status": { "type": "string", "enum": ["SENT", "FAILED", "RETRYING"], "description": "Delivery status" },
+        "timestamp": { "type": "string", "description": "ISO timestamp" }
+      },
+      "required": ["id", "webhookId", "event", "status", "timestamp"]
     },
     "Order": {
-      "collection": "orders",
-      "fields": {
-        "orderId": { "type": "string", "description": "Unique order identifier" },
-        "tierId": { "type": "string", "description": "Purchased tier ID" },
-        "tierName": { "type": "string", "description": "Tier display name" },
-        "amountINR": { "type": "number", "description": "Transaction amount in INR" },
-        "status": { "type": "string", "description": "PENDING | PAID | FAILED | REFUNDED" },
-        "createdAt": { "type": "string", "description": "ISO timestamp" }
-      }
+      "title": "Order",
+      "description": "Monetization and fix tier order record",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string", "description": "Order ID" },
+        "tierId": { "type": "string", "description": "Purchased tier" },
+        "tierName": { "type": "string", "description": "Tier name" },
+        "amountINR": { "type": "number", "description": "Amount in INR" },
+        "paymentMethod": { "type": "string", "description": "UPI, NetBanking, Card" },
+        "status": { "type": "string", "enum": ["PENDING", "PAID", "FAILED", "REFUNDED", "CANCELLED"], "description": "Payment status" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "userId": { "type": "string", "description": "Customer user ID" }
+      },
+      "required": ["orderId", "tierId", "tierName", "amountINR", "status", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "System security and forensic event audit log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Audit ID" },
+        "action": { "type": "string", "description": "Action performed" },
+        "timestamp": { "type": "string", "description": "ISO timestamp" },
+        "userId": { "type": "string", "description": "User ID" }
+      },
+      "required": ["id", "action", "timestamp"]
+    },
+    "SystemStats": {
+      "title": "SystemStats",
+      "description": "Global aggregated platform metrics",
+      "type": "object",
+      "properties": {
+        "totalScannedSites": { "type": "number", "description": "Total live scans" },
+        "problemsFound": { "type": "number", "description": "Total problems detected" },
+        "healthySites": { "type": "number", "description": "Healthy sites count" },
+        "fixedByLeadGuard": { "type": "number", "description": "Fixed issues count" },
+        "lastUpdated": { "type": "string", "description": "ISO timestamp" }
+      },
+      "required": ["totalScannedSites", "problemsFound", "healthySites", "fixedByLeadGuard", "lastUpdated"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User account document with RBAC role"
+    },
+    "/scans/{scanId}": {
+      "schema": "Scan",
+      "description": "Website diagnostic audits"
+    },
+    "/watchdogTargets/{targetId}": {
+      "schema": "WatchdogTarget",
+      "description": "24/7 Monitoring targets"
+    },
+    "/watchdogChecks/{checkId}": {
+      "schema": "WatchdogCheck",
+      "description": "Heartbeat check log"
+    },
+    "/webhooks/{webhookId}": {
+      "schema": "Webhook",
+      "description": "Incident alert webhook endpoints"
+    },
+    "/webhookDeliveries/{deliveryId}": {
+      "schema": "WebhookDelivery",
+      "description": "Webhook delivery dispatch records"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Commercial order and payment records"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Security audit trail"
+    },
+    "/systemStats/{statId}": {
+      "schema": "SystemStats",
+      "description": "Aggregated platform metrics"
     }
   }
 }

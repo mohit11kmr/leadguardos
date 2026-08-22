@@ -1,42 +1,272 @@
-import { storage, WatchdogTarget, WatchdogCheckLog } from '../storage';
+import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
+import { WatchdogTarget, WatchdogCheckLog } from '../storage';
+import { auditRepository } from './auditRepository';
+
+export interface WatchdogTargetDocument extends WatchdogTarget {
+  userId?: string;
+  userEmail?: string;
+  organizationId?: string;
+  mode: 'LIVE' | 'DEMO';
+  nextCheckAt?: string;
+  updatedAt?: string;
+  serverTimestamp?: any;
+}
+
+export interface WatchdogCheckDocument extends WatchdogCheckLog {
+  targetId?: string;
+  scanId?: string;
+  durationMs?: number;
+  mode?: 'LIVE' | 'DEMO';
+  serverTimestamp?: any;
+}
 
 export interface IWatchdogRepository {
-  addTarget(target: WatchdogTarget): Promise<WatchdogTarget>;
-  getTargetById(id: string): Promise<WatchdogTarget | undefined>;
-  getTargets(userId?: string): Promise<WatchdogTarget[]>;
-  updateTarget(id: string, updates: Partial<WatchdogTarget>): Promise<void>;
-  addCheckLog(log: WatchdogCheckLog): Promise<void>;
-  getCheckLogs(limit?: number): Promise<WatchdogCheckLog[]>;
+  addTarget(target: Partial<WatchdogTargetDocument>, userId?: string, userEmail?: string): Promise<WatchdogTargetDocument>;
+  getTargetById(id: string, userId?: string, isAdmin?: boolean): Promise<WatchdogTargetDocument | undefined>;
+  getTargets(userId?: string, organizationId?: string, isAdmin?: boolean): Promise<WatchdogTargetDocument[]>;
+  updateTarget(id: string, updates: Partial<WatchdogTargetDocument>, userId?: string, isAdmin?: boolean): Promise<WatchdogTargetDocument | undefined>;
+  deleteTarget(id: string, userId?: string, isAdmin?: boolean): Promise<boolean>;
+  addCheckLog(log: Partial<WatchdogCheckDocument>): Promise<WatchdogCheckDocument>;
+  getCheckLogs(targetId?: string, limit?: number): Promise<WatchdogCheckDocument[]>;
 }
 
 export class WatchdogRepository implements IWatchdogRepository {
-  async addTarget(target: WatchdogTarget): Promise<WatchdogTarget> {
-    storage.addWatchdogTarget(target);
-    return target;
-  }
+  private localTargets: Map<string, WatchdogTargetDocument> = new Map();
+  private localLogs: WatchdogCheckDocument[] = [];
 
-  async getTargetById(id: string): Promise<WatchdogTarget | undefined> {
-    return storage.getWatchdogTarget(id);
-  }
+  async addTarget(
+    target: Partial<WatchdogTargetDocument>,
+    userId?: string,
+    userEmail?: string
+  ): Promise<WatchdogTargetDocument> {
+    const id = target.id || `wd_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const now = new Date().toISOString();
 
-  async getTargets(userId?: string): Promise<WatchdogTarget[]> {
-    const targets = storage.getWatchdogTargets();
-    if (userId) {
-      return targets.filter((t: any) => !t.userId || t.userId === userId);
+    const docData: WatchdogTargetDocument = {
+      id,
+      targetUrl: target.targetUrl || '',
+      domain: target.domain || '',
+      contact: target.contact || '',
+      channel: target.channel || 'EMAIL',
+      frequency: target.frequency || 'DAILY',
+      status: target.status || 'ACTIVE_TRIAL',
+      mode: target.mode || 'LIVE',
+      createdAt: target.createdAt || now,
+      updatedAt: now,
+      trialExpiresAt: target.trialExpiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      lastCheckedAt: target.lastCheckedAt,
+      nextCheckAt: target.nextCheckAt,
+      lastScore: target.lastScore,
+      lastStatus: target.lastStatus,
+      userId: target.userId || userId,
+      userEmail: target.userEmail || userEmail,
+      organizationId: target.organizationId,
+    };
+
+    this.localTargets.set(id, docData);
+
+    if (isFirebaseConfigured()) {
+      try {
+        const db = getAdminDb();
+        await db.collection('watchdogTargets').doc(id).set({
+          ...docData,
+          serverTimestamp: FieldValue.serverTimestamp(),
+        });
+      } catch (err: any) {
+        console.warn(`[WatchdogRepository] Firestore error saving target ${id}:`, err?.message || err);
+      }
     }
-    return targets;
+
+    await auditRepository.logEvent({
+      action: 'WATCHDOG_CREATED',
+      userId: docData.userId,
+      userEmail: docData.userEmail,
+      details: { targetId: id, domain: docData.domain, channel: docData.channel },
+      timestamp: now,
+    });
+
+    return docData;
   }
 
-  async updateTarget(id: string, updates: Partial<WatchdogTarget>): Promise<void> {
-    storage.updateWatchdogTarget(id, updates);
+  async getTargetById(id: string, userId?: string, isAdmin = false): Promise<WatchdogTargetDocument | undefined> {
+    if (isFirebaseConfigured()) {
+      try {
+        const db = getAdminDb();
+        const docSnap = await db.collection('watchdogTargets').doc(id).get();
+        if (docSnap.exists) {
+          const target = docSnap.data() as WatchdogTargetDocument;
+          if (!isAdmin && target.userId && userId && target.userId !== userId) {
+            throw new Error('Unauthorized: You do not own this watchdog monitor');
+          }
+          this.localTargets.set(id, target);
+          return target;
+        }
+      } catch (err: any) {
+        if (err?.message?.includes('Unauthorized')) throw err;
+        console.warn(`[WatchdogRepository] Error fetching target ${id}:`, err);
+      }
+    }
+
+    const local = this.localTargets.get(id);
+    if (local && !isAdmin && local.userId && userId && local.userId !== userId) {
+      throw new Error('Unauthorized: You do not own this watchdog monitor');
+    }
+    return local;
   }
 
-  async addCheckLog(log: WatchdogCheckLog): Promise<void> {
-    storage.addWatchdogCheckLog(log);
+  async getTargets(userId?: string, organizationId?: string, isAdmin = false): Promise<WatchdogTargetDocument[]> {
+    if (isFirebaseConfigured()) {
+      try {
+        const db = getAdminDb();
+        let q = db.collection('watchdogTargets').orderBy('createdAt', 'desc');
+
+        if (!isAdmin && userId) {
+          q = q.where('userId', '==', userId);
+        } else if (!isAdmin && organizationId) {
+          q = q.where('organizationId', '==', organizationId);
+        }
+
+        const snap = await q.get();
+        if (!snap.empty) {
+          return snap.docs.map(d => d.data() as WatchdogTargetDocument);
+        }
+      } catch (err) {
+        console.warn('[WatchdogRepository] Error querying watchdog targets from Firestore:', err);
+      }
+    }
+
+    const list = Array.from(this.localTargets.values());
+    if (isAdmin) return list;
+    if (userId) return list.filter(t => t.userId === userId || !t.userId);
+    if (organizationId) return list.filter(t => t.organizationId === organizationId);
+    return list;
   }
 
-  async getCheckLogs(limit = 25): Promise<WatchdogCheckLog[]> {
-    return storage.getWatchdogCheckLogs(limit);
+  async updateTarget(
+    id: string,
+    updates: Partial<WatchdogTargetDocument>,
+    userId?: string,
+    isAdmin = false
+  ): Promise<WatchdogTargetDocument | undefined> {
+    const existing = await this.getTargetById(id, userId, isAdmin);
+    if (!existing) {
+      throw new Error(`Watchdog monitor ${id} not found.`);
+    }
+
+    const updatedData: WatchdogTargetDocument = {
+      ...existing,
+      ...updates,
+      id,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.localTargets.set(id, updatedData);
+
+    if (isFirebaseConfigured()) {
+      try {
+        const db = getAdminDb();
+        await db.collection('watchdogTargets').doc(id).set({
+          ...updatedData,
+          serverTimestamp: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      } catch (err) {
+        console.warn(`[WatchdogRepository] Firestore error updating target ${id}:`, err);
+      }
+    }
+
+    await auditRepository.logEvent({
+      action: 'WATCHDOG_UPDATED',
+      userId,
+      details: { targetId: id, domain: updatedData.domain, updates: Object.keys(updates) },
+      timestamp: new Date().toISOString(),
+    });
+
+    return updatedData;
+  }
+
+  async deleteTarget(id: string, userId?: string, isAdmin = false): Promise<boolean> {
+    const existing = await this.getTargetById(id, userId, isAdmin);
+    if (!existing) return false;
+
+    if (!isAdmin && existing.userId && existing.userId !== userId) {
+      throw new Error(`Unauthorized: You cannot delete watchdog target ${id}`);
+    }
+
+    this.localTargets.delete(id);
+
+    if (isFirebaseConfigured()) {
+      try {
+        const db = getAdminDb();
+        await db.collection('watchdogTargets').doc(id).delete();
+      } catch (err) {
+        console.warn(`[WatchdogRepository] Firestore error deleting target ${id}:`, err);
+      }
+    }
+
+    await auditRepository.logEvent({
+      action: 'WATCHDOG_DELETED',
+      userId,
+      details: { targetId: id, domain: existing.domain },
+      timestamp: new Date().toISOString(),
+    });
+
+    return true;
+  }
+
+  async addCheckLog(log: Partial<WatchdogCheckDocument>): Promise<WatchdogCheckDocument> {
+    const id = log.id || `chk_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const now = new Date().toISOString();
+
+    const docData: WatchdogCheckDocument = {
+      id,
+      targetId: log.targetId,
+      domain: log.domain || '',
+      check: log.check || 'Watchdog Heartbeat Probe',
+      status: log.status || 'PASS',
+      score: log.score ?? 100,
+      timestamp: log.timestamp || now,
+      details: log.details || '',
+      durationMs: log.durationMs,
+      mode: log.mode || 'LIVE',
+    };
+
+    this.localLogs.unshift(docData);
+    if (this.localLogs.length > 500) this.localLogs.pop();
+
+    if (isFirebaseConfigured()) {
+      try {
+        const db = getAdminDb();
+        await db.collection('watchdogChecks').doc(id).set({
+          ...docData,
+          serverTimestamp: FieldValue.serverTimestamp(),
+        });
+      } catch (err) {
+        console.warn(`[WatchdogRepository] Error adding check log ${id}:`, err);
+      }
+    }
+
+    return docData;
+  }
+
+  async getCheckLogs(targetId?: string, limit = 25): Promise<WatchdogCheckDocument[]> {
+    if (isFirebaseConfigured()) {
+      try {
+        const db = getAdminDb();
+        let q = db.collection('watchdogChecks').orderBy('timestamp', 'desc').limit(limit);
+        if (targetId) {
+          q = db.collection('watchdogChecks').where('targetId', '==', targetId).orderBy('timestamp', 'desc').limit(limit);
+        }
+        const snap = await q.get();
+        if (!snap.empty) {
+          return snap.docs.map(d => d.data() as WatchdogCheckDocument);
+        }
+      } catch (err) {
+        console.warn('[WatchdogRepository] Error fetching check logs from Firestore:', err);
+      }
+    }
+
+    const filtered = targetId ? this.localLogs.filter(l => l.targetId === targetId) : this.localLogs;
+    return filtered.slice(0, limit);
   }
 }
 

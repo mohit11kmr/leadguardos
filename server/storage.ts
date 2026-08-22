@@ -80,7 +80,7 @@ export interface OrderRecord {
   customerPhone?: string;
   customerEmail?: string;
   domain?: string;
-  status: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
+  status: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED' | 'CANCELLED';
   createdAt: string;
 }
 

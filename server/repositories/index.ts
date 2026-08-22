@@ -5,3 +5,4 @@ export * from './webhookRepository';
 export * from './orderRepository';
 export * from './reportRepository';
 export * from './statsRepository';
+export * from './auditRepository';
