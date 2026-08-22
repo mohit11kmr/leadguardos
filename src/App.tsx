@@ -23,6 +23,7 @@ import { CartDeathMonitor } from './components/CartDeathMonitor';
 import { HunterMode } from './components/HunterMode';
 import { ScanCounterStats } from './components/ScanCounterStats';
 import { LiveScanningRadar } from './components/LiveScanningRadar';
+import { PublicReportView } from './components/PublicReportView';
 import { AuditResult, GlobalScanStats, PillarType } from './types';
 import { Shield, AlertCircle, Sparkles, CheckCircle2, ArrowRight, Search, ShieldCheck, Zap } from 'lucide-react';
 
@@ -34,6 +35,10 @@ export default function App() {
   const [activeUrl, setActiveUrl] = useState('');
   const [globalStats, setGlobalStats] = useState<GlobalScanStats | null>(null);
   const [selectedPillar, setSelectedPillar] = useState<PillarType | 'ALL'>('ALL');
+
+  // Public Report Route Detection
+  const [publicReport, setPublicReport] = useState<AuditResult | null>(null);
+  const [isLoadingPublicReport, setIsLoadingPublicReport] = useState(false);
 
   // Selected prospect for pitch
   const [selectedProspectPitch, setSelectedProspectPitch] = useState<{
@@ -63,6 +68,31 @@ export default function App() {
 
   useEffect(() => {
     fetchGlobalStats();
+
+    // Check if current route is a public shareable report
+    const checkReportRoute = async () => {
+      const path = window.location.pathname;
+      const hash = window.location.hash;
+      const reportMatch = path.match(/^\/report\/([a-zA-Z0-9_-]+)/) || hash.match(/^#report\/([a-zA-Z0-9_-]+)/);
+
+      if (reportMatch && reportMatch[1]) {
+        const scanId = reportMatch[1];
+        setIsLoadingPublicReport(true);
+        try {
+          const res = await fetch(`/api/scan/${scanId}`);
+          if (res.ok) {
+            const data = await res.json();
+            setPublicReport(data);
+          }
+        } catch (e) {
+          console.error('Error fetching public report:', e);
+        } finally {
+          setIsLoadingPublicReport(false);
+        }
+      }
+    };
+
+    checkReportRoute();
   }, []);
 
   const handleScan = async (url: string) => {
@@ -110,6 +140,42 @@ export default function App() {
     setSelectedProspectPitch(prospect);
     setActiveTab('agency');
   };
+
+  // If loading a dedicated public report
+  if (isLoadingPublicReport) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-white space-y-4">
+        <div className="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center animate-pulse">
+          <Shield className="h-6 w-6 text-rose-500" />
+        </div>
+        <p className="text-sm font-semibold text-slate-300">Retrieving Verified LeadGuard Forensic Report...</p>
+      </div>
+    );
+  }
+
+  // If viewing a standalone public report
+  if (publicReport) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+        <PublicReportView
+          report={publicReport}
+          onOpenExpressFix={() => {
+            setIsExpressFixOpen(true);
+          }}
+          onBackToScanner={() => {
+            setPublicReport(null);
+            window.history.pushState({}, '', '/');
+          }}
+        />
+
+        <ExpressFixModal
+          isOpen={isExpressFixOpen}
+          onClose={() => setIsExpressFixOpen(false)}
+          domain={publicReport.domain}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-rose-500 selection:text-white flex flex-col">
