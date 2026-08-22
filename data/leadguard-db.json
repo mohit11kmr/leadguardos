@@ -37,11 +37,27 @@
       "channel": "EMAIL",
       "frequency": "DAILY",
       "status": "ACTIVE_TRIAL",
-      "createdAt": "2026-08-22T05:00:15.999Z",
-      "trialExpiresAt": "2026-08-22T05:00:15.999Z"
+      "createdAt": "2026-08-22T05:17:34.028Z",
+      "trialExpiresAt": "2026-08-22T05:17:34.028Z"
     }
   ],
   "watchdogChecks": [
+    {
+      "id": "chk_1787375854235",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T05:17:34.235Z",
+      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787375395784",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T05:09:55.784Z",
+      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
+    },
     {
       "id": "chk_1787374816131",
       "domain": "drsharmadental.in",
@@ -860,24 +876,28 @@
       "check": "WhatsApp Link Routing",
       "status": "FAIL (+9191)",
       "timestamp": "2026-08-22T01:01:38.692Z"
-    },
-    {
-      "id": "chk_2",
-      "domain": "elitesalonmumbai.com",
-      "check": "Google Review 404",
-      "status": "FAIL (404 Dead Link)",
-      "timestamp": "2026-08-22T00:53:38.692Z"
-    },
-    {
-      "id": "chk_3",
-      "domain": "urbanvogue.in",
-      "check": "Meta Pixel & GA4 Ping",
-      "status": "PASS (Healthy)",
-      "timestamp": "2026-08-22T00:47:38.692Z"
     }
   ],
   "webhooks": [],
   "orders": [
+    {
+      "orderId": "ord_test_99",
+      "tierId": "tier-express-fix",
+      "tierName": "Express Fix",
+      "amountINR": 4999,
+      "paymentMethod": "UPI",
+      "status": "PAID",
+      "createdAt": "2026-08-22T05:17:34.030Z"
+    },
+    {
+      "orderId": "ord_test_99",
+      "tierId": "tier-express-fix",
+      "tierName": "Express Fix",
+      "amountINR": 4999,
+      "paymentMethod": "UPI",
+      "status": "PAID",
+      "createdAt": "2026-08-22T05:09:55.504Z"
+    },
     {
       "orderId": "ord_test_99",
       "tierId": "tier-express-fix",

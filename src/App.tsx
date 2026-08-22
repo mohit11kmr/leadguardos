@@ -27,6 +27,8 @@ import { PublicReportView } from './components/PublicReportView';
 import { BillingView } from './components/BillingView';
 import { AccountSettingsView } from './components/AccountSettingsView';
 import { AdminDashboardView } from './components/AdminDashboardView';
+import { DeveloperDashboardView } from './components/DeveloperDashboardView';
+import { AgencyWorkspaceView } from './components/AgencyWorkspaceView';
 import { OnboardingBanner } from './components/OnboardingBanner';
 import { AuditResult, GlobalScanStats, PillarType } from './types';
 import { Shield, AlertCircle, Sparkles, CheckCircle2, ArrowRight, Search, ShieldCheck, Zap } from 'lucide-react';
@@ -422,6 +424,20 @@ export default function App() {
         {activeTab === 'admin' && (
           <div className="space-y-6">
             <AdminDashboardView />
+          </div>
+        )}
+
+        {/* TAB 9: DEVELOPER PORTAL */}
+        {activeTab === 'developer' && (
+          <div className="space-y-6">
+            <DeveloperDashboardView />
+          </div>
+        )}
+
+        {/* TAB 10: AGENCY WORKSPACE */}
+        {activeTab === 'workspace' && (
+          <div className="space-y-6">
+            <AgencyWorkspaceView />
           </div>
         )}
 

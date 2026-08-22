@@ -3,7 +3,7 @@ import { Shield, TrendingDown, Layers, Radio, Zap, ChevronDown, Swords, MessageC
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
-export type AppTab = 'scanner' | 'sabotage-radar' | 'zero-intent' | 'cart-death' | 'hunter' | 'funnel' | 'agency' | 'watchdog' | 'pricing' | 'billing' | 'settings' | 'admin';
+export type AppTab = 'scanner' | 'sabotage-radar' | 'zero-intent' | 'cart-death' | 'hunter' | 'funnel' | 'agency' | 'watchdog' | 'pricing' | 'billing' | 'settings' | 'admin' | 'developer' | 'workspace';
 
 interface NavbarProps {
   activeTab: AppTab;
@@ -21,7 +21,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   const { lang, setLang, t } = useLanguage();
   const { user, profile, signInWithGoogle, signOut, isAdmin } = useAuth();
   const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState(false);
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   const primaryTabs = [
     { id: 'scanner', label: t('nav.liveAudit', 'Audit Dashboard'), icon: Shield },
@@ -31,11 +30,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   ];
 
   const secondaryTools = [
+    { id: 'workspace', label: 'Agency Workspace', description: 'Client management & white-label reports', icon: Layers },
+    { id: 'developer', label: 'Developer Portal', description: 'REST API keys, webhooks & OpenAPI spec', icon: Wrench },
     { id: 'sabotage-radar', label: 'Competitive Monitor', description: 'Audit competitor landing pages & leaks', icon: Swords },
     { id: 'zero-intent', label: 'CTA & WhatsApp Analyzer', description: 'Check mobile chat links & drop-offs', icon: MessageCircle },
     { id: 'cart-death', label: 'Cart Leakage Detector', description: 'Identify e-commerce checkout barriers', icon: ShoppingCart },
     { id: 'hunter', label: 'Prospect Hunter', description: 'Find & audit lead opportunities', icon: Crosshair },
-    { id: 'agency', label: 'Agency Pitch Studio', description: 'Generate client reports & proposals', icon: Layers },
   ];
 
   const isSecondaryActive = secondaryTools.some(tool => tool.id === activeTab);

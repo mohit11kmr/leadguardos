@@ -915,6 +915,33 @@ app.post("/api/payments/webhook", (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// Phase 6 Public API v1, OpenAPI Spec & Shareable Report Routes
+// ---------------------------------------------------------------------------
+import { v1Router } from "./server/api/v1";
+import { generateOpenApiSpec } from "./server/api/openapi";
+import { reportManager } from "./server/reports/reportManager";
+
+// 1. Mount Public REST API v1
+app.use("/api/v1", v1Router);
+
+// 2. Serve OpenAPI 3.0 JSON Specification
+app.get("/api/v1/openapi.json", (_req: Request, res: Response) => {
+  res.json(generateOpenApiSpec());
+});
+
+// 3. Serve High-Entropy Immutable Shareable Report Snapshot
+app.get("/report/share/:token", (req: Request, res: Response) => {
+  const password = req.query.password as string;
+  const result = reportManager.getSnapshot(req.params.token, password);
+
+  if (result.error) {
+    return res.status(404).json({ error: result.error });
+  }
+
+  res.json({ snapshot: result.snapshot, sharedAt: new Date().toISOString() });
+});
+
+// ---------------------------------------------------------------------------
 // 4. Vite Middleware & Production Server Start
 // ---------------------------------------------------------------------------
 import { backgroundWorker } from "./server/queue/worker";

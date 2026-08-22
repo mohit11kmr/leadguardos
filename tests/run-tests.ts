@@ -518,6 +518,59 @@ async function runTestSuite() {
   assert(deletedAccount && storage.getWatchdogTargetsForUser('usr_delete_test').length === 0, 'storage.deleteAccount revokes watchdog jobs and clears user data');
 
   // -------------------------------------------------------------------------
+  // 16. Phase 6 HMAC Signed Webhooks & Integration Provider Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 16: Signed Webhook Platform & Chat Integration Providers');
+  const { WebhookPlatform } = await import('../server/webhooks/webhookPlatform');
+  const { SlackProvider } = await import('../server/integrations/provider');
+
+  const testPayload = JSON.stringify({ event: 'scan.completed', score: 85 });
+  const signedHmac = WebhookPlatform.signPayload(testPayload, 'wh_secret_123', 1700000000);
+  assert(signedHmac.length === 64, 'WebhookPlatform signs outgoing webhook payload with 64-char HMAC-SHA256');
+
+  const slackProvider = new SlackProvider();
+  assert(slackProvider.name === 'Slack', 'SlackProvider initializes integration provider abstraction');
+
+  // -------------------------------------------------------------------------
+  // 17. Phase 6 Agency Organization & White-Label Branding Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 17: Agency Organization Scoping & White-Label Reports');
+  const { OrgManager } = await import('../server/agency/orgManager');
+  const org = OrgManager.createOrganization('Apex Digital', 'usr_owner_1', 'owner@apexdigital.in');
+  assert(org.orgId.startsWith('org_') && org.members[0].role === 'OWNER', 'OrgManager creates multi-member agency organization');
+
+  const hasPerm = OrgManager.hasPermission(org.orgId, 'usr_owner_1', 'ADMIN');
+  assert(hasPerm, 'OrgManager enforces server-side role-based authorization');
+
+  const client = OrgManager.addClient(org.orgId, 'Dr Sharma Dental', ['drsharmadental.in']);
+  assert(client !== null && client.clientName === 'Dr Sharma Dental', 'OrgManager assigns client domain scoping');
+
+  // -------------------------------------------------------------------------
+  // 18. Phase 6 Shareable Snapshots & Finding Lifecycle Regression Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 18: Shareable Snapshots & Finding Lifecycle Regression');
+  const { reportManager } = await import('../server/reports/reportManager');
+  const { FindingLifecycleManager } = await import('../server/scanner/lifecycle');
+
+  const mockAuditResult: any = { scanId: 'scan_snap_1', targetUrl: 'https://drsharmadental.in', domain: 'drsharmadental.in', score: 40 };
+  const reportSnapshot = reportManager.createShareableSnapshot(mockAuditResult);
+  assert(reportSnapshot.token.length === 64, 'ReportManager generates 64-char high-entropy share token');
+
+  const retrieved = reportManager.getSnapshot(reportSnapshot.token);
+  assert(retrieved.snapshot !== undefined && retrieved.snapshot.scanId === 'scan_snap_1', 'ReportManager returns immutable report snapshot');
+
+  // Finding Lifecycle: OPEN ➔ RESOLVED ➔ REOPENED
+  FindingLifecycleManager.clear();
+  const step1 = FindingLifecycleManager.reconcileFindings('drsharmadental.in', ['rule_wa_1']);
+  assert(step1[0].status === 'OPEN', 'FindingLifecycleManager marks new finding as OPEN');
+
+  const step2 = FindingLifecycleManager.reconcileFindings('drsharmadental.in', []);
+  assert(step2[0].status === 'RESOLVED', 'FindingLifecycleManager transitions absent finding to RESOLVED');
+
+  const step3 = FindingLifecycleManager.reconcileFindings('drsharmadental.in', ['rule_wa_1']);
+  assert(step3[0].status === 'REOPENED', 'FindingLifecycleManager transitions recurring finding to REOPENED');
+
+  // -------------------------------------------------------------------------
   // Final Results
   // -------------------------------------------------------------------------
   console.log('\n======================================================');
