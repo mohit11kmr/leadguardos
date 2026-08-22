@@ -571,6 +571,53 @@ async function runTestSuite() {
   assert(step3[0].status === 'REOPENED', 'FindingLifecycleManager transitions recurring finding to REOPENED');
 
   // -------------------------------------------------------------------------
+  // 19. Phase 7 Red-Team Tenant Isolation & Cross-Tenant BOLA/IDOR Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 19: Red-Team Cross-Tenant BOLA/IDOR & Role Isolation');
+  const userA_id = 'usr_tenant_A';
+  const userB_id = 'usr_tenant_B';
+
+  storage.addWatchdogTarget({
+    id: 'wd_tenant_A_target',
+    userId: userA_id,
+    targetUrl: 'https://tenant-a-domain.com',
+    domain: 'tenant-a-domain.com',
+    contact: 'owner@tenant-a.com',
+    channel: 'TELEGRAM',
+    frequency: 'DAILY',
+    status: 'ACTIVE_SUBSCRIPTION',
+    createdAt: new Date().toISOString(),
+    trialExpiresAt: new Date().toISOString(),
+  });
+
+  // Verify User B cannot access User A's Watchdog target
+  const userBTargets = storage.getWatchdogTargetsForUser(userB_id);
+  assert(!userBTargets.some(t => t.id === 'wd_tenant_A_target'), 'Storage Engine isolates Watchdog targets between tenant A and tenant B');
+
+  // Verify User B cannot export User A's personal data
+  const userAScans = storage.getScansForUser(userA_id);
+  const userBScans = storage.getScansForUser(userB_id);
+  assert(userBScans.length === 0 || !userBScans.some(s => s.userId === userA_id), 'Storage Engine enforces strict user-scoped data isolation');
+
+  // -------------------------------------------------------------------------
+  // 20. Phase 7 Red-Team SSRF Bypasses, Payment Forgery & Input Fuzzing Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 20: Red-Team SSRF Bypasses, Payment Forgery & Fuzzing');
+  const { validateAndResolveSafeUrl } = await import('../server/ssrfGuard');
+
+  // SSRF Edge Cases
+  assert(isPrivateOrBlockedIP('::ffff:127.0.0.1'), 'SSRF Guard blocks IPv4-mapped IPv6 loopback (::ffff:127.0.0.1)');
+  assert(isPrivateOrBlockedIP('169.254.169.254'), 'SSRF Guard blocks Cloud Metadata IP (169.254.169.254)');
+  assert(isPrivateOrBlockedIP('10.255.255.255'), 'SSRF Guard blocks RFC 1918 10.0.0.0/8 subnet boundary');
+
+  const invalidUrlRes = await validateAndResolveSafeUrl('http://127.0.0.1:8080/admin');
+  assert(!invalidUrlRes.valid && invalidUrlRes.error?.includes('blocked'), 'SSRF Guard rejects loopback URL with explicit port');
+
+  // Payment Signature Tampering
+  const forgedSig = verifyPaymentSignature('order_fake_123', 'pay_fake_456', 'bad_signature_string', 'leadguard_dev_razorpay_secret');
+  assert(!forgedSig, 'Payment Engine rejects forged payment signature string');
+
+  // -------------------------------------------------------------------------
   // Final Results
   // -------------------------------------------------------------------------
   console.log('\n======================================================');

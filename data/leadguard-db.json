@@ -37,11 +37,39 @@
       "channel": "EMAIL",
       "frequency": "DAILY",
       "status": "ACTIVE_TRIAL",
-      "createdAt": "2026-08-22T05:17:34.028Z",
-      "trialExpiresAt": "2026-08-22T05:17:34.028Z"
+      "createdAt": "2026-08-22T05:34:43.062Z",
+      "trialExpiresAt": "2026-08-22T05:34:43.062Z"
+    },
+    {
+      "id": "wd_tenant_A_target",
+      "userId": "usr_tenant_A",
+      "targetUrl": "https://tenant-a-domain.com",
+      "domain": "tenant-a-domain.com",
+      "contact": "owner@tenant-a.com",
+      "channel": "TELEGRAM",
+      "frequency": "DAILY",
+      "status": "ACTIVE_SUBSCRIPTION",
+      "createdAt": "2026-08-22T05:34:43.556Z",
+      "trialExpiresAt": "2026-08-22T05:34:43.556Z"
     }
   ],
   "watchdogChecks": [
+    {
+      "id": "chk_1787376883353",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T05:34:43.353Z",
+      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787376703351",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T05:31:43.351Z",
+      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
+    },
     {
       "id": "chk_1787375854235",
       "domain": "drsharmadental.in",
@@ -861,25 +889,28 @@
       "score": 96,
       "timestamp": "2026-08-22T01:05:43.726Z",
       "details": "All systems operational"
-    },
-    {
-      "id": "chk_1787360743710",
-      "domain": "drsharmadental.in",
-      "check": "Connectivity & Server Probe",
-      "status": "FAIL (Unreachable)",
-      "timestamp": "2026-08-22T01:05:43.710Z",
-      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
-    },
-    {
-      "id": "chk_1",
-      "domain": "drsharmadental.in",
-      "check": "WhatsApp Link Routing",
-      "status": "FAIL (+9191)",
-      "timestamp": "2026-08-22T01:01:38.692Z"
     }
   ],
   "webhooks": [],
   "orders": [
+    {
+      "orderId": "ord_test_99",
+      "tierId": "tier-express-fix",
+      "tierName": "Express Fix",
+      "amountINR": 4999,
+      "paymentMethod": "UPI",
+      "status": "PAID",
+      "createdAt": "2026-08-22T05:34:43.070Z"
+    },
+    {
+      "orderId": "ord_test_99",
+      "tierId": "tier-express-fix",
+      "tierName": "Express Fix",
+      "amountINR": 4999,
+      "paymentMethod": "UPI",
+      "status": "PAID",
+      "createdAt": "2026-08-22T05:31:42.865Z"
+    },
     {
       "orderId": "ord_test_99",
       "tierId": "tier-express-fix",
