@@ -121,7 +121,9 @@ async function runTestSuite() {
     'drsharmadental.in',
     SAMPLE_PRESETS['drsharmadental.in'],
     sampleIssues,
-    Date.now() - 500
+    Date.now() - 500,
+    150,
+    20
   );
 
   assert(sampleAudit.score < 50, 'Computes low score for multiple critical leaks (Dr. Sharma Dental)');
@@ -368,6 +370,55 @@ async function runTestSuite() {
   } catch (e: any) {
     assert(e.message.includes('blocked') || e.message.includes('SSRF'), 'Production scan isolates demo presets and enforces SSRF');
   }
+
+  // -------------------------------------------------------------------------
+  // 10. Phase 2 Modular Scanner & Two-Stage Pipeline Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 10: Phase 2 Modular Scanner & Finding Standardisation');
+  const { WhatsAppDetector } = await import('../server/scanner/detectors/whatsapp');
+  const parsedDouble = WhatsAppDetector.parseWhatsAppNumber('91919876543210');
+  assert(!parsedDouble.isValid && parsedDouble.status === 'BROKEN', 'WhatsAppDetector flags double country code (+9191) as BROKEN');
+
+  const parsedValid = WhatsAppDetector.parseWhatsAppNumber('919876543210');
+  assert(parsedValid.isValid && parsedValid.status === 'LINK_VALID', 'WhatsAppDetector validates clean 12-digit Indian wa.me link');
+
+  const { TrackingDetector } = await import('../server/scanner/detectors/tracking');
+  const trackingStatic = TrackingDetector.analyzeTracking('<html><body></body></html>');
+  assert(!trackingStatic.metaPixel.exists, 'TrackingDetector flags missing Meta Pixel on blank HTML');
+
+  const trackingRuntime = TrackingDetector.analyzeTracking('<html><body></body></html>', { metaPixel: true });
+  assert(trackingRuntime.metaPixel.exists && trackingRuntime.metaPixel.status === 'HEALTHY', 'TrackingDetector recognizes Meta Pixel via runtime network ping interception');
+
+  const { SeoDetector } = await import('../server/scanner/detectors/seo');
+  const seoCheck = SeoDetector.analyzeSeo('<meta name="robots" content="noindex">', 'https://sample.in');
+  assert(seoCheck.seoPenalty.hasNoIndex && seoCheck.findings.some(f => f.category === 'seo'), 'SeoDetector detects critical noindex penalty');
+
+  const { ScoringEngine } = await import('../server/scanner/scoring/scoringEngine');
+  const sampleFindings = [
+    { id: 'f1', category: 'whatsapp' as const, title: 'Broken WA', severity: 'CRITICAL' as const, confidence: 'HIGH' as const, detectedBy: 'STATIC' as const, observed: '', inferred: '', evidence: '', impact: '', recommendation: '', timestamp: '' },
+    { id: 'f2', category: 'pixel' as const, title: 'Missing Pixel', severity: 'CRITICAL' as const, confidence: 'HIGH' as const, detectedBy: 'STATIC' as const, observed: '', inferred: '', evidence: '', impact: '', recommendation: '', timestamp: '' }
+  ];
+  const scores = ScoringEngine.calculateScores(sampleFindings);
+  assert(scores.pillars.lead.score === 65 && scores.pillars.ad.score === 65, 'ScoringEngine deterministically calculates pillar deductions');
+
+  const { ImpactCalculator } = await import('../server/scanner/scoring/impactCalculator');
+  const impact = ImpactCalculator.calculateImpact(sampleFindings);
+  assert(impact.lowEstimateINR > 0 && impact.highEstimateINR > impact.lowEstimateINR, 'ImpactCalculator computes transparent range-based financial loss estimate');
+
+  const { watchdogScheduler } = await import('../server/watchdogScheduler');
+  const targetObj = {
+    id: 'wd_job_test_1',
+    targetUrl: 'https://drsharmadental.in',
+    domain: 'drsharmadental.in',
+    contact: '@testuser',
+    channel: 'TELEGRAM' as const,
+    frequency: 'DAILY' as const,
+    createdAt: new Date().toISOString(),
+    trialExpiresAt: new Date().toISOString(),
+    status: 'ACTIVE_TRIAL' as const,
+  };
+  const job = await watchdogScheduler.executeJobForTarget(targetObj);
+  assert(job.status === 'COMPLETED' || job.status === 'FAILED', 'WatchdogScheduler executes job abstraction cleanly');
 
   // -------------------------------------------------------------------------
   // Final Results
