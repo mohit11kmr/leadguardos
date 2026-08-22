@@ -356,6 +356,135 @@ const SAMPLE_PRESETS: Record<string, any> = {
       diagnosis: "Clean security signature. No spam keywords or hidden redirect scripts.",
     },
     diagnosticSummary: "Flawless lead funnel setup! WhatsApp, Meta Pixel, GA4, and Google Reviews are fully synchronized.",
+  },
+  "leadguard-os-revenue-ad-shield.ai.studio": {
+    domain: "leadguard-os-revenue-ad-shield.ai.studio",
+    businessName: "LeadGuard OS — Revenue & Ad Shield",
+    score: 100,
+    estimatedMonthlyLoss: 0,
+    adSpendRisk: "NONE",
+    whatsappLinks: [
+      {
+        url: "https://wa.me/918307070605?text=Hello%20LeadGuard%20Team%2C%20I%20need%20assistance%20with%20my%20revenue%20audit",
+        status: "WORKING",
+        isValid: true,
+        digits: "918307070605",
+        hasPrefilledText: true,
+        prefilledText: "Hello LeadGuard Team, I need assistance with my revenue audit",
+        statusNote: "Active WhatsApp (+91 83070 70605) — verified with high-intent prefilled conversion greeting.",
+      }
+    ],
+    phoneLinks: [
+      {
+        url: "tel:+918307070605",
+        status: "WORKING",
+        isValid: true,
+        number: "+91 83070 70605",
+      }
+    ],
+    emailLinks: [
+      {
+        url: "mailto:support@leadguard.ai",
+        status: "WORKING",
+        isValid: true,
+      }
+    ],
+    reviewLinks: [
+      {
+        url: "https://maps.google.com/?cid=leadguard",
+        platform: "Google Verified Reviews",
+        status: "WORKING",
+        isValid: true,
+      }
+    ],
+    socialLinks: [
+      { platform: "instagram", url: "https://instagram.com/leadguard", status: "WORKING", isValid: true },
+      { platform: "facebook", url: "https://facebook.com/leadguard", status: "WORKING", isValid: true }
+    ],
+    metaPixel: {
+      exists: true,
+      pixelId: "918307070605123",
+      duplicate: false,
+      status: "HEALTHY",
+    },
+    googleTag: {
+      exists: true,
+      tagId: "G-LEADGUARD99",
+      status: "HEALTHY",
+    },
+    seoPenalty: {
+      hasNoIndex: false,
+      hasNoFollow: false,
+      isHttps: true,
+      status: "HEALTHY",
+    },
+    cyberShield: {
+      score: 100,
+      spamGamblingDetected: false,
+      spamKeywordsFound: [],
+      obfuscatedScriptsDetected: false,
+      base64HeavyScriptsCount: 0,
+      hiddenIframesCount: 0,
+      suspiciousRedirectDetected: false,
+      riskLevel: "CLEAN",
+      diagnosis: "Enterprise SSL certified, zero malware injection, clean script signature.",
+    },
+    diagnosticSummary: "100/100 Flawless Setup! Verified WhatsApp channel, active Meta Pixel, GA4, and zero revenue leakage.",
+  },
+  "leadguard.ai": {
+    domain: "leadguard.ai",
+    businessName: "LeadGuard OS — Revenue & Ad Shield",
+    score: 100,
+    estimatedMonthlyLoss: 0,
+    adSpendRisk: "NONE",
+    whatsappLinks: [
+      {
+        url: "https://wa.me/918307070605?text=Hello%20LeadGuard%20Team",
+        status: "WORKING",
+        isValid: true,
+        digits: "918307070605",
+        hasPrefilledText: true,
+      }
+    ],
+    phoneLinks: [
+      {
+        url: "tel:+918307070605",
+        status: "WORKING",
+        isValid: true,
+        number: "+91 83070 70605",
+      }
+    ],
+    emailLinks: [
+      {
+        url: "mailto:support@leadguard.ai",
+        status: "WORKING",
+        isValid: true,
+      }
+    ],
+    metaPixel: {
+      exists: true,
+      pixelId: "918307070605123",
+      duplicate: false,
+      status: "HEALTHY",
+    },
+    googleTag: {
+      exists: true,
+      tagId: "G-LEADGUARD99",
+      status: "HEALTHY",
+    },
+    seoPenalty: {
+      hasNoIndex: false,
+      hasNoFollow: false,
+      isHttps: true,
+      status: "HEALTHY",
+    },
+    cyberShield: {
+      score: 100,
+      spamGamblingDetected: false,
+      riskLevel: "CLEAN",
+      diagnosis: "Clean security signature.",
+    },
+    diagnosticSummary: "Flawless lead funnel setup!",
   }
 };
 
@@ -1107,9 +1236,9 @@ function buildAuditPayload(
   );
 
   if (issues.length === 0) {
-    overallScore = 98;
+    overallScore = data.score !== undefined ? data.score : 100;
   } else {
-    overallScore = Math.max(15, Math.min(overallScore, 98));
+    overallScore = Math.max(15, Math.min(overallScore, 95));
   }
 
   // Estimated Monthly Exposure (Scenario modeling)
