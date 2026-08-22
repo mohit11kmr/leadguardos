@@ -618,6 +618,24 @@ async function runTestSuite() {
   assert(!forgedSig, 'Payment Engine rejects forged payment signature string');
 
   // -------------------------------------------------------------------------
+  // 21. Phase 8 Release Candidate Environment Validation & Safeguard Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 21: Environment Validation & Startup Safeguards');
+  const { validateEnvironment } = await import('../server/config/envValidator');
+  const envRes = validateEnvironment();
+  assert(envRes.valid, 'EnvValidator validates development/test environment settings cleanly');
+
+  // -------------------------------------------------------------------------
+  // 22. Phase 8 Release Candidate Versioning & Health Probes Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 22: Release Versioning & Health Probes');
+  const { db: dbManager } = await import('../server/db/database');
+  const { jobQueue: jobQueueManager } = await import('../server/queue/jobQueue');
+  const dbStatus = await dbManager.checkHealth();
+  const queueDepth = jobQueueManager.getQueueDepth();
+  assert(dbStatus.status === 'OK' && typeof queueDepth === 'number', 'Health & Readiness probes report healthy database and queue depth');
+
+  // -------------------------------------------------------------------------
   // Final Results
   // -------------------------------------------------------------------------
   console.log('\n======================================================');

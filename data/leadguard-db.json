@@ -37,8 +37,8 @@
       "channel": "EMAIL",
       "frequency": "DAILY",
       "status": "ACTIVE_TRIAL",
-      "createdAt": "2026-08-22T05:34:43.062Z",
-      "trialExpiresAt": "2026-08-22T05:34:43.062Z"
+      "createdAt": "2026-08-22T05:42:09.998Z",
+      "trialExpiresAt": "2026-08-22T05:42:09.998Z"
     },
     {
       "id": "wd_tenant_A_target",
@@ -49,11 +49,19 @@
       "channel": "TELEGRAM",
       "frequency": "DAILY",
       "status": "ACTIVE_SUBSCRIPTION",
-      "createdAt": "2026-08-22T05:34:43.556Z",
-      "trialExpiresAt": "2026-08-22T05:34:43.556Z"
+      "createdAt": "2026-08-22T05:42:10.557Z",
+      "trialExpiresAt": "2026-08-22T05:42:10.557Z"
     }
   ],
   "watchdogChecks": [
+    {
+      "id": "chk_1787377330312",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T05:42:10.312Z",
+      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
+    },
     {
       "id": "chk_1787376883353",
       "domain": "drsharmadental.in",
@@ -880,19 +888,19 @@
       "status": "FAIL (Unreachable)",
       "timestamp": "2026-08-22T01:06:38.705Z",
       "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
-    },
-    {
-      "id": "chk_1787360743726_59x",
-      "domain": "urbanvogue.in",
-      "check": "Automated 4-Pillar Watchdog Probe",
-      "status": "PASS (Healthy)",
-      "score": 96,
-      "timestamp": "2026-08-22T01:05:43.726Z",
-      "details": "All systems operational"
     }
   ],
   "webhooks": [],
   "orders": [
+    {
+      "orderId": "ord_test_99",
+      "tierId": "tier-express-fix",
+      "tierName": "Express Fix",
+      "amountINR": 4999,
+      "paymentMethod": "UPI",
+      "status": "PAID",
+      "createdAt": "2026-08-22T05:42:10.002Z"
+    },
     {
       "orderId": "ord_test_99",
       "tierId": "tier-express-fix",

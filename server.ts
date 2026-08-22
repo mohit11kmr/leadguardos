@@ -15,13 +15,21 @@ import { PLAN_CONFIG } from "./server/config/pricing";
 import { EntitlementService } from "./server/services/entitlementService";
 import { ProductAnalytics } from "./server/observability/analytics";
 import { verifyPaymentSignature } from "./server/services/paymentService";
+import { validateEnvironment } from "./server/config/envValidator";
 
 dotenv.config();
+validateEnvironment();
 
 const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: "5mb" }));
+
+// Version header middleware
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader("X-LeadGuard-Version", "1.0.0-rc1");
+  next();
+});
 
 // ---------------------------------------------------------------------------
 // 1. Rate Limiting Middleware (IP-level bucket)
@@ -939,6 +947,15 @@ app.get("/report/share/:token", (req: Request, res: Response) => {
   }
 
   res.json({ snapshot: result.snapshot, sharedAt: new Date().toISOString() });
+});
+
+// 4. User Feedback Endpoint
+app.post("/api/feedback", (req: Request, res: Response) => {
+  const { scanId, rating, comments } = req.body;
+  if (!rating) return res.status(400).json({ error: "rating is required" });
+
+  AuditLogger.log({ action: "USER_FEEDBACK", resource: scanId || "GENERAL", details: { rating, comments } });
+  res.status(201).json({ status: "RECEIVED", timestamp: new Date().toISOString() });
 });
 
 // ---------------------------------------------------------------------------
