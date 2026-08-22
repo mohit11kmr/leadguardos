@@ -157,9 +157,13 @@ export const WatchdogConsole: React.FC<WatchdogConsoleProps> = ({ onOpenNewMonit
                   </div>
 
                   <span className={`rounded-md px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider self-start sm:self-auto ${
-                    chk.status.startsWith('FAIL') ? 'bg-red-500/10 text-red-400 border border-red-500/30' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                    chk.status.startsWith('FAIL') || chk.status.includes('REGRESSION')
+                      ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                      : chk.status.includes('WARN')
+                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                      : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                   }`}>
-                    {chk.status}
+                    {chk.status.startsWith('FAIL') ? 'ALERT_TRIGGERED' : chk.status.includes('REGRESSION') ? 'REGRESSION' : 'ACTIVE_MONITORING'}
                   </span>
                 </div>
               ))}

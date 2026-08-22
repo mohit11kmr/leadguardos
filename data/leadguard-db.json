@@ -37,11 +37,19 @@
       "channel": "EMAIL",
       "frequency": "DAILY",
       "status": "ACTIVE_TRIAL",
-      "createdAt": "2026-08-22T04:26:56.385Z",
-      "trialExpiresAt": "2026-08-22T04:26:56.386Z"
+      "createdAt": "2026-08-22T04:34:05.903Z",
+      "trialExpiresAt": "2026-08-22T04:34:05.903Z"
     }
   ],
   "watchdogChecks": [
+    {
+      "id": "chk_1787373246071",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T04:34:06.071Z",
+      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
+    },
     {
       "id": "chk_1787372816490",
       "domain": "drsharmadental.in",
@@ -861,6 +869,15 @@
   ],
   "webhooks": [],
   "orders": [
+    {
+      "orderId": "ord_test_99",
+      "tierId": "tier-express-fix",
+      "tierName": "Express Fix",
+      "amountINR": 4999,
+      "paymentMethod": "UPI",
+      "status": "PAID",
+      "createdAt": "2026-08-22T04:34:05.915Z"
+    },
     {
       "orderId": "ord_test_99",
       "tierId": "tier-express-fix",

@@ -1,5 +1,5 @@
-import React from 'react';
-import { Shield, TrendingDown, Layers, Radio, Zap, Sparkles, ChevronDown, Swords, MessageCircle, ShoppingCart, Crosshair, Phone, Globe, User, LogIn, LogOut } from 'lucide-react';
+import React, { useState } from 'react';
+import { Shield, TrendingDown, Layers, Radio, Zap, ChevronDown, Swords, MessageCircle, ShoppingCart, Crosshair, Phone, Globe, User, LogIn, LogOut, Wrench } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -19,19 +19,25 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenContact,
 }) => {
   const { lang, setLang, t } = useLanguage();
-  const { user, profile, signInWithGoogle, signOut, isAgency, isAdmin } = useAuth();
+  const { user, profile, signInWithGoogle, signOut } = useAuth();
+  const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState(false);
 
-  const tabs = [
-    { id: 'scanner', label: t('nav.liveAudit', 'Live Audit'), icon: Shield },
-    { id: 'sabotage-radar', label: t('nav.sabotage', 'Sabotage Radar'), icon: Swords },
-    { id: 'zero-intent', label: t('nav.zeroIntent', 'Zero-Intent WA'), icon: MessageCircle },
-    { id: 'cart-death', label: t('nav.cartDeath', 'Cart Death'), icon: ShoppingCart },
-    { id: 'hunter', label: t('nav.hunter', 'Hunter Mode'), icon: Crosshair },
+  const primaryTabs = [
+    { id: 'scanner', label: t('nav.liveAudit', 'Audit Dashboard'), icon: Shield },
+    { id: 'watchdog', label: t('nav.watchdog', 'Watchdog Radar'), icon: Radio },
     { id: 'funnel', label: t('nav.funnel', 'Funnel Simulator'), icon: TrendingDown },
-    { id: 'agency', label: t('nav.agency', 'Agency Hub'), icon: Layers },
-    { id: 'watchdog', label: t('nav.watchdog', '24/7 Watchdog'), icon: Radio },
-    { id: 'pricing', label: t('nav.pricing', 'Plans & Fixes'), icon: Zap },
+    { id: 'pricing', label: t('nav.pricing', 'Plans & Upgrades'), icon: Zap },
   ];
+
+  const secondaryTools = [
+    { id: 'sabotage-radar', label: 'Competitive Monitor', description: 'Audit competitor landing pages & leaks', icon: Swords },
+    { id: 'zero-intent', label: 'CTA & WhatsApp Analyzer', description: 'Check mobile chat links & drop-offs', icon: MessageCircle },
+    { id: 'cart-death', label: 'Cart Leakage Detector', description: 'Identify e-commerce checkout barriers', icon: ShoppingCart },
+    { id: 'hunter', label: 'Prospect Hunter', description: 'Find & audit lead opportunities', icon: Crosshair },
+    { id: 'agency', label: 'Agency Pitch Studio', description: 'Generate client reports & proposals', icon: Layers },
+  ];
+
+  const isSecondaryActive = secondaryTools.some(tool => tool.id === activeTab);
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl">
@@ -58,9 +64,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Clean Categorized Navigation Tabs with no-wrap and responsive styling */}
-        <nav className="hidden lg:flex items-center gap-1 rounded-xl bg-slate-900/80 p-1 border border-slate-800/80 overflow-x-auto max-w-full">
-          {tabs.map((t) => {
+        {/* Clean Structured Navigation Bar */}
+        <nav className="hidden lg:flex items-center gap-1.5 rounded-xl bg-slate-900/80 p-1 border border-slate-800/80">
+          {primaryTabs.map((t) => {
             const Icon = t.icon;
             const isActive = activeTab === t.id;
             return (
@@ -68,23 +74,74 @@ export const Navbar: React.FC<NavbarProps> = ({
                 key={t.id}
                 id={`nav-tab-${t.id}`}
                 onClick={() => setActiveTab(t.id as AppTab)}
-                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold tracking-wide whitespace-nowrap transition-all ${
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold tracking-wide whitespace-nowrap transition-all ${
                   isActive
                     ? 'bg-rose-600 text-white shadow-sm shadow-rose-900/40'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                 }`}
               >
                 <Icon className="h-3.5 w-3.5 shrink-0" />
-                <span className="whitespace-nowrap">{t.label}</span>
+                <span>{t.label}</span>
               </button>
             );
           })}
+
+          {/* Secondary Tools Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setIsToolsDropdownOpen(!isToolsDropdownOpen)}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold tracking-wide whitespace-nowrap transition-all ${
+                isSecondaryActive
+                  ? 'bg-rose-950/60 text-rose-300 border border-rose-500/40'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <Wrench className="h-3.5 w-3.5 text-rose-400 shrink-0" />
+              <span>Tools & Advanced</span>
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isToolsDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isToolsDropdownOpen && (
+              <div 
+                className="absolute right-0 mt-2 w-64 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-2 z-50 space-y-1"
+                onMouseLeave={() => setIsToolsDropdownOpen(false)}
+              >
+                <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Diagnostic & Intelligence Tools
+                </div>
+                {secondaryTools.map((tool) => {
+                  const Icon = tool.icon;
+                  const isActive = activeTab === tool.id;
+                  return (
+                    <button
+                      key={tool.id}
+                      onClick={() => {
+                        setActiveTab(tool.id as AppTab);
+                        setIsToolsDropdownOpen(false);
+                      }}
+                      className={`w-full text-left flex items-start gap-2.5 p-2.5 rounded-xl text-xs transition-colors ${
+                        isActive
+                          ? 'bg-rose-500/20 border border-rose-500/30 text-white font-medium'
+                          : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="font-semibold text-slate-200">{tool.label}</div>
+                        <div className="text-[11px] text-slate-400 leading-tight">{tool.description}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </nav>
 
-        {/* Actions Toolbar: Language Toggle + Sample Selector + Contact Us + Auth */}
+        {/* Actions Toolbar */}
         <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
           
-          {/* Language Switcher Toggle */}
+          {/* Language Switcher */}
           <button
             onClick={() => setLang(lang === 'en' ? 'hi' : 'en')}
             className="flex items-center gap-1.5 rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs font-bold text-slate-200 hover:border-slate-700 transition-colors shadow-sm whitespace-nowrap"
@@ -94,7 +151,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="uppercase">{lang === 'en' ? 'HI' : 'EN'}</span>
           </button>
 
-          {/* Contact Founder Modal Button */}
+          {/* Help Contact */}
           <button
             onClick={onOpenContact}
             className="hidden md:inline-flex items-center gap-1.5 rounded-lg bg-slate-900 border border-emerald-500/30 hover:border-emerald-500/60 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition-colors shadow-sm whitespace-nowrap"
@@ -103,7 +160,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="whitespace-nowrap">Help (8307070605)</span>
           </button>
 
-          {/* Live Case Study Dropdown */}
+          {/* Demos Dropdown */}
           <div className="relative shrink-0">
             <select
               id="demo-preset-select"
@@ -120,13 +177,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               <option value="" disabled>Demos</option>
               <option value="drsharmadental.in">Dr. Sharma Dental</option>
               <option value="elitesalonmumbai.com">Elite Salon</option>
-              <option value="apexgrandrealestate.com">Apex Grand</option>
-              <option value="urbanvogue.in">UrbanVogue</option>
+              <option value="leadguard.ai">LeadGuard AI</option>
             </select>
             <ChevronDown className="h-3.5 w-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
-          {/* Firebase Authentication Sign-In / User Profile Badge */}
+          {/* User Auth Profile */}
           {user ? (
             <div className="flex items-center gap-2 pl-1 border-l border-slate-800">
               <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1">
@@ -164,9 +220,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       </div>
 
-      {/* Mobile & Tablet Nav Bar with Smooth Scrolling & No-Wrap */}
+      {/* Mobile Nav Bar */}
       <div className="flex lg:hidden border-t border-slate-800/80 bg-slate-950 px-3 py-2 overflow-x-auto gap-1.5 scrollbar-none">
-        {tabs.map((t) => {
+        {[...primaryTabs, ...secondaryTools].map((t) => {
           const Icon = t.icon;
           const isActive = activeTab === t.id;
           return (
@@ -188,4 +244,3 @@ export const Navbar: React.FC<NavbarProps> = ({
     </header>
   );
 };
-

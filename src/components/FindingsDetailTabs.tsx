@@ -193,7 +193,7 @@ export const FindingsDetailTabs: React.FC<FindingsDetailTabsProps> = ({
             </p>
           </div>
         ) : (
-          filteredIssues.map((issue, idx) => {
+              filteredIssues.map((issue, idx) => {
             const isTechnicalExpanded = !!expandedTechnical[issue.id];
             const isCopied = copiedSnippetId === issue.id;
 
@@ -204,42 +204,60 @@ export const FindingsDetailTabs: React.FC<FindingsDetailTabsProps> = ({
               >
                 {/* Header Row */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-2.5 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {getSeverityBadge(issue.severity)}
-                    <span className="text-xs font-mono text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                    <span className="text-xs font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
                       {issue.ruleId || `RULE-${idx + 1}`}
                     </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 uppercase">
+                      Source: {issue.detectedBy || 'STATIC'}
+                    </span>
                     {issue.confidence && (
-                      <span className="text-[11px] text-slate-400 font-medium">
-                        Confidence: <strong className="text-slate-300">{(issue.confidence * 100).toFixed(0)}%</strong>
+                      <span className="text-[10px] text-slate-400 font-semibold bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                        Confidence: <strong className="text-emerald-400">{typeof issue.confidence === 'number' ? `${(issue.confidence * 100).toFixed(0)}%` : issue.confidence}</strong>
                       </span>
                     )}
                   </div>
 
-                  <div className="flex items-center gap-1.5 self-start sm:self-auto bg-slate-900/90 px-2.5 py-1 rounded-lg border border-slate-800">
-                    {getPillarIcon(issue.pillar || issue.category)}
-                    <span className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
-                      {issue.pillar || issue.category}
-                    </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={onOpenExpressFix}
+                      className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white transition-colors whitespace-nowrap shadow-sm"
+                    >
+                      Fix This
+                    </button>
                   </div>
                 </div>
 
                 {/* Title & Description */}
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   <h3 className="text-sm sm:text-base font-bold text-white tracking-tight">
                     {issue.title}
                   </h3>
-                  <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                  <p className="text-xs text-slate-300 leading-relaxed">
                     {issue.description}
                   </p>
                 </div>
 
+                {/* Observed Evidence Box (Why We Found This) */}
+                {issue.evidence && (
+                  <div className="rounded-xl bg-slate-900/90 border border-slate-800 p-3 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400 flex items-center gap-1">
+                      <Terminal className="h-3 w-3" />
+                      Observed Evidence (Why We Found This)
+                    </span>
+                    <p className="text-xs font-mono text-slate-300 bg-slate-950 p-2 rounded-lg border border-slate-800/80 break-all">
+                      {typeof issue.evidence === 'object' ? JSON.stringify(issue.evidence) : issue.evidence}
+                    </p>
+                  </div>
+                )}
+
                 {/* Business Impact Note */}
                 {issue.impact && (
                   <div className="rounded-xl bg-slate-900/90 border border-slate-800 p-3 flex items-start gap-2.5 text-xs text-slate-300">
-                    <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+                    <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
                     <div>
-                      <strong className="text-rose-400 font-semibold">Why It Matters: </strong>
+                      <strong className="text-amber-400 font-semibold">Business Impact: </strong>
                       <span>{issue.impact}</span>
                     </div>
                   </div>
@@ -251,7 +269,7 @@ export const FindingsDetailTabs: React.FC<FindingsDetailTabsProps> = ({
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
                         <Sparkles className="h-3.5 w-3.5" />
-                        Recommended 1-Click Fix Code
+                        Recommended Fix Snippet
                       </span>
                       <button
                         onClick={() => copyFixSnippet(issue.id, issue.fixSnippet)}
@@ -265,7 +283,7 @@ export const FindingsDetailTabs: React.FC<FindingsDetailTabsProps> = ({
                         ) : (
                           <>
                             <Copy className="h-3 w-3 text-slate-400" />
-                            <span>Copy Fix</span>
+                            <span>Copy Fix Code</span>
                           </>
                         )}
                       </button>
@@ -274,37 +292,6 @@ export const FindingsDetailTabs: React.FC<FindingsDetailTabsProps> = ({
                     <pre className="text-xs font-mono text-slate-200 bg-slate-950 p-2.5 rounded-lg overflow-x-auto border border-slate-800/80 whitespace-pre-wrap break-all">
                       {issue.fixSnippet}
                     </pre>
-                  </div>
-                )}
-
-                {/* Expandable Technical Detail & Evidence */}
-                {(issue.technical || issue.evidence) && (
-                  <div>
-                    <button
-                      onClick={() => toggleTechnical(issue.id)}
-                      className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
-                    >
-                      <Terminal className="h-3.5 w-3.5" />
-                      <span>{isTechnicalExpanded ? 'Hide Technical Evidence' : 'Show Technical Evidence & DOM Trace'}</span>
-                      {isTechnicalExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                    </button>
-
-                    {isTechnicalExpanded && (
-                      <div className="mt-2.5 rounded-xl bg-slate-950 p-3 border border-slate-800 font-mono text-xs text-slate-300 space-y-1.5">
-                        {issue.evidence && (
-                          <div>
-                            <span className="text-slate-500 text-[10px] uppercase font-bold">Evidence:</span>
-                            <p className="text-rose-300 break-all">{typeof issue.evidence === 'object' ? JSON.stringify(issue.evidence, null, 2) : issue.evidence}</p>
-                          </div>
-                        )}
-                        {issue.technical && (
-                          <div className="pt-1 border-t border-slate-800/60">
-                            <span className="text-slate-500 text-[10px] uppercase font-bold">Diagnostic Trace:</span>
-                            <p className="text-slate-400">{issue.technical}</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 )}
 

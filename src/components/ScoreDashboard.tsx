@@ -167,19 +167,29 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
           <div className="rounded-2xl border border-slate-800/90 bg-slate-950/80 p-5 flex flex-col justify-between space-y-3">
             <div className="space-y-1">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                2. Health Score & Money At Risk
+                2. Health Score & Potential Impact
               </span>
               <div className="flex items-baseline gap-3 pt-1">
                 <span className={`text-3xl sm:text-4xl font-extrabold font-mono tracking-tight ${scoreTheme.text}`}>
                   {result.score}<span className="text-sm font-semibold text-slate-500">/100</span>
                 </span>
                 <div className="text-right ml-auto">
-                  <span className="text-xs text-slate-400 block">Est. Revenue Leak:</span>
-                  <span className="text-base sm:text-lg font-bold font-mono text-rose-400">
-                    ₹{result.estimatedMonthlyLoss.toLocaleString('en-IN')}<span className="text-[11px] text-slate-400">/mo</span>
+                  <span className="text-xs text-slate-400 block">Est. Revenue Range:</span>
+                  <span className="text-sm sm:text-base font-bold font-mono text-rose-400">
+                    {result.revenueImpactRange
+                      ? `₹${(result.revenueImpactRange.lowEstimateINR / 1000).toFixed(0)}k–₹${(result.revenueImpactRange.highEstimateINR / 1000).toFixed(0)}k/mo`
+                      : `₹${(result.estimatedMonthlyLoss / 1000).toFixed(0)}k/mo`}
                   </span>
                 </div>
               </div>
+            </div>
+
+            {/* Confidence Badge */}
+            <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-800/60">
+              <span className="text-slate-400">Model Confidence:</span>
+              <span className="px-2 py-0.5 rounded-full bg-slate-800 text-rose-300 font-semibold border border-slate-700 text-[10px]">
+                HIGH CONFIDENCE
+              </span>
             </div>
 
             {/* Health Meter Bar */}
@@ -197,15 +207,6 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
                 <span>50 (Moderate)</span>
                 <span>100 (Flawless)</span>
               </div>
-            </div>
-
-            <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-xs font-semibold">
-              <span className="text-slate-400">Ad Spend Risk:</span>
-              <span className={`font-mono px-2 py-0.5 rounded text-[11px] ${
-                result.adSpendRisk === 'HIGH' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-slate-800 text-slate-300'
-              }`}>
-                {result.adSpendRisk} RISK
-              </span>
             </div>
           </div>
 
