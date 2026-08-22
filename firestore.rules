@@ -1,0 +1,54 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId);
+    }
+    
+    match /scans/{scanId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || request.auth.token.role == 'ADMIN');
+    }
+    
+    match /watchdogTargets/{targetId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || request.auth.token.role == 'ADMIN');
+    }
+    
+    match /watchdogChecks/{checkId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+    
+    match /webhooks/{webhookId} {
+      allow read, write: if isSignedIn();
+    }
+    
+    match /orders/{orderId} {
+      allow read: if isSignedIn();
+      allow create: if true;
+      allow update: if isSignedIn();
+    }
+    
+    match /systemStats/{statId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /auditLogs/{logId} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

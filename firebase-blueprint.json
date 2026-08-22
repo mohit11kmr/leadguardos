@@ -1,0 +1,52 @@
+{
+  "entities": {
+    "UserProfile": {
+      "collection": "users",
+      "fields": {
+        "id": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User full name" },
+        "photoURL": { "type": "string", "description": "User avatar URL" },
+        "role": { "type": "string", "description": "Role: USER | AGENCY | ADMIN" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" }
+      }
+    },
+    "Scan": {
+      "collection": "scans",
+      "fields": {
+        "scanId": { "type": "string", "description": "Unique scan identifier" },
+        "publicToken": { "type": "string", "description": "Token for public reports" },
+        "targetUrl": { "type": "string", "description": "Target website URL" },
+        "domain": { "type": "string", "description": "Extracted hostname" },
+        "businessName": { "type": "string", "description": "Detected brand name" },
+        "score": { "type": "number", "description": "Overall score 0-100" },
+        "estimatedMonthlyLoss": { "type": "number", "description": "Potential revenue loss" },
+        "adSpendRisk": { "type": "string", "description": "CRITICAL | HIGH | MEDIUM | LOW" },
+        "scannedAt": { "type": "string", "description": "ISO timestamp" }
+      }
+    },
+    "WatchdogTarget": {
+      "collection": "watchdogTargets",
+      "fields": {
+        "id": { "type": "string", "description": "Monitor identifier" },
+        "targetUrl": { "type": "string", "description": "Monitored URL" },
+        "domain": { "type": "string", "description": "Monitored domain" },
+        "contact": { "type": "string", "description": "Alert recipient phone/email/handle" },
+        "channel": { "type": "string", "description": "TELEGRAM | WHATSAPP | EMAIL" },
+        "frequency": { "type": "string", "description": "DAILY | HOURLY | 15MIN" },
+        "status": { "type": "string", "description": "ACTIVE_TRIAL | ACTIVE_SUBSCRIPTION | PAUSED" }
+      }
+    },
+    "Order": {
+      "collection": "orders",
+      "fields": {
+        "orderId": { "type": "string", "description": "Unique order identifier" },
+        "tierId": { "type": "string", "description": "Purchased tier ID" },
+        "tierName": { "type": "string", "description": "Tier display name" },
+        "amountINR": { "type": "number", "description": "Transaction amount in INR" },
+        "status": { "type": "string", "description": "PENDING | PAID | FAILED | REFUNDED" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" }
+      }
+    }
+  }
+}

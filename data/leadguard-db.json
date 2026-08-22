@@ -1,0 +1,366 @@
+{
+  "scans": [],
+  "watchdogTargets": [
+    {
+      "id": "wd_default_1",
+      "targetUrl": "https://drsharmadental.in",
+      "domain": "drsharmadental.in",
+      "contact": "+91 98765 43210",
+      "channel": "WHATSAPP",
+      "frequency": "DAILY",
+      "createdAt": "2026-08-20T01:05:38.692Z",
+      "trialExpiresAt": "2026-09-19T01:05:38.692Z",
+      "status": "ACTIVE_SUBSCRIPTION",
+      "lastCheckedAt": "2026-08-22T01:05:38.692Z",
+      "lastScore": 38,
+      "lastStatus": "CRITICAL_LEAKS"
+    },
+    {
+      "id": "wd_default_2",
+      "targetUrl": "https://urbanvogue.in",
+      "domain": "urbanvogue.in",
+      "contact": "@urbanvogue_alerts",
+      "channel": "TELEGRAM",
+      "frequency": "HOURLY",
+      "createdAt": "2026-08-17T01:05:38.692Z",
+      "trialExpiresAt": "2026-09-16T01:05:38.692Z",
+      "status": "ACTIVE_SUBSCRIPTION",
+      "lastCheckedAt": "2026-08-22T01:20:38.717Z",
+      "lastScore": 96,
+      "lastStatus": "PASS (Healthy)"
+    },
+    {
+      "id": "test_wd_1",
+      "targetUrl": "https://test-example.in",
+      "domain": "test-example.in",
+      "contact": "test@example.com",
+      "channel": "EMAIL",
+      "frequency": "DAILY",
+      "status": "ACTIVE_TRIAL",
+      "createdAt": "2026-08-22T01:20:55.366Z",
+      "trialExpiresAt": "2026-08-22T01:20:55.366Z"
+    }
+  ],
+  "watchdogChecks": [
+    {
+      "id": "chk_1787361638718_jiu",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:20:38.718Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787361638716",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:20:38.716Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787361578715_3qr",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:19:38.715Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787361578713",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:19:38.713Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787361518714_b11",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:18:38.714Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787361518713",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:18:38.713Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787361458724_upp",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:17:38.724Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787361458716",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:17:38.716Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787361398712_7eb",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:16:38.712Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787361398711",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:16:38.711Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787361338715_8xg",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:15:38.715Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787361338713",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:15:38.713Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787361278711_ogf",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:14:38.711Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787361278710",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:14:38.710Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787361218712_4mb",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:13:38.712Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787361218710",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:13:38.710Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787361158717_sle",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:12:38.717Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787361158715",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:12:38.715Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787361098734_lva",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:11:38.734Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787361098724",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:11:38.724Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787361038709_ld2",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:10:38.709Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787361038708",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:10:38.708Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787360978708_1iy",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:09:38.708Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787360978706",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:09:38.706Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787360918708_hxz",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:08:38.708Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787360918706",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:08:38.706Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787360858708_x3f",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:07:38.708Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787360858706",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:07:38.706Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787360798707_gko",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:06:38.707Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787360798705",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:06:38.705Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787360743726_59x",
+      "domain": "urbanvogue.in",
+      "check": "Automated 4-Pillar Watchdog Probe",
+      "status": "PASS (Healthy)",
+      "score": 96,
+      "timestamp": "2026-08-22T01:05:43.726Z",
+      "details": "All systems operational"
+    },
+    {
+      "id": "chk_1787360743710",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-22T01:05:43.710Z",
+      "details": "DNS resolution failed for drsharmadental.in: getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1",
+      "domain": "drsharmadental.in",
+      "check": "WhatsApp Link Routing",
+      "status": "FAIL (+9191)",
+      "timestamp": "2026-08-22T01:01:38.692Z"
+    },
+    {
+      "id": "chk_2",
+      "domain": "elitesalonmumbai.com",
+      "check": "Google Review 404",
+      "status": "FAIL (404 Dead Link)",
+      "timestamp": "2026-08-22T00:53:38.692Z"
+    },
+    {
+      "id": "chk_3",
+      "domain": "urbanvogue.in",
+      "check": "Meta Pixel & GA4 Ping",
+      "status": "PASS (Healthy)",
+      "timestamp": "2026-08-22T00:47:38.692Z"
+    },
+    {
+      "id": "chk_4",
+      "domain": "apexgrandrealestate.com",
+      "check": "Toll Free Dialer",
+      "status": "FAIL (8-digit cut)",
+      "timestamp": "2026-08-22T00:40:38.692Z"
+    }
+  ],
+  "webhooks": [],
+  "orders": [
+    {
+      "orderId": "ord_test_99",
+      "tierId": "tier-express-fix",
+      "tierName": "Express Fix",
+      "amountINR": 4999,
+      "paymentMethod": "UPI",
+      "status": "PAID",
+      "createdAt": "2026-08-22T01:20:55.366Z"
+    }
+  ],
+  "users": [],
+  "stats": {
+    "totalScannedSites": 14820,
+    "problemsFound": 38490,
+    "healthySites": 2940,
+    "fixedByLeadGuard": 11260,
+    "lastUpdated": "2026-08-22T01:05:38.691Z"
+  }
+}

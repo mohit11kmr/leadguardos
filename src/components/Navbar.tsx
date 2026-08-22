@@ -1,6 +1,7 @@
 import React from 'react';
-import { Shield, TrendingDown, Layers, Radio, Zap, Sparkles, ChevronDown, Swords, MessageCircle, ShoppingCart, Crosshair, Phone, Globe, User } from 'lucide-react';
+import { Shield, TrendingDown, Layers, Radio, Zap, Sparkles, ChevronDown, Swords, MessageCircle, ShoppingCart, Crosshair, Phone, Globe, User, LogIn, LogOut } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 
 export type AppTab = 'scanner' | 'sabotage-radar' | 'zero-intent' | 'cart-death' | 'hunter' | 'funnel' | 'agency' | 'watchdog' | 'pricing';
 
@@ -18,6 +19,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenContact,
 }) => {
   const { lang, setLang, t } = useLanguage();
+  const { user, profile, signInWithGoogle, signOut, isAgency, isAdmin } = useAuth();
 
   const tabs = [
     { id: 'scanner', label: t('nav.liveAudit', 'Live Audit'), icon: Shield },
@@ -79,7 +81,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           })}
         </nav>
 
-        {/* Actions Toolbar: Language Toggle + Sample Selector + Contact Us */}
+        {/* Actions Toolbar: Language Toggle + Sample Selector + Contact Us + Auth */}
         <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
           
           {/* Language Switcher Toggle */}
@@ -92,7 +94,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="uppercase">{lang === 'en' ? 'HI' : 'EN'}</span>
           </button>
 
-          {/* Contact Mohit Modal Button */}
+          {/* Contact Founder Modal Button */}
           <button
             onClick={onOpenContact}
             className="hidden md:inline-flex items-center gap-1.5 rounded-lg bg-slate-900 border border-emerald-500/30 hover:border-emerald-500/60 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition-colors shadow-sm whitespace-nowrap"
@@ -123,6 +125,41 @@ export const Navbar: React.FC<NavbarProps> = ({
             </select>
             <ChevronDown className="h-3.5 w-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
+
+          {/* Firebase Authentication Sign-In / User Profile Badge */}
+          {user ? (
+            <div className="flex items-center gap-2 pl-1 border-l border-slate-800">
+              <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1">
+                {user.photoURL ? (
+                  <img src={user.photoURL} alt="Avatar" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
+                ) : (
+                  <User className="w-4 h-4 text-rose-400" />
+                )}
+                <span className="text-xs font-medium text-slate-200 max-w-[90px] truncate hidden sm:inline">
+                  {user.displayName?.split(' ')[0] || 'User'}
+                </span>
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                  {profile?.role || 'USER'}
+                </span>
+              </div>
+              <button
+                onClick={() => signOut()}
+                title="Sign Out"
+                className="p-1.5 rounded-lg bg-slate-900 text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => signInWithGoogle()}
+              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white px-2.5 py-1.5 text-xs font-semibold shadow-md shadow-rose-950/50 transition-all whitespace-nowrap"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sign In</span>
+            </button>
+          )}
+
         </div>
 
       </div>
@@ -151,3 +188,4 @@ export const Navbar: React.FC<NavbarProps> = ({
     </header>
   );
 };
+

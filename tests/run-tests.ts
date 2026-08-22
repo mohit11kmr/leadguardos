@@ -131,6 +131,59 @@ async function runTestSuite() {
   assert(allHaveComponents, 'All registered features map to real frontend components');
 
   // -------------------------------------------------------------------------
+  // 6. Repository & Persistence Layer Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 6: Production Repository & Storage Layer');
+  const { scanRepository, watchdogRepository, orderRepository, statsRepository } = await import('../server/repositories');
+
+  const stats = await statsRepository.getSystemStats();
+  assert(typeof stats.totalScannedSites === 'number', 'Stats repository returns totalScannedSites');
+
+  const testWatchdog = await watchdogRepository.addTarget({
+    id: 'test_wd_1',
+    targetUrl: 'https://test-example.in',
+    domain: 'test-example.in',
+    contact: 'test@example.com',
+    channel: 'EMAIL',
+    frequency: 'DAILY',
+    status: 'ACTIVE_TRIAL',
+    createdAt: new Date().toISOString(),
+    trialExpiresAt: new Date().toISOString(),
+  });
+  assert(testWatchdog.domain === 'test-example.in', 'Watchdog repository registers target');
+
+  const fetchedTargets = await watchdogRepository.getTargets();
+  assert(fetchedTargets.some(t => t.id === 'test_wd_1'), 'Watchdog repository retrieves registered target');
+
+  const testOrder = await orderRepository.createOrder({
+    orderId: 'ord_test_99',
+    tierId: 'tier-express-fix',
+    tierName: 'Express Fix',
+    amountINR: 4999,
+    paymentMethod: 'UPI',
+    status: 'PAID',
+    createdAt: new Date().toISOString(),
+  });
+  assert(testOrder.amountINR === 4999, 'Order repository creates and records order');
+
+  // -------------------------------------------------------------------------
+  // 7. Webhook HMAC Cryptographic Signature Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 7: Webhook HMAC-SHA256 Cryptography');
+  const crypto = await import('crypto');
+  const secretKey = 'leadguard_test_secret_key';
+  const samplePayload = JSON.stringify({ event: 'watchdog.incident_detected', score: 32 });
+  const computedSignature = crypto.createHmac('sha256', secretKey).update(samplePayload).digest('hex');
+  assert(computedSignature.length === 64, 'Generates valid 64-char HMAC-SHA256 digest');
+
+  const verifySignature = (payload: string, sig: string, secret: string) => {
+    const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    return expected === sig;
+  };
+  assert(verifySignature(samplePayload, computedSignature, secretKey), 'Validates genuine webhook signature');
+  assert(!verifySignature(samplePayload, 'tampered_signature', secretKey), 'Rejects tampered webhook signature');
+
+  // -------------------------------------------------------------------------
   // Final Results
   // -------------------------------------------------------------------------
   console.log('\n======================================================');
