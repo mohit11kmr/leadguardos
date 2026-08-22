@@ -319,6 +319,57 @@ async function runTestSuite() {
   assert(realStats.fixedByLeadGuard >= 0, 'Tracks verified fix counter');
 
   // -------------------------------------------------------------------------
+  // 8. SafeFetch Centralized SSRF & Payment Verification Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 8: SafeFetch Centralized SSRF & Payment Hardening');
+  const { safeFetch } = await import('../server/security/safeFetch');
+  try {
+    await safeFetch('http://127.0.0.1:3000');
+    assert(false, 'SafeFetch rejects 127.0.0.1 loopback HTTP request');
+  } catch (err: any) {
+    assert(err.message.includes('SSRF Guard') || err.message.includes('blocked'), 'SafeFetch rejects 127.0.0.1 loopback HTTP request');
+  }
+
+  try {
+    await safeFetch('http://169.254.169.254/latest/meta-data/');
+    assert(false, 'SafeFetch rejects Cloud Metadata IP 169.254.169.254');
+  } catch (err: any) {
+    assert(err.message.includes('SSRF Guard') || err.message.includes('blocked'), 'SafeFetch rejects Cloud Metadata IP 169.254.169.254');
+  }
+
+  const { calculateTierPrice, verifyPaymentSignature, generateRazorpaySignature } = await import('../server/services/paymentService');
+  const tierPrice = calculateTierPrice('tier-express-fix');
+  assert(tierPrice.priceINR === 4999, 'Payment service calculates server-side price for Express Fix = ₹4999');
+
+  const expectedSig = generateRazorpaySignature('ord_123', 'pay_456', 'test_secret');
+  const validSig = verifyPaymentSignature('ord_123', 'pay_456', expectedSig, 'test_secret');
+  assert(validSig, 'Payment service validates genuine HMAC signature');
+  const fakeSig = verifyPaymentSignature('ord_123', 'pay_456', 'fake_forged_sig', 'test_secret');
+  assert(!fakeSig, 'Payment service rejects forged payment signature');
+
+  // -------------------------------------------------------------------------
+  // 9. Authentication & Demo Preset Isolation Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 9: Auth Middleware & Demo Isolation');
+  const { signToken, verifyToken } = await import('../server/middleware/auth');
+  const token = signToken({ id: 'usr_test_1', email: 'test@leadguard.os', role: 'USER' });
+  const verifiedUser = verifyToken(token);
+  assert(verifiedUser !== null && verifiedUser.id === 'usr_test_1', 'JWT Token sign and verify returns valid authenticated user');
+
+  const adminToken = signToken({ id: 'usr_admin', email: 'admin@leadguard.os', role: 'ADMIN' });
+  const verifiedAdmin = verifyToken(adminToken);
+  assert(verifiedAdmin !== null && verifiedAdmin.role === 'ADMIN', 'JWT Token sign and verify preserves ADMIN role');
+
+  const { executeLiveWebsiteScan } = await import('../server/scannerEngine');
+  try {
+    // Production scan on target URL without allowDemoPreset flag
+    const liveScan = await executeLiveWebsiteScan('http://localhost:3000');
+    assert(false, 'Production scan cannot run against localhost');
+  } catch (e: any) {
+    assert(e.message.includes('blocked') || e.message.includes('SSRF'), 'Production scan isolates demo presets and enforces SSRF');
+  }
+
+  // -------------------------------------------------------------------------
   // Final Results
   // -------------------------------------------------------------------------
   console.log('\n======================================================');

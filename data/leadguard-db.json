@@ -37,8 +37,8 @@
       "channel": "EMAIL",
       "frequency": "DAILY",
       "status": "ACTIVE_TRIAL",
-      "createdAt": "2026-08-22T01:40:21.520Z",
-      "trialExpiresAt": "2026-08-22T01:40:21.520Z"
+      "createdAt": "2026-08-22T02:43:08.135Z",
+      "trialExpiresAt": "2026-08-22T02:43:08.135Z"
     }
   ],
   "watchdogChecks": [
@@ -879,6 +879,33 @@
   ],
   "webhooks": [],
   "orders": [
+    {
+      "orderId": "ord_test_99",
+      "tierId": "tier-express-fix",
+      "tierName": "Express Fix",
+      "amountINR": 4999,
+      "paymentMethod": "UPI",
+      "status": "PAID",
+      "createdAt": "2026-08-22T02:43:08.137Z"
+    },
+    {
+      "orderId": "ord_test_99",
+      "tierId": "tier-express-fix",
+      "tierName": "Express Fix",
+      "amountINR": 4999,
+      "paymentMethod": "UPI",
+      "status": "PAID",
+      "createdAt": "2026-08-22T02:42:50.414Z"
+    },
+    {
+      "orderId": "ord_test_99",
+      "tierId": "tier-express-fix",
+      "tierName": "Express Fix",
+      "amountINR": 4999,
+      "paymentMethod": "UPI",
+      "status": "PAID",
+      "createdAt": "2026-08-22T02:12:38.820Z"
+    },
     {
       "orderId": "ord_test_99",
       "tierId": "tier-express-fix",

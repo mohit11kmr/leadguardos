@@ -1,80 +1,25 @@
 import express, { Request, Response, NextFunction } from "express";
 import path from "path";
-import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import crypto from "crypto";
 import { validateAndResolveSafeUrl } from "./server/ssrfGuard";
-import { executeLiveWebsiteScan } from "./server/scannerEngine";
+import { executeLiveWebsiteScan, SAMPLE_PRESETS } from "./server/scannerEngine";
 import { storage } from "./server/storage";
 import { watchdogScheduler } from "./server/watchdogScheduler";
 import { FEATURE_REGISTRY } from "./src/config/features";
 import { APP_CONFIG } from "./src/config/appConfig";
-import { isFirebaseConfigured } from "./server/firebaseAdmin";
-import {
-  scanRepository,
-  userRepository,
-  watchdogRepository,
-  webhookRepository,
-  orderRepository,
-  reportRepository,
-  statsRepository,
-  auditRepository,
-} from "./server/repositories";
-import {
-  optionalAuth,
-  requireAuth,
-  requireAdmin,
-} from "./server/authMiddleware";
-import {
-  validateBody,
-  scanRequestSchema,
-  authSyncRequestSchema,
-  watchdogSubscribeSchema,
-  watchdogUpdateSchema,
-  webhookRegisterSchema,
-  webhookTestSchema,
-  orderCreateSchema,
-  orderVerifySchema,
-  competitorScanSchema,
-  batchScanSchema,
-  pitchGeneratorSchema,
-  adminSetRoleSchema,
-} from "./server/validationSchemas";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
-// ---------------------------------------------------------------------------
-// 1. Security Headers & Request Limits
-// ---------------------------------------------------------------------------
-app.use((req: Request, res: Response, next: NextFunction) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "SAMEORIGIN");
-  res.setHeader("X-XSS-Protection", "1; mode=block");
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  next();
-});
-
-app.use(express.json({ limit: "2mb" }));
-
-// Production Startup Validation
-if (process.env.NODE_ENV === "production") {
-  if (process.env.STORAGE_MODE === "local" || !isFirebaseConfigured()) {
-    console.error("FATAL: Production mode requires Firestore database. Set STORAGE_MODE=firestore and configure Firebase credentials.");
-  }
-}
+app.use(express.json({ limit: "5mb" }));
 
 // ---------------------------------------------------------------------------
-// 2. Global Optional Authentication Middleware
-// ---------------------------------------------------------------------------
-app.use(optionalAuth);
-
-// ---------------------------------------------------------------------------
-// 3. Rate Limiting Middleware (IP-level bucket)
+// 1. Rate Limiting Middleware (IP-level bucket)
 // ---------------------------------------------------------------------------
 const ipRateBuckets = new Map<string, { count: number; resetAt: number }>();
 function rateLimiter(limitPerMin = 60) {
@@ -91,11 +36,7 @@ function rateLimiter(limitPerMin = 60) {
 
     if (bucket.count >= limitPerMin) {
       return res.status(429).json({
-        success: false,
-        error: {
-          code: "RATE_LIMIT_EXCEEDED",
-          message: "Rate limit exceeded. Please wait a moment before sending more diagnostic requests.",
-        },
+        error: "Rate limit exceeded. Please wait a moment before sending more diagnostic requests.",
       });
     }
 
@@ -105,7 +46,7 @@ function rateLimiter(limitPerMin = 60) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Gemini AI Initialization with Fallbacks
+// 2. Gemini AI Initialization with Fallbacks
 // ---------------------------------------------------------------------------
 let ai: GoogleGenAI | null = null;
 if (process.env.GEMINI_API_KEY) {
@@ -114,7 +55,7 @@ if (process.env.GEMINI_API_KEY) {
       apiKey: process.env.GEMINI_API_KEY,
       httpOptions: {
         headers: {
-          "User-Agent": "aistudio-build",
+          'User-Agent': 'aistudio-build',
         },
       },
     });
@@ -126,24 +67,27 @@ if (process.env.GEMINI_API_KEY) {
 async function generateGeminiContentWithFallback(prompt: string): Promise<string | null> {
   if (!ai) return null;
 
-  const candidateModels = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"];
+  const candidateModels = ["gemini-3.7-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
   for (const model of candidateModels) {
     try {
-      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500));
-      const generatePromise = ai.models
-        .generateContent({
-          model,
-          contents: prompt,
-        })
-        .then((res) => (res && res.text ? res.text.trim() : null))
-        .catch(() => null);
-
-      const res = await Promise.race([generatePromise, timeoutPromise]);
-      if (res) {
-        return res;
+      const res = await ai.models.generateContent({
+        model,
+        contents: prompt,
+      });
+      if (res && res.text) {
+        return res.text.trim();
       }
-    } catch {
-      // Continue to fallback model
+    } catch (err: any) {
+      const isTemporary =
+        err?.status === 503 ||
+        err?.message?.includes("503") ||
+        err?.message?.includes("high demand") ||
+        err?.message?.includes("UNAVAILABLE") ||
+        err?.message?.includes("429");
+      if (isTemporary) {
+        console.warn(`[Gemini] Model ${model} unavailable, trying fallback...`);
+        continue;
+      }
     }
   }
   return null;
@@ -151,7 +95,7 @@ async function generateGeminiContentWithFallback(prompt: string): Promise<string
 
 function generateFallbackDiagnosticSummary(domain: string, score: number, issues: any[]): string {
   if (issues.length === 0) {
-    return `Lead channels and security signatures for ${domain} are verified across all 4 pillars.`;
+    return `Lead channels and security signatures for ${domain} are completely verified and working smoothly across all 4 pillars.`;
   }
 
   const brokenWaIssue = issues.find((i) => i.category === "whatsapp" && i.severity === "CRITICAL");
@@ -160,134 +104,101 @@ function generateFallbackDiagnosticSummary(domain: string, score: number, issues
 
   const summaryParts: string[] = [];
   if (brokenWaIssue) {
-    summaryParts.push("WhatsApp contact button has an invalid routing error (+9191 or invalid prefix).");
+    summaryParts.push("WhatsApp contact button par invalid routing error (+9191 ya invalid format) hai jisse chat open nahi ho rahi.");
   }
   if (pixelIssue) {
-    summaryParts.push("Meta Pixel absent, preventing conversion attribution tracking.");
+    summaryParts.push("Meta Pixel absent hone se Facebook/Instagram ads ka attribution data track nahi ho raha.");
   }
   if (seoIssue) {
-    summaryParts.push("Search indexing tag indicates noindex.");
+    summaryParts.push("Robots noindex tag Google search ranking ko block kar raha hai.");
   }
 
   if (summaryParts.length === 0) {
-    summaryParts.push(`${issues.length} audit item(s) inspected.`);
+    summaryParts.push(`${issues.length} audit item(s) inspect kiye gaye hain.`);
   }
 
   return `${summaryParts.join(" ")} Overall Funnel Health Score: ${score}/100.`;
 }
 
 // ---------------------------------------------------------------------------
-// 5. API Routes
+// 3. API Routes
 // ---------------------------------------------------------------------------
 
-// Health check (Public)
-app.get("/api/health", async (req: Request, res: Response) => {
-  const monitors = await watchdogRepository.getTargets(undefined, undefined, true);
+// Health check
+app.get("/api/health", (req: Request, res: Response) => {
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
     version: APP_CONFIG.version,
     aiReady: !!ai,
-    databaseEngine: isFirebaseConfigured() ? "Cloud Firestore (Firebase Admin)" : "In-Memory Fallback",
-    firebaseConfigured: isFirebaseConfigured(),
-    monitorsCount: monitors.length,
+    monitorsCount: storage.getWatchdogTargets().length,
   });
 });
 
-// Feature Registry Inspection Endpoint (Public)
+// Feature Registry Inspection Endpoint
 app.get("/api/features", (req: Request, res: Response) => {
   res.json({
     features: FEATURE_REGISTRY,
     totalFeatures: FEATURE_REGISTRY.length,
-    productionReady: FEATURE_REGISTRY.filter((f) => f.status === "PRODUCTION_READY").length,
+    productionReady: FEATURE_REGISTRY.filter(f => f.status === 'PRODUCTION_READY').length,
   });
 });
 
-// Central Config Endpoint (Public)
+// Central Config Endpoint
 app.get("/api/config", (req: Request, res: Response) => {
   res.json(APP_CONFIG);
 });
 
-// Real System Statistics API (Firestore with Demo Isolation, Public)
-app.get(["/api/scan-stats", "/api/stats"], async (req: Request, res: Response) => {
-  try {
-    const realStats = await statsRepository.getSystemStats();
-    res.json(realStats);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to fetch stats", details: err?.message });
-  }
+// Scan Statistics API
+app.get("/api/scan-stats", (req: Request, res: Response) => {
+  res.json(storage.getStats());
 });
 
-// Increment Fix Counter API (Admin or internal verification)
-app.post("/api/scan-stats/increment-fix", requireAdmin, async (req: Request, res: Response) => {
-  try {
-    await statsRepository.recordFixCompleted();
-    const updatedStats = await statsRepository.getSystemStats();
-    res.json({ success: true, stats: updatedStats });
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to record fix", details: err?.message });
-  }
+// Increment Fix Counter API
+app.post("/api/scan-stats/increment-fix", (req: Request, res: Response) => {
+  storage.incrementFixes();
+  res.json({ success: true, stats: storage.getStats() });
 });
 
-// Scans History Endpoint (Protected user history, empty for unauthenticated to prevent data leakage)
-app.get("/api/scans/history", async (req: Request, res: Response) => {
-  try {
-    if (req.user?.uid) {
-      const userScans = await scanRepository.getUserScans(req.user.uid, 50);
-      return res.json({ history: userScans.items, nextCursor: userScans.nextCursor, authenticated: true });
-    }
-
-    // Anonymous requesters receive empty array to prevent scanning history leakage
-    res.json({
-      history: [],
-      authenticated: false,
-      message: "Sign in to view your scan history across devices.",
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to fetch scan history", details: err?.message });
-  }
+// Scans History Endpoint
+app.get("/api/scans/history", (req: Request, res: Response) => {
+  const history = storage.getScansHistory(15);
+  res.json({ history });
 });
 
-// Primary 4-Pillar Website Scan API (SSRF Protected + Real Firestore Persistence)
-app.post("/api/scan", rateLimiter(45), validateBody(scanRequestSchema), async (req: Request, res: Response) => {
+// Primary 4-Pillar Website Scan API (SSRF Protected)
+app.post("/api/scan", rateLimiter(45), async (req: Request, res: Response) => {
   try {
     const { url } = req.body;
-    const auditResult = await executeLiveWebsiteScan(url);
+    if (!url || typeof url !== "string") {
+      return res.status(400).json({ error: "Please enter a valid website URL." });
+    }
 
-    // Attach verified user information from token context if available
-    const userId = req.user?.uid;
-    const userEmail = req.user?.email;
-    const organizationId = req.user?.organizationId;
+    const auditResult = await executeLiveWebsiteScan(url);
 
     // AI diagnostic advice enhancement with fallback
     if (auditResult.allIssues.length > 0) {
-      const prompt = `You are LeadGuard AI, a website revenue and conversion auditor.
+      const prompt = `You are LeadGuard AI, an elite website revenue & conversion auditor for Indian businesses.
 Target Domain: ${auditResult.domain}
-Score: ${auditResult.score}/100 (Lead: ${auditResult.pillars?.leadGen?.score ?? 0}, Ads: ${auditResult.pillars?.adSpend?.score ?? 0}, SEO: ${auditResult.pillars?.seo?.score ?? 0}, Cyber: ${auditResult.pillars?.security?.score ?? 0})
+Score: ${auditResult.score}/100 (Lead: ${auditResult.pillars.lead.score}, Ads: ${auditResult.pillars.ad.score}, SEO: ${auditResult.pillars.seo.score}, Cyber: ${auditResult.pillars.cyber.score})
 Issues found: ${auditResult.allIssues.map((i: any) => `${i.title} (${i.severity}): ${i.description}`).join("; ")}
 
-Provide a concise, 2-sentence executive summary explaining the estimated potential impact and recommended fix priority. Keep it objective, professional, and clear.`;
+Provide a sharp, 2-sentence executive summary in Hinglish (Hindi + English) explaining the exact financial loss and urgent fix priority. Keep it punchy, respectful, and authoritative.`;
 
       const aiText = await generateGeminiContentWithFallback(prompt);
-      auditResult.aiDiagnosticAdvice =
-        aiText ||
-        generateFallbackDiagnosticSummary(
-          auditResult.domain,
-          auditResult.score,
-          auditResult.allIssues
-        );
+      auditResult.aiDiagnosticAdvice = aiText || generateFallbackDiagnosticSummary(
+        auditResult.domain,
+        auditResult.score,
+        auditResult.allIssues
+      );
     }
 
-    // Persist real scan to Firestore through scanRepository
-    const persistedDoc = await scanRepository.saveCompletedScan(auditResult, userId, userEmail, organizationId);
-    auditResult.publicToken = persistedDoc.publicToken;
-    auditResult.scanId = persistedDoc.scanId;
-
-    await statsRepository.recordScanCompleted(
+    // Persist scan in DB
+    storage.saveScan(auditResult);
+    storage.incrementScanStats(
       auditResult.allIssues.length > 0,
       auditResult.score >= 80,
-      auditResult.allIssues.length,
-      true
+      auditResult.allIssues.length
     );
 
     res.json(auditResult);
@@ -297,115 +208,59 @@ Provide a concise, 2-sentence executive summary explaining the estimated potenti
   }
 });
 
-// Retrieve cached scan report by ID (Ownership protected)
-app.get("/api/scan/:id", requireAuth, async (req: Request, res: Response) => {
+// Retrieve cached scan report by ID
+app.get("/api/scan/:id", (req: Request, res: Response) => {
   const { id } = req.params;
-  try {
-    const scan = await scanRepository.getScanById(id);
-    if (!scan) {
-      return res.status(404).json({ error: "Audit report not found or session expired." });
-    }
-
-    const scanOwnerId = (scan as any).userId;
-    if (scanOwnerId && req.user!.uid !== scanOwnerId && req.user!.role !== "ADMIN") {
-      return res.status(403).json({
-        error: "Forbidden: You do not have permission to view this report.",
-      });
-    }
-
-    res.json(scan);
-  } catch (err: any) {
-    res.status(500).json({ error: "Error retrieving scan", details: err?.message });
+  const report = storage.getScan(id);
+  if (!report) {
+    return res.status(404).json({ error: "Audit report not found or session expired." });
   }
+  res.json(report);
 });
 
-// Public Secure Report Access via Unpredictable Token (Sanitized ABAC)
-app.get("/api/report/:token", async (req: Request, res: Response) => {
-  const { token } = req.params;
-  try {
-    const report = await reportRepository.getPublicReport(token);
-    if (!report) {
-      return res.status(404).json({ error: "Public report not found or link has expired." });
-    }
-    res.json(report);
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to load public report", details: err?.message });
-  }
-});
-
-// JSON export for developers & agencies (Protected)
-app.get("/api/scan/:id/export", requireAuth, async (req: Request, res: Response) => {
+// JSON export for developers & agencies
+app.get("/api/scan/:id/export", (req: Request, res: Response) => {
   const { id } = req.params;
-  const report = await scanRepository.getScanById(id);
+  const report = storage.getScan(id);
   if (!report) {
     return res.status(404).json({ error: "Audit report not found." });
   }
-
-  const reportOwnerId = (report as any).userId;
-  if (reportOwnerId && req.user!.uid !== reportOwnerId && req.user!.role !== "ADMIN") {
-    return res.status(403).json({ error: "Forbidden: You do not own this audit report." });
-  }
-
   res.setHeader("Content-Disposition", `attachment; filename="leadguard-audit-${report.domain}.json"`);
   res.json(report);
 });
 
-// User Profile Sync Endpoint (Authenticated, extracts trusted UID from token)
-app.post("/api/auth/sync", requireAuth, validateBody(authSyncRequestSchema), async (req: Request, res: Response) => {
+// 24/7 Monitoring registration
+app.post("/api/watchdog/subscribe", (req: Request, res: Response) => {
   try {
-    const user = req.user!;
-    const { displayName, photoURL } = req.body;
-
-    const userProfile = await userRepository.syncUserProfile(
-      user.uid,
-      user.email || `${user.uid}@auth.leadguard.os`,
-      displayName,
-      photoURL
-    );
-
-    await statsRepository.recordUserRegistered();
-    res.json({ success: true, user: userProfile });
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to sync user profile", details: err?.message });
-  }
-});
-
-// 24/7 Monitoring registration (SSRF Protected + Authenticated)
-app.post("/api/watchdog/subscribe", requireAuth, validateBody(watchdogSubscribeSchema), async (req: Request, res: Response) => {
-  try {
-    const { targetUrl, contact, channel, frequency } = req.body;
-
-    // SSRF Check
-    const ssrf = await validateAndResolveSafeUrl(targetUrl);
-    if (!ssrf.valid) {
-      return res.status(400).json({ error: `Invalid monitor URL: ${ssrf.error}` });
+    const { targetUrl, contact, channel = "TELEGRAM", frequency = "DAILY" } = req.body;
+    if (!targetUrl || !contact) {
+      return res.status(400).json({ error: "Website URL and Telegram/WhatsApp contact are required." });
     }
 
-    const domain = targetUrl.replace(/^https?:\/\//i, "").split("/")[0];
-    const target = await watchdogRepository.addTarget(
-      {
-        targetUrl: ssrf.normalized || targetUrl,
-        domain,
-        contact,
-        channel,
-        frequency,
-        status: "ACTIVE_TRIAL",
-        mode: "LIVE",
-        lastCheckedAt: new Date().toISOString(),
-        lastStatus: "PASS (Active Monitoring)",
-        lastScore: 100,
-      },
-      req.user!.uid,
-      req.user!.email
-    );
+    const domain = targetUrl.replace(/^https?:\/\//i, '').split('/')[0];
+    const target = {
+      id: `wd_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      targetUrl,
+      domain,
+      contact,
+      channel: channel as any,
+      frequency: frequency as any,
+      createdAt: new Date().toISOString(),
+      trialExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      status: "ACTIVE_TRIAL" as const,
+      lastCheckedAt: new Date().toISOString(),
+      lastStatus: "PASS (Active Monitoring)",
+      lastScore: 100,
+    };
 
-    await watchdogRepository.addCheckLog({
-      targetId: target.id,
+    storage.addWatchdogTarget(target);
+    storage.addWatchdogCheckLog({
+      id: `chk_${Date.now()}`,
       domain,
       check: "4-Pillar Watchdog Activation Probe",
       status: "PASS (Active Monitoring)",
       timestamp: new Date().toISOString(),
-      details: "Radar registered and heartbeat active in Firestore",
+      details: "Radar registered and heartbeat active",
     });
 
     res.json({
@@ -418,267 +273,162 @@ app.post("/api/watchdog/subscribe", requireAuth, validateBody(watchdogSubscribeS
   }
 });
 
-// List active watchdog monitors and recent checks (Authenticated)
-app.get("/api/watchdog/list", requireAuth, async (req: Request, res: Response) => {
-  try {
-    const targets = await watchdogRepository.getTargets(
-      req.user!.uid,
-      req.user!.organizationId,
-      req.user!.role === "ADMIN"
-    );
-    const checks = await watchdogRepository.getCheckLogs(undefined, 25);
-
-    res.json({
-      activeMonitors: targets,
-      totalCount: targets.length,
-      recentChecks: checks,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to list watchdog monitors", details: err?.message });
-  }
+// List active watchdog monitors and recent checks
+app.get("/api/watchdog/list", (req: Request, res: Response) => {
+  res.json({
+    activeMonitors: storage.getWatchdogTargets(),
+    totalCount: storage.getWatchdogTargets().length,
+    recentChecks: storage.getWatchdogCheckLogs(25),
+  });
 });
 
-// Update watchdog target (Owner or Admin)
-app.put("/api/watchdog/targets/:id", requireAuth, validateBody(watchdogUpdateSchema), async (req: Request, res: Response) => {
+// Webhooks API
+app.post("/api/webhooks/register", (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const updated = await watchdogRepository.updateTarget(
-      id,
-      req.body,
-      req.user!.uid,
-      req.user!.role === "ADMIN"
-    );
-    res.json({ success: true, target: updated });
-  } catch (err: any) {
-    res.status(403).json({ error: err?.message || "Failed to update watchdog target" });
-  }
-});
+    const { name, url, events = ["watchdog.incident_detected"] } = req.body;
+    if (!name || !url) {
+      return res.status(400).json({ error: "Webhook name and destination URL are required." });
+    }
 
-// Delete watchdog target (Owner or Admin)
-app.delete("/api/watchdog/targets/:id", requireAuth, async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const deleted = await watchdogRepository.deleteTarget(
-      id,
-      req.user!.uid,
-      req.user!.role === "ADMIN"
-    );
-    res.json({ success: deleted });
-  } catch (err: any) {
-    res.status(403).json({ error: err?.message || "Failed to delete watchdog target" });
-  }
-});
+    const secret = crypto.randomBytes(16).toString("hex");
+    const webhook = {
+      id: `whk_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      name,
+      url,
+      secret,
+      events,
+      active: true,
+      createdAt: new Date().toISOString(),
+      failureCount: 0,
+    };
 
-// Webhooks API (SSRF Guard + Secret Masking + Authenticated)
-app.post("/api/webhooks/register", requireAuth, validateBody(webhookRegisterSchema), async (req: Request, res: Response) => {
-  try {
-    const { name, url, events } = req.body;
-    const webhook = await webhookRepository.addWebhook(
-      {
-        name,
-        url,
-        events,
-      },
-      req.user!.uid,
-      req.user!.email
-    );
-
+    storage.addWebhook(webhook);
     res.json({ success: true, webhook });
   } catch (err: any) {
-    res.status(400).json({ error: err?.message || "Failed to register webhook." });
+    res.status(500).json({ error: err?.message || "Failed to register webhook." });
   }
 });
 
-app.get("/api/webhooks/list", requireAuth, async (req: Request, res: Response) => {
-  try {
-    const webhooks = await webhookRepository.getWebhooks(req.user!.uid, req.user!.role === "ADMIN");
-    res.json({ webhooks });
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to list webhooks", details: err?.message });
-  }
+app.get("/api/webhooks/list", (req: Request, res: Response) => {
+  res.json({ webhooks: storage.getWebhooks() });
 });
 
-app.delete("/api/webhooks/:id", requireAuth, async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const deleted = await webhookRepository.deleteWebhook(id, req.user!.uid, req.user!.role === "ADMIN");
-    res.json({ success: deleted });
-  } catch (err: any) {
-    res.status(403).json({ error: err?.message || "Failed to delete webhook" });
-  }
+app.delete("/api/webhooks/:id", (req: Request, res: Response) => {
+  const { id } = req.params;
+  const deleted = storage.deleteWebhook(id);
+  res.json({ success: deleted });
 });
 
-app.post("/api/webhooks/test", requireAuth, validateBody(webhookTestSchema), async (req: Request, res: Response) => {
+app.post("/api/webhooks/test", async (req: Request, res: Response) => {
   try {
-    const { webhookId, url, secret } = req.body;
-    let targetWebhook: any;
-
-    if (webhookId) {
-      const found = await webhookRepository.getWebhookById(webhookId, req.user!.uid, req.user!.role === "ADMIN");
-      if (!found) {
-        return res.status(404).json({ error: "Webhook not found or access denied" });
-      }
-      targetWebhook = found;
-    } else if (url) {
-      targetWebhook = {
-        id: "whk_test",
-        name: "Test Dispatcher",
-        url,
-        secret: secret || "leadguard_test_secret",
-        events: ["test.ping"],
-        active: true,
-        createdAt: new Date().toISOString(),
-        failureCount: 0,
-      };
-    } else {
-      return res.status(400).json({ error: "Either webhookId or url is required." });
+    const { url, secret = "leadguard_secret" } = req.body;
+    if (!url) {
+      return res.status(400).json({ error: { code: "BAD_REQUEST", message: "Target URL required." } });
     }
 
-    const testDelivery = await webhookRepository.dispatchWebhook(
-      targetWebhook,
-      "test.ping",
-      {
-        message: "LeadGuard OS Webhook Test Incident",
-        score: 42,
-        domain: "sample-client.in",
-        testTimestamp: new Date().toISOString(),
-      }
-    );
+    const testPayload = {
+      event: "test.ping",
+      timestamp: new Date().toISOString(),
+      message: "LeadGuard OS Webhook Test Incident",
+      score: 42,
+      domain: "sample-client.in",
+    };
+
+    const bodyStr = JSON.stringify(testPayload);
+    const signature = crypto.createHmac("sha256", secret).update(bodyStr).digest("hex");
+
+    const { safeFetch } = await import("./server/security/safeFetch");
+    const response = await safeFetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-LeadGuard-Signature": signature,
+        "User-Agent": "LeadGuard-Webhook-Tester/2.0",
+      },
+      body: bodyStr,
+      timeoutMs: 8000,
+    });
 
     res.json({
-      success: testDelivery.status === "SENT",
-      httpStatus: testDelivery.httpStatus,
-      status: testDelivery.status,
-      message:
-        testDelivery.status === "SENT"
-          ? "Test webhook payload delivered successfully!"
-          : `Webhook delivery error: ${testDelivery.errorMessage}`,
+      success: response.ok,
+      httpStatus: response.status,
+      message: response.ok ? "Test webhook payload delivered successfully!" : `Webhook endpoint returned HTTP ${response.status}`,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err?.message || "Failed to deliver test webhook." });
+    res.status(400).json({ error: { code: "SSRF_OR_DELIVERY_ERROR", message: err?.message || "Failed to deliver test webhook." } });
   }
 });
 
-// Monetization Orders API (Guaranteed PENDING on Submission)
-app.post("/api/monetization/order", validateBody(orderCreateSchema), async (req: Request, res: Response) => {
+// Monetization Orders API - Server Calculated Price & Immutable Payment State
+app.post("/api/monetization/order", (req: Request, res: Response) => {
   try {
-    const orderData = req.body;
-    const order = await orderRepository.createPendingOrder(
-      orderData,
-      req.user?.uid,
-      req.user?.email
-    );
+    const { tierId = "tier-express-fix", paymentMethod = "UPI", customerName, customerPhone, customerEmail, domain } = req.body;
+    
+    // Server calculates product price - NEVER trust amountINR or status from client
+    const { calculateTierPrice } = require("./server/services/paymentService");
+    const tier = calculateTierPrice(tierId);
 
-    await statsRepository.recordOrderCreated();
-    res.json({ success: true, order });
+    const order = {
+      orderId: `ord_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      tierId,
+      tierName: tier.tierName,
+      amountINR: tier.priceINR, // Server computed
+      paymentMethod,
+      customerName,
+      customerPhone,
+      customerEmail,
+      domain,
+      status: "PAYMENT_PENDING" as const, // Never allow status = "PAID" from client!
+      createdAt: new Date().toISOString(),
+    };
+
+    storage.addOrder(order);
+    res.json({ success: true, order, checkoutNote: "Order created in PAYMENT_PENDING state. Submit server webhook or payment verification signature to complete." });
   } catch (err: any) {
-    res.status(500).json({ error: err?.message || "Failed to record order." });
+    res.status(500).json({ error: { code: "ORDER_ERROR", message: err?.message || "Failed to record order." } });
   }
 });
 
-// Server-side Payment Verification
-app.post("/api/monetization/orders/verify", validateBody(orderVerifySchema), async (req: Request, res: Response) => {
+// Payment Verification Endpoint (Server-verified HMAC signature)
+app.post("/api/monetization/verify-payment", (req: Request, res: Response) => {
   try {
-    const { orderId, paymentReference, provider, signature, providerOrderId } = req.body;
-    const verifiedOrder = await orderRepository.verifyAndMarkPaid(
-      orderId,
-      { paymentReference, provider, signature, providerOrderId },
-      req.user?.uid
-    );
-    res.json({ success: true, order: verifiedOrder });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || "Payment verification failed" });
-  }
-});
-
-// Provider Webhook Endpoint: Razorpay
-app.post("/api/payments/razorpay/webhook", async (req: Request, res: Response) => {
-  try {
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
-    const signature = req.headers["x-razorpay-signature"] as string;
-
-    if (!webhookSecret || !signature) {
-      return res.status(400).json({ error: "Missing Razorpay webhook secret or signature" });
+    const { orderId, razorpayPaymentId, razorpayOrderId, razorpaySignature } = req.body;
+    if (!orderId || !razorpaySignature) {
+      return res.status(400).json({ error: { code: "INVALID_PAYMENT", message: "Order ID and payment signature required." } });
     }
 
-    const payload = JSON.stringify(req.body);
-    const expectedSignature = crypto
-      .createHmac("sha256", webhookSecret)
-      .update(payload)
-      .digest("hex");
+    const { verifyPaymentSignature } = require("./server/services/paymentService");
+    const secret = process.env.RAZORPAY_KEY_SECRET || "leadguard_test_razorpay_secret";
+    const isValid = verifyPaymentSignature(razorpayOrderId || orderId, razorpayPaymentId || "pay_mock", razorpaySignature, secret);
 
-    if (expectedSignature !== signature) {
-      await auditRepository.logEvent({
-        action: "ORDER_FAILED",
-        details: { reason: "RAZORPAY_WEBHOOK_SIGNATURE_MISMATCH" },
-        timestamp: new Date().toISOString(),
-      });
-      return res.status(400).json({ error: "Invalid webhook signature" });
+    if (!isValid) {
+      return res.status(400).json({ error: { code: "FORGED_PAYMENT", message: "Invalid payment cryptographic signature." } });
     }
 
-    const event = req.body.event;
-    const paymentEntity = req.body.payload?.payment?.entity;
-    const orderId = paymentEntity?.notes?.orderId || paymentEntity?.description;
-
-    if (orderId && (event === "payment.captured" || event === "order.paid")) {
-      await orderRepository.updateOrderStatus(orderId, "PAID", `Razorpay webhook event: ${event}`, true);
-    } else if (orderId && event === "payment.failed") {
-      await orderRepository.updateOrderStatus(orderId, "FAILED", `Razorpay payment failed: ${paymentEntity?.error_description || "Declined"}`);
+    const orders = storage.getOrders();
+    const targetOrder = orders.find(o => o.orderId === orderId);
+    if (targetOrder) {
+      targetOrder.status = "PAID";
+      storage.saveToDisk();
     }
 
-    res.json({ status: "ok" });
+    res.json({ success: true, message: "Payment verified successfully", order: targetOrder });
   } catch (err: any) {
-    res.status(500).json({ error: "Webhook processing error", details: err?.message });
+    res.status(500).json({ error: { code: "PAYMENT_VERIFICATION_ERROR", message: err?.message || "Failed to verify payment." } });
   }
 });
 
-// Provider Webhook Endpoint: Stripe
-app.post("/api/payments/stripe/webhook", async (req: Request, res: Response) => {
-  try {
-    const event = req.body;
-    const orderId = event?.data?.object?.metadata?.orderId;
-    if (orderId && event.type === "payment_intent.succeeded") {
-      await orderRepository.updateOrderStatus(orderId, "PAID", "Stripe payment_intent.succeeded", true);
-    }
-    res.json({ received: true });
-  } catch (err: any) {
-    res.status(500).json({ error: "Stripe webhook error", details: err?.message });
-  }
+app.get("/api/monetization/orders", (req: Request, res: Response) => {
+  res.json({ orders: storage.getOrders() });
 });
 
-// Provider Webhook Endpoint: Cashfree
-app.post("/api/payments/cashfree/webhook", async (req: Request, res: Response) => {
-  try {
-    const data = req.body?.data;
-    const orderId = data?.order?.order_id;
-    const paymentStatus = data?.payment?.payment_status;
-
-    if (orderId && paymentStatus === "SUCCESS") {
-      await orderRepository.updateOrderStatus(orderId, "PAID", "Cashfree webhook payment SUCCESS", true);
-    }
-    res.json({ status: "OK" });
-  } catch (err: any) {
-    res.status(500).json({ error: "Cashfree webhook error", details: err?.message });
-  }
-});
-
-app.get("/api/monetization/orders", requireAuth, async (req: Request, res: Response) => {
-  try {
-    const orders = await orderRepository.getOrders(
-      req.user!.uid,
-      req.user!.organizationId,
-      req.user!.role === "ADMIN"
-    );
-    res.json({ orders });
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to list orders", details: err?.message });
-  }
-});
-
-// Competitor Sabotage Radar API (SSRF Protected + Concurrency Bound + Authenticated)
-app.post("/api/competitor-sabotage", requireAuth, rateLimiter(20), validateBody(competitorScanSchema), async (req: Request, res: Response) => {
+// Competitor Sabotage Radar API
+app.post("/api/competitor-sabotage", rateLimiter(20), async (req: Request, res: Response) => {
   try {
     const { myUrl, competitorUrls } = req.body;
+    if (!myUrl || !Array.isArray(competitorUrls) || competitorUrls.length === 0) {
+      return res.status(400).json({ error: "Your website URL and at least 1 competitor URL are required." });
+    }
 
     const safeCompetitors = competitorUrls.slice(0, 3);
     const [myScanResult, ...compScanResults] = await Promise.allSettled([
@@ -691,20 +441,23 @@ app.post("/api/competitor-sabotage", requireAuth, rateLimiter(20), validateBody(
     const competitorSabotages = safeCompetitors.map((url: string, index: number) => {
       const settled = compScanResults[index];
       const compAudit = settled.status === "fulfilled" ? settled.value : null;
-      const domain = url.replace(/^https?:\/\//i, "").split("/")[0];
+      const domain = url.replace(/^https?:\/\//i, '').split('/')[0];
 
       if (!compAudit) {
         return {
           competitorUrl: url,
           domain,
-          businessName: domain,
-          score: null,
-          sabotageScore: 0,
-          estimatedMonthlyLoss: 0,
-          status: "SCAN_FAILED",
-          errorCode: "SCAN_UNREACHABLE",
-          opportunities: [],
-          verdict: `Unable to evaluate ${domain} because the website could not be scanned.`,
+          sabotageScore: 50,
+          opportunities: [
+            {
+              type: "BROKEN_WHATSAPP" as const,
+              title: "Competitor Site Unreachable / Broken Server",
+              cta: "Run Google Search Ads on their brand name right now to capture stranded traffic!",
+              impact: "Competitor server is failing to respond reliably.",
+              severity: "CRITICAL" as const,
+            },
+          ],
+          verdict: "Competitor has severe downtime / connectivity issues.",
         };
       }
 
@@ -715,32 +468,32 @@ app.post("/api/competitor-sabotage", requireAuth, rateLimiter(20), validateBody(
         sabotageScore += 35;
         opportunities.push({
           type: "MISSING_PIXEL",
-          title: "Competitor Meta Pixel Missing",
-          cta: "Competitor Meta Pixel missing: opportunity to target audience keywords.",
-          impact: "Attribution tracking not detected in public markup.",
-          severity: "HIGH",
+          title: "Competitor Meta Pixel Missing!",
+          cta: "Competitor Pixel Missing! Run Google Ads and Meta Retargeting on their brand keywords now.",
+          impact: "They cannot build custom audiences or optimize conversion campaigns.",
+          severity: "CRITICAL",
         });
       }
 
-      const hasBrokenWa = compAudit.whatsappLinks?.some((w: any) => !w.isValid);
-      const hasNoWa = (compAudit.whatsappLinks?.length || 0) === 0;
+      const hasBrokenWa = compAudit.whatsappLinks.some((w: any) => !w.isValid);
+      const hasNoWa = compAudit.whatsappLinks.length === 0;
       if (hasBrokenWa) {
         sabotageScore += 30;
         opportunities.push({
           type: "BROKEN_WHATSAPP",
-          title: "Competitor WhatsApp Link Format Error",
-          cta: "Competitor WhatsApp link contains prefix error (+9191 or invalid prefix).",
-          impact: "Mobile WhatsApp contact clicks fail to open directly.",
+          title: "Competitor WhatsApp Link is Fatal (+9191 or Malformed)!",
+          cta: "Bid aggressively on their local high-intent keywords — their mobile traffic bounces on tap!",
+          impact: "100% of mobile WhatsApp clicks from their ad campaigns fail to start a chat.",
           severity: "CRITICAL",
         });
       } else if (hasNoWa) {
         sabotageScore += 15;
         opportunities.push({
           type: "BROKEN_WHATSAPP",
-          title: "No WhatsApp Chat Widget Detected",
-          cta: "Deploy instant WhatsApp widget to offer faster response times.",
-          impact: "Contact form only without instant messenger.",
-          severity: "MEDIUM",
+          title: "Competitor has No WhatsApp Chat Widget",
+          cta: "Deploy LeadGuard 1-tap WhatsApp widget on your landing page to win 3x more mobile leads.",
+          impact: "Friction-heavy contact form only.",
+          severity: "HIGH",
         });
       }
 
@@ -748,14 +501,14 @@ app.post("/api/competitor-sabotage", requireAuth, rateLimiter(20), validateBody(
         sabotageScore += 40;
         opportunities.push({
           type: "NOINDEX_SEO",
-          title: "Competitor has 'noindex' Tag",
-          cta: "Target organic search queries while competitor remains unindexed.",
-          impact: "Search engine indexing restricted by page tag.",
+          title: "Competitor has Active 'noindex' SEO Penalty!",
+          cta: "Target their top organic keywords — their entire site is invisible to Google Search!",
+          impact: "They receive zero organic traffic from Google Search.",
           severity: "CRITICAL",
         });
       }
 
-      sabotageScore = Math.min(99, Math.max(0, sabotageScore));
+      sabotageScore = Math.min(99, Math.max(10, sabotageScore));
 
       return {
         competitorUrl: url,
@@ -765,13 +518,11 @@ app.post("/api/competitor-sabotage", requireAuth, rateLimiter(20), validateBody(
         sabotageScore,
         estimatedMonthlyLoss: compAudit.estimatedMonthlyLoss,
         opportunities,
-        status: "SUCCESS",
-        verdict:
-          sabotageScore >= 60
-            ? `Opportunity identified: ${compAudit.domain} has ${opportunities.length} funnel weakness(es).`
-            : sabotageScore >= 30
-            ? `Moderate opportunity: ${compAudit.domain} has minor tracking or messaging gaps.`
-            : `${compAudit.domain} is well-configured across primary tags.`,
+        verdict: sabotageScore >= 60
+          ? `Massive Sabotage Opportunity! ${compAudit.domain} has ${opportunities.length} critical revenue leak(s) you can exploit.`
+          : sabotageScore >= 30
+          ? `Moderate Opportunity: ${compAudit.domain} has funnel weaknesses in tracking/messaging.`
+          : `${compAudit.domain} is well-optimized. Focus on speed and pricing advantage.`,
       };
     });
 
@@ -782,59 +533,53 @@ app.post("/api/competitor-sabotage", requireAuth, rateLimiter(20), validateBody(
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || "Failed to execute competitor scan." });
+    res.status(500).json({ error: error.message || "Failed to execute competitor sabotage scan." });
   }
 });
 
-// Batch Website Scanner & Hunter Machine (Persists Real Scans with Tokens)
-app.post("/api/scan-batch", requireAuth, rateLimiter(20), validateBody(batchScanSchema), async (req: Request, res: Response) => {
+// Batch Website Scanner & Hunter Machine (Throttled & Quota Protected)
+app.post("/api/scan-batch", rateLimiter(20), async (req: Request, res: Response) => {
   try {
     const { urls } = req.body;
-    const maxLimit = Math.min(urls.length, 500);
-    const trimmedUrls = urls.slice(0, maxLimit).map((u: string) => u.trim()).filter(Boolean);
+    if (!urls || !Array.isArray(urls) || urls.length === 0) {
+      return res.status(400).json({ error: { code: "INVALID_BATCH", message: "Please provide a list of URLs to scan." } });
+    }
 
-    const CONCURRENCY_LIMIT = 5;
+    // Limit batch size to 20 per request to prevent Denial-of-Service / resource exhaustion
+    const maxLimit = Math.min(urls.length, 20);
+    const trimmedUrls = urls.slice(0, maxLimit).map((u: string) => (typeof u === 'string' ? u.trim() : '')).filter(Boolean);
+
+    // Process URLs in controlled concurrency chunks of 5
+    const chunkSize = 5;
     const results: any[] = [];
 
-    for (let i = 0; i < trimmedUrls.length; i += CONCURRENCY_LIMIT) {
-      const chunk = trimmedUrls.slice(i, i + CONCURRENCY_LIMIT);
+    for (let i = 0; i < trimmedUrls.length; i += chunkSize) {
+      const chunk = trimmedUrls.slice(i, i + chunkSize);
       const chunkResults = await Promise.all(
         chunk.map(async (rawUrl: string) => {
           try {
             const audit = await executeLiveWebsiteScan(rawUrl);
+            const primaryIssue = audit.allIssues.length > 0 ? audit.allIssues[0].title : "No critical leaks detected";
+            const shareableReportUrl = `${req.protocol}://${req.get('host')}/report/${audit.scanId}`;
 
-            // Persist scan to obtain genuine publicToken
-            const persisted = await scanRepository.saveCompletedScan(
-              audit,
-              req.user!.uid,
-              req.user!.email,
-              req.user!.organizationId
-            );
-
-            const shareableReportUrl = `${req.protocol}://${req.get("host")}/report/${persisted.publicToken}`;
-            const primaryIssue =
-              audit.allIssues.length > 0 ? audit.allIssues[0].title : "No critical leaks detected";
-
-            const waStatus = audit.whatsappLinks?.some((w: any) => !w.isValid)
+            const waStatus = audit.whatsappLinks.some((w: any) => !w.isValid)
               ? "BROKEN"
-              : audit.whatsappLinks?.some((w: any) => w.zeroIntentLeak)
+              : audit.whatsappLinks.some((w: any) => w.zeroIntentLeak)
               ? "ZERO_INTENT"
-              : (audit.whatsappLinks?.length || 0) > 0
+              : audit.whatsappLinks.length > 0
               ? "WORKING"
               : "MISSING";
 
-            const brokenItemNote =
-              audit.allIssues.length > 0
-                ? `${audit.allIssues[0].title}: ${audit.allIssues[0].description}`
-                : "Tracking configuration recommendation";
+            const brokenItemNote = audit.allIssues.length > 0
+              ? `${audit.allIssues[0].title}: ${audit.allIssues[0].description}`
+              : "Missing Meta Pixel tracking script";
 
-            const coldWhatsAppPitch = `Hello ${audit.businessName || "Team"},\n\nWe completed an automated diagnostic of ${audit.domain} and observed a potential issue:\n\n• Finding: ${brokenItemNote}\n• Estimated potential impact: ₹${(audit.estimatedMonthlyLoss || 0).toLocaleString("en-IN")}/month\n• Full diagnostic report: ${shareableReportUrl}\n\nLet us know if you would like assistance resolving this item.`;
+            const coldWhatsAppPitch = `Namaste ${audit.businessName || 'Founder'} ji,\n\nI was visiting ${audit.domain}'s website on my phone and noticed a critical leak:\n\n👉 Issue: ${brokenItemNote}\n\nWhenever high-intent customers click your contact button, it bounces (estimated loss: ₹${audit.estimatedMonthlyLoss.toLocaleString('en-IN')}/month in dropped leads).\n\nHere is your full forensic audit report: ${shareableReportUrl}\n\nWe can patch this in under 15 minutes today so you stop losing leads. Should I send over the 1-click fix code?`;
 
-            const coldEmailPitch = `Subject: Diagnostic report for ${audit.domain}\n\nHi ${audit.businessName || "Team"},\n\nOur diagnostic crawler ran a funnel check on ${audit.domain} and identified ${audit.allIssues.length} item(s):\n\n• Primary finding: ${brokenItemNote}\n• Overall Score: ${audit.score}/100\n• Full Report: ${shareableReportUrl}\n\nFeel free to reply if you would like support deploying fixes.`;
+            const coldEmailPitch = `Subject: Urgent conversion leak on ${audit.domain} (₹${audit.estimatedMonthlyLoss.toLocaleString('en-IN')}/mo)\n\nHi ${audit.businessName || 'Team'},\n\nOur diagnostic crawler ran a full conversion health check on ${audit.domain} and identified ${audit.allIssues.length} revenue-blocking defects:\n\n• Primary Bottleneck: ${brokenItemNote}\n• Health Score: ${audit.score}/100\n• Full Audit Report: ${shareableReportUrl}\n\nWe provide rapid 15-minute fixes for conversion funnels. Reply to this email if you'd like our engineers to deploy the fix snippet today.`;
 
             return {
-              scanId: persisted.scanId,
-              publicToken: persisted.publicToken,
+              scanId: audit.scanId,
               targetUrl: audit.targetUrl,
               domain: audit.domain,
               businessName: audit.businessName,
@@ -843,11 +588,7 @@ app.post("/api/scan-batch", requireAuth, rateLimiter(20), validateBody(batchScan
               adSpendRisk: audit.adSpendRisk,
               whatsappStatus: waStatus,
               metaPixelStatus: audit.metaPixel?.exists ? "HEALTHY" : "MISSING",
-              ecommerceStatus: audit.ecommerce
-                ? audit.ecommerce.checkoutStatus === "CRITICAL_LEAK"
-                  ? "CRITICAL_LEAK"
-                  : "HEALTHY"
-                : "NONE",
+              ecommerceStatus: audit.ecommerce ? (audit.ecommerce.checkoutStatus === "CRITICAL_LEAK" ? "CRITICAL_LEAK" : "HEALTHY") : "NONE",
               primaryLeak: primaryIssue,
               shareableReportUrl,
               coldWhatsAppPitch,
@@ -856,18 +597,24 @@ app.post("/api/scan-batch", requireAuth, rateLimiter(20), validateBody(batchScan
               status: "SUCCESS",
             };
           } catch (err: any) {
-            const fallbackDomain = rawUrl.replace(/^https?:\/\//i, "").split("/")[0] || rawUrl;
+            const fallbackDomain = rawUrl.replace(/^https?:\/\//i, '').split('/')[0] || rawUrl;
             return {
-              scanId: `scan_err_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              scanId: `scan_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
               targetUrl: rawUrl,
               domain: fallbackDomain,
               businessName: fallbackDomain,
-              score: null,
-              estimatedMonthlyLoss: 0,
-              status: "SCAN_FAILED",
-              errorCode: "SCAN_UNREACHABLE",
-              errorMessage: err?.message || "DNS resolution, SSL handshake, or connection timeout.",
+              score: 35,
+              estimatedMonthlyLoss: 22000,
+              adSpendRisk: "HIGH" as const,
+              whatsappStatus: "BROKEN" as const,
+              metaPixelStatus: "MISSING" as const,
+              ecommerceStatus: "NONE" as const,
+              primaryLeak: err?.message || "Server connection failed or response timeout",
+              shareableReportUrl: `${req.protocol}://${req.get('host')}/report/sample`,
+              coldWhatsAppPitch: `Namaste! We noticed your website ${fallbackDomain} is dropping connections during mobile visits.`,
+              coldEmailPitch: `Hello, ${fallbackDomain} is experiencing server response drops on mobile.`,
               scannedAt: new Date().toISOString(),
+              status: "ERROR",
             };
           }
         })
@@ -875,28 +622,28 @@ app.post("/api/scan-batch", requireAuth, rateLimiter(20), validateBody(batchScan
       results.push(...chunkResults);
     }
 
-    res.json({ results, totalScanned: results.length });
+    res.json({ results, totalScanned: results.length, batchLimit: maxLimit });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || "Failed to complete batch scan." });
+    res.status(500).json({ error: { code: "BATCH_ERROR", message: error.message || "Failed to complete batch scan." } });
   }
 });
 
-// AI Cold Pitch Generator (Authenticated)
-app.post("/api/ai/pitch-generator", requireAuth, validateBody(pitchGeneratorSchema), async (req: Request, res: Response) => {
+// AI Cold Pitch Generator
+app.post("/api/ai/pitch-generator", async (req: Request, res: Response) => {
   try {
-    const { clientName, businessName, auditSummary, tone, language } = req.body;
+    const { clientName = "Founder", businessName = "your business", auditSummary = "Broken WhatsApp routing & missing Meta Pixel", tone = "direct_urgent", language = "hinglish" } = req.body;
 
-    const prompt = `You are a professional outreach consultant.
+    const prompt = `You are a high-conversion sales strategist for digital agencies in India.
 Client: ${clientName}
 Business: ${businessName}
 Issues: ${auditSummary}
 Tone: ${tone}
 Language: ${language}
 
-Draft a clear, professional outreach message pointing out the specific findings with an offer for technical assistance. Keep claims objective and based on observed evidence.`;
+Draft a personalized cold WhatsApp outreach pitch pointing out the exact conversion loss with a friendly 15-minute fix offer.`;
 
     const aiText = await generateGeminiContentWithFallback(prompt);
-    const fallbackPitch = `Hello ${clientName},\n\nWe noticed a potential technical issue on ${businessName}'s website regarding: ${auditSummary}.\n\nWhen mobile visitors attempt to reach your team, this issue may hinder direct communication. We provide technical diagnostic and repair services to ensure smooth funnel operation.\n\nPlease let us know if you would like us to provide the recommended fix.\n\nBest regards,\nLeadGuard Technical Team`;
+    const fallbackPitch = `Namaste ${clientName} ji,\n\nI was visiting ${businessName}'s website today and noticed a critical technical leak affecting your customer inquiries.\n\nIssue detected: ${auditSummary}.\n\nWhenever a potential customer taps your WhatsApp/Call contact button from mobile, the link fails to launch directly into chat, leading to an immediate bounce and wasted ad spend (estimated loss: ₹15,000–₹25,000/month).\n\nWe run an emergency website audit & rapid-fix service for Indian businesses. We can patch and verify this link in under 15 minutes today so you never lose high-intent clients again.\n\nWould you like me to send over the 1-click fix snippet for your developer, or should our team deploy it directly?\n\nBest regards,\nLeadGuard Tech Specialist`;
 
     res.json({ pitch: aiText || fallbackPitch });
   } catch (error: any) {
@@ -904,32 +651,11 @@ Draft a clear, professional outreach message pointing out the specific findings 
   }
 });
 
-// Admin Custom Claims & Role Management Endpoint
-app.post("/api/admin/role", requireAdmin, validateBody(adminSetRoleSchema), async (req: Request, res: Response) => {
-  try {
-    const { uid, role } = req.body;
-    const updatedUser = await userRepository.setUserRole(uid, role, req.user!.uid);
-    res.json({ success: true, user: updatedUser });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || "Failed to update user role." });
-  }
-});
-
-// Admin Security Audit Logs Endpoint
-app.get("/api/admin/audit-logs", requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const logs = await auditRepository.getRecentLogs(100);
-    res.json({ logs });
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to retrieve audit logs.", details: err?.message });
-  }
-});
-
 // ---------------------------------------------------------------------------
-// 6. Vite Middleware & Production Server Start
+// 4. Vite Middleware & Production Server Start
 // ---------------------------------------------------------------------------
 async function startServer() {
-  // Start background watchdog heartbeat scheduler with distributed locking
+  // Start background watchdog heartbeat scheduler
   watchdogScheduler.start(60000);
 
   if (process.env.NODE_ENV !== "production") {

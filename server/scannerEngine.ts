@@ -2,6 +2,7 @@ import { validateAndResolveSafeUrl, validateUrlSyntax } from './ssrfGuard';
 import crypto from 'crypto';
 
 export interface ScanOptions {
+  allowDemoPreset?: boolean;
   forceLive?: boolean;
   timeoutMs?: number;
 }
@@ -534,8 +535,8 @@ export async function executeLiveWebsiteScan(rawTargetUrl: string, options?: Sca
   const parsedUrl = new URL(targetUrl);
   const hostname = parsedUrl.hostname.replace(/^www\./, '').toLowerCase();
 
-  // Check preset library for instant curated demos (unless forceLive is true)
-  if (!options?.forceLive && SAMPLE_PRESETS[hostname]) {
+  // Production scan must ALWAYS analyze the target URL live and NEVER silently return demo presets unless allowDemoPreset is explicitly set to true.
+  if (options?.allowDemoPreset && SAMPLE_PRESETS[hostname]) {
     const preset = SAMPLE_PRESETS[hostname];
     const issues = generateIssuesFromExtractedData(preset);
     return buildAuditPayload(targetUrl, hostname, preset, issues, startTime, 180, 25);
