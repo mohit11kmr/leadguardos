@@ -3,6 +3,7 @@ import path from 'path';
 
 export interface ScanRecord {
   scanId: string;
+  userId?: string;
   publicToken: string;
   targetUrl: string;
   domain: string;
@@ -35,6 +36,7 @@ export interface ScanRecord {
 
 export interface WatchdogTarget {
   id: string;
+  userId?: string;
   targetUrl: string;
   domain: string;
   contact: string;
@@ -50,6 +52,7 @@ export interface WatchdogTarget {
 
 export interface WatchdogCheckLog {
   id: string;
+  userId?: string;
   domain: string;
   check: string;
   status: string;
@@ -60,6 +63,7 @@ export interface WatchdogCheckLog {
 
 export interface WebhookConfig {
   id: string;
+  userId?: string;
   name: string;
   url: string;
   secret: string;
@@ -72,6 +76,7 @@ export interface WebhookConfig {
 
 export interface OrderRecord {
   orderId: string;
+  userId?: string;
   tierId: string;
   tierName: string;
   amountINR: number;
@@ -240,6 +245,13 @@ class StorageEngine {
       .slice(0, limit);
   }
 
+  public getScansHistoryForUser(userId: string, limit = 20): ScanRecord[] {
+    return Array.from(this.scans.values())
+      .filter(s => s.userId === userId)
+      .sort((a, b) => new Date(b.scannedAt).getTime() - new Date(a.scannedAt).getTime())
+      .slice(0, limit);
+  }
+
   // --- Watchdog Methods ---
   public addWatchdogTarget(target: WatchdogTarget) {
     this.watchdogTargets.set(target.id, target);
@@ -248,6 +260,10 @@ class StorageEngine {
 
   public getWatchdogTargets(): WatchdogTarget[] {
     return Array.from(this.watchdogTargets.values());
+  }
+
+  public getWatchdogTargetsForUser(userId: string): WatchdogTarget[] {
+    return Array.from(this.watchdogTargets.values()).filter(t => t.userId === userId);
   }
 
   public getWatchdogTarget(id: string): WatchdogTarget | undefined {
@@ -262,6 +278,12 @@ class StorageEngine {
     }
   }
 
+  public deleteWatchdogTarget(id: string): boolean {
+    const deleted = this.watchdogTargets.delete(id);
+    if (deleted) this.saveToDisk();
+    return deleted;
+  }
+
   public addWatchdogCheckLog(log: WatchdogCheckLog) {
     this.watchdogChecks.unshift(log);
     if (this.watchdogChecks.length > 200) this.watchdogChecks.pop();
@@ -272,6 +294,10 @@ class StorageEngine {
     return this.watchdogChecks.slice(0, limit);
   }
 
+  public getWatchdogCheckLogsForUser(userId: string, limit = 20): WatchdogCheckLog[] {
+    return this.watchdogChecks.filter(c => c.userId === userId).slice(0, limit);
+  }
+
   // --- Webhook Methods ---
   public addWebhook(config: WebhookConfig) {
     this.webhooks.set(config.id, config);
@@ -280,6 +306,14 @@ class StorageEngine {
 
   public getWebhooks(): WebhookConfig[] {
     return Array.from(this.webhooks.values());
+  }
+
+  public getWebhooksForUser(userId: string): WebhookConfig[] {
+    return Array.from(this.webhooks.values()).filter(w => w.userId === userId);
+  }
+
+  public getWebhook(id: string): WebhookConfig | undefined {
+    return this.webhooks.get(id);
   }
 
   public deleteWebhook(id: string): boolean {
@@ -296,6 +330,10 @@ class StorageEngine {
 
   public getOrders(): OrderRecord[] {
     return this.orders;
+  }
+
+  public getOrdersForUser(userId: string): OrderRecord[] {
+    return this.orders.filter(o => o.userId === userId);
   }
 
   // --- Stats Methods ---

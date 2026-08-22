@@ -37,8 +37,8 @@
       "channel": "EMAIL",
       "frequency": "DAILY",
       "status": "ACTIVE_TRIAL",
-      "createdAt": "2026-08-22T02:43:08.135Z",
-      "trialExpiresAt": "2026-08-22T02:43:08.135Z"
+      "createdAt": "2026-08-22T04:15:19.965Z",
+      "trialExpiresAt": "2026-08-22T04:15:19.965Z"
     }
   ],
   "watchdogChecks": [
@@ -879,6 +879,15 @@
   ],
   "webhooks": [],
   "orders": [
+    {
+      "orderId": "ord_test_99",
+      "tierId": "tier-express-fix",
+      "tierName": "Express Fix",
+      "amountINR": 4999,
+      "paymentMethod": "UPI",
+      "status": "PAID",
+      "createdAt": "2026-08-22T04:15:19.969Z"
+    },
     {
       "orderId": "ord_test_99",
       "tierId": "tier-express-fix",

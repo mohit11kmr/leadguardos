@@ -10,6 +10,7 @@ import { storage } from "./server/storage";
 import { watchdogScheduler } from "./server/watchdogScheduler";
 import { FEATURE_REGISTRY } from "./src/config/features";
 import { APP_CONFIG } from "./src/config/appConfig";
+import { requireAuth, optionalAuth, requireRole, signToken, verifyToken, AuthenticatedRequest } from "./server/middleware/auth";
 
 dotenv.config();
 
@@ -120,6 +121,16 @@ function generateFallbackDiagnosticSummary(domain: string, score: number, issues
   return `${summaryParts.join(" ")} Overall Funnel Health Score: ${score}/100.`;
 }
 
+function sendError(res: Response, status: number, code: string, message: string, req?: any) {
+  return res.status(status).json({
+    error: {
+      code,
+      message,
+      requestId: req?.requestId || `req_${Date.now()}`,
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 3. API Routes
 // ---------------------------------------------------------------------------
@@ -160,21 +171,49 @@ app.post("/api/scan-stats/increment-fix", (req: Request, res: Response) => {
   res.json({ success: true, stats: storage.getStats() });
 });
 
-// Scans History Endpoint
-app.get("/api/scans/history", (req: Request, res: Response) => {
+// Scans History Endpoint (User Scoped if authenticated)
+app.get("/api/scans/history", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+  if (req.user) {
+    const history = storage.getScansHistoryForUser(req.user.id, 15);
+    return res.json({ history });
+  }
   const history = storage.getScansHistory(15);
   res.json({ history });
 });
 
-// Primary 4-Pillar Website Scan API (SSRF Protected)
-app.post("/api/scan", rateLimiter(45), async (req: Request, res: Response) => {
+// Explicit Demo Preset Scan API (Isolated from Production /api/scan)
+app.post("/api/demo-scan", rateLimiter(60), async (req: Request, res: Response) => {
+  try {
+    const { presetId = "drsharmadental.in" } = req.body;
+    const presetKey = String(presetId).replace(/^https?:\/\//i, '').split('/')[0].toLowerCase();
+    const preset = SAMPLE_PRESETS[presetKey] || SAMPLE_PRESETS["drsharmadental.in"];
+
+    const { generateIssuesFromExtractedData, buildAuditPayload } = require("./server/scannerEngine");
+    const issues = generateIssuesFromExtractedData(preset);
+    const auditResult = buildAuditPayload(`https://${preset.domain}`, preset.domain, preset, issues, Date.now() - 200, 180, 25);
+
+    auditResult.isDemo = true;
+    res.json(auditResult);
+  } catch (error: any) {
+    sendError(res, 500, "DEMO_SCAN_FAILED", error.message || "Failed to load demo scan.", req);
+  }
+});
+
+// Primary 4-Pillar Website Scan API (Production Live Scan Only)
+app.post("/api/scan", rateLimiter(45), optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { url } = req.body;
     if (!url || typeof url !== "string") {
-      return res.status(400).json({ error: "Please enter a valid website URL." });
+      return sendError(res, 400, "INVALID_URL", "Please enter a valid website URL.", req);
     }
 
-    const auditResult = await executeLiveWebsiteScan(url);
+    // Force live scan - NEVER allow silent demo preset fallbacks on production scans
+    const auditResult = await executeLiveWebsiteScan(url, { forceLive: true });
+
+    // Server-side user identity attachment
+    if (req.user) {
+      auditResult.userId = req.user.id;
+    }
 
     // AI diagnostic advice enhancement with fallback
     if (auditResult.allIssues.length > 0) {
@@ -204,42 +243,66 @@ Provide a sharp, 2-sentence executive summary in Hinglish (Hindi + English) expl
     res.json(auditResult);
   } catch (error: any) {
     console.error("[Scan Error]:", error?.message || error);
-    res.status(500).json({ error: error.message || "Failed to scan website." });
+    sendError(res, 400, "SCAN_FAILED", error.message || "Failed to scan target website.", req);
   }
 });
 
-// Retrieve cached scan report by ID
-app.get("/api/scan/:id", (req: Request, res: Response) => {
+// Retrieve cached scan report by ID (IDOR & Ownership Scoped)
+app.get("/api/scan/:id", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const report = storage.getScan(id);
   if (!report) {
-    return res.status(404).json({ error: "Audit report not found or session expired." });
+    return sendError(res, 404, "NOT_FOUND", "Audit report not found or session expired.", req);
   }
+
+  // IDOR Ownership Check
+  if (report.userId) {
+    const isOwner = req.user && req.user.id === report.userId;
+    const isAdmin = req.user && req.user.role === "ADMIN";
+    if (!isOwner && !isAdmin) {
+      return sendError(res, 403, "FORBIDDEN", "You do not have permission to view this report.", req);
+    }
+  }
+
   res.json(report);
 });
 
-// JSON export for developers & agencies
-app.get("/api/scan/:id/export", (req: Request, res: Response) => {
+// JSON export for developers & agencies (IDOR & Ownership Scoped)
+app.get("/api/scan/:id/export", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const report = storage.getScan(id);
   if (!report) {
-    return res.status(404).json({ error: "Audit report not found." });
+    return sendError(res, 404, "NOT_FOUND", "Audit report not found.", req);
   }
+
+  if (report.userId) {
+    const isOwner = req.user && req.user.id === report.userId;
+    const isAdmin = req.user && req.user.role === "ADMIN";
+    if (!isOwner && !isAdmin) {
+      return sendError(res, 403, "FORBIDDEN", "You do not have permission to export this report.", req);
+    }
+  }
+
   res.setHeader("Content-Disposition", `attachment; filename="leadguard-audit-${report.domain}.json"`);
   res.json(report);
 });
 
-// 24/7 Monitoring registration
-app.post("/api/watchdog/subscribe", (req: Request, res: Response) => {
+// 24/7 Monitoring registration (Authenticated & User Scoped)
+app.post("/api/watchdog/subscribe", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
   try {
     const { targetUrl, contact, channel = "TELEGRAM", frequency = "DAILY" } = req.body;
     if (!targetUrl || !contact) {
-      return res.status(400).json({ error: "Website URL and Telegram/WhatsApp contact are required." });
+      return sendError(res, 400, "INVALID_INPUT", "Website URL and contact details are required.", req);
     }
 
+    // SSRF Check on watchdog target URL
+    const syntax = validateAndResolveSafeUrl(targetUrl);
+
     const domain = targetUrl.replace(/^https?:\/\//i, '').split('/')[0];
+    const userId = req.user?.id || `usr_anon_${Date.now()}`;
     const target = {
       id: `wd_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      userId,
       targetUrl,
       domain,
       contact,
@@ -256,6 +319,7 @@ app.post("/api/watchdog/subscribe", (req: Request, res: Response) => {
     storage.addWatchdogTarget(target);
     storage.addWatchdogCheckLog({
       id: `chk_${Date.now()}`,
+      userId,
       domain,
       check: "4-Pillar Watchdog Activation Probe",
       status: "PASS (Active Monitoring)",
@@ -269,30 +333,53 @@ app.post("/api/watchdog/subscribe", (req: Request, res: Response) => {
       lead: target,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || "Failed to activate watchdog." });
+    sendError(res, 500, "WATCHDOG_ERROR", error.message || "Failed to activate watchdog.", req);
   }
 });
 
-// List active watchdog monitors and recent checks
-app.get("/api/watchdog/list", (req: Request, res: Response) => {
+// List active watchdog monitors (User Scoped)
+app.get("/api/watchdog/list", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user?.id;
+  const isAdmin = req.user?.role === "ADMIN";
+
+  const monitors = isAdmin ? storage.getWatchdogTargets() : userId ? storage.getWatchdogTargetsForUser(userId) : storage.getWatchdogTargets().slice(0, 3);
+  const recentChecks = userId ? storage.getWatchdogCheckLogsForUser(userId, 25) : storage.getWatchdogCheckLogs(25);
+
   res.json({
-    activeMonitors: storage.getWatchdogTargets(),
-    totalCount: storage.getWatchdogTargets().length,
-    recentChecks: storage.getWatchdogCheckLogs(25),
+    activeMonitors: monitors,
+    totalCount: monitors.length,
+    recentChecks,
   });
 });
 
-// Webhooks API
-app.post("/api/webhooks/register", (req: Request, res: Response) => {
+app.delete("/api/watchdog/:id", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const target = storage.getWatchdogTarget(id);
+  if (!target) {
+    return sendError(res, 404, "NOT_FOUND", "Watchdog target not found.", req);
+  }
+
+  if (target.userId && req.user?.id !== target.userId && req.user?.role !== "ADMIN") {
+    return sendError(res, 403, "FORBIDDEN", "You do not have permission to delete this target.", req);
+  }
+
+  const deleted = storage.deleteWatchdogTarget(id);
+  res.json({ success: deleted });
+});
+
+// Webhooks API (User Scoped)
+app.post("/api/webhooks/register", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, url, events = ["watchdog.incident_detected"] } = req.body;
     if (!name || !url) {
-      return res.status(400).json({ error: "Webhook name and destination URL are required." });
+      return sendError(res, 400, "INVALID_INPUT", "Webhook name and destination URL are required.", req);
     }
 
+    const userId = req.user?.id || `usr_anon_${Date.now()}`;
     const secret = crypto.randomBytes(16).toString("hex");
     const webhook = {
       id: `whk_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      userId,
       name,
       url,
       secret,
@@ -305,16 +392,28 @@ app.post("/api/webhooks/register", (req: Request, res: Response) => {
     storage.addWebhook(webhook);
     res.json({ success: true, webhook });
   } catch (err: any) {
-    res.status(500).json({ error: err?.message || "Failed to register webhook." });
+    sendError(res, 500, "WEBHOOK_ERROR", err?.message || "Failed to register webhook.", req);
   }
 });
 
-app.get("/api/webhooks/list", (req: Request, res: Response) => {
-  res.json({ webhooks: storage.getWebhooks() });
+app.get("/api/webhooks/list", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user?.id;
+  const isAdmin = req.user?.role === "ADMIN";
+  const webhooks = isAdmin ? storage.getWebhooks() : userId ? storage.getWebhooksForUser(userId) : storage.getWebhooks();
+  res.json({ webhooks });
 });
 
-app.delete("/api/webhooks/:id", (req: Request, res: Response) => {
+app.delete("/api/webhooks/:id", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
+  const webhook = storage.getWebhook(id);
+  if (!webhook) {
+    return sendError(res, 404, "NOT_FOUND", "Webhook configuration not found.", req);
+  }
+
+  if (webhook.userId && req.user?.id !== webhook.userId && req.user?.role !== "ADMIN") {
+    return sendError(res, 403, "FORBIDDEN", "You do not have permission to delete this webhook.", req);
+  }
+
   const deleted = storage.deleteWebhook(id);
   res.json({ success: deleted });
 });
