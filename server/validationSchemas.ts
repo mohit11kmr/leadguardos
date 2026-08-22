@@ -35,8 +35,12 @@ export const webhookRegisterSchema = z.object({
 });
 
 export const webhookTestSchema = z.object({
-  url: z.string().trim().url('Valid destination URL is required').max(2048),
+  webhookId: z.string().trim().optional(),
+  url: z.string().trim().url('Valid destination URL is required').max(2048).optional(),
   secret: z.string().trim().max(200).optional(),
+}).refine(data => !!data.webhookId || !!data.url, {
+  message: 'Either webhookId or a valid destination URL is required',
+  path: ['url'],
 });
 
 export const orderCreateSchema = z.object({

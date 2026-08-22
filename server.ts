@@ -513,30 +513,45 @@ app.delete("/api/webhooks/:id", requireAuth, async (req: Request, res: Response)
 
 app.post("/api/webhooks/test", requireAuth, validateBody(webhookTestSchema), async (req: Request, res: Response) => {
   try {
-    const { url, secret = "leadguard_secret" } = req.body;
+    const { webhookId, url, secret } = req.body;
+    let targetWebhook: any;
 
-    const testDelivery = await webhookRepository.dispatchWebhook(
-      {
+    if (webhookId) {
+      const found = await webhookRepository.getWebhookById(webhookId, req.user!.uid, req.user!.role === "ADMIN");
+      if (!found) {
+        return res.status(404).json({ error: "Webhook not found or access denied" });
+      }
+      targetWebhook = found;
+    } else if (url) {
+      targetWebhook = {
         id: "whk_test",
         name: "Test Dispatcher",
         url,
-        secret,
+        secret: secret || "leadguard_test_secret",
         events: ["test.ping"],
         active: true,
         createdAt: new Date().toISOString(),
         failureCount: 0,
-      },
+      };
+    } else {
+      return res.status(400).json({ error: "Either webhookId or url is required." });
+    }
+
+    const testDelivery = await webhookRepository.dispatchWebhook(
+      targetWebhook,
       "test.ping",
       {
         message: "LeadGuard OS Webhook Test Incident",
         score: 42,
         domain: "sample-client.in",
+        testTimestamp: new Date().toISOString(),
       }
     );
 
     res.json({
       success: testDelivery.status === "SENT",
       httpStatus: testDelivery.httpStatus,
+      status: testDelivery.status,
       message:
         testDelivery.status === "SENT"
           ? "Test webhook payload delivered successfully!"

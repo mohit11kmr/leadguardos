@@ -10,6 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "test": "tsx tests/run-tests.ts",
+    "test:security": "tsx tests/run-tests.ts --filter=security",
+    "test:integration": "tsx tests/run-tests.ts --filter=integration",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

@@ -245,6 +245,15 @@ async function runTestSuite() {
   );
   assert(sandboxPaidOrder.status === 'PAID', 'Sandbox simulation successfully marks order PAID in non-production');
 
+  // Test FAILED -> PAID state transition guard
+  await orderRepository.updateOrderStatus(pendingOrder.orderId, 'FAILED', 'Payment declined');
+  try {
+    await orderRepository.updateOrderStatus(pendingOrder.orderId, 'PAID', 'Unverified attempt');
+    assert(false, 'Should prevent transition from FAILED to PAID without override guard');
+  } catch (err: any) {
+    assert(err?.message?.includes('INVALID_STATE_TRANSITION'), 'Guards against unauthorized FAILED -> PAID order transition');
+  }
+
   // -------------------------------------------------------------------------
   // 9. Webhooks & SSRF Defense
   // -------------------------------------------------------------------------
@@ -270,6 +279,16 @@ async function runTestSuite() {
     'agency_user_1'
   );
   assert(safeWebhook.url === 'https://hooks.slack.com/services/T00/B00/X00', 'Registers valid public webhook');
+
+  const fetchedById = await webhookRepository.getWebhookById(safeWebhook.id, 'agency_user_1');
+  assert(fetchedById?.id === safeWebhook.id, 'Retrieves owned webhook by ID');
+
+  try {
+    await webhookRepository.getWebhookById(safeWebhook.id, 'unauthorized_stranger_user');
+    assert(false, 'Should forbid access to other user webhook');
+  } catch (err: any) {
+    assert(err?.message === 'UNAUTHORIZED_WEBHOOK_ACCESS', 'Prevents cross-user webhook data access');
+  }
 
   const listedHooks = await webhookRepository.getWebhooks('agency_user_1');
   assert(listedHooks.some(h => h.secret === '********'), 'Masks secret keys in API responses');
