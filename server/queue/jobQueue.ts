@@ -36,7 +36,7 @@ export class JobQueueManager {
     return JobQueueManager.instance;
   }
 
-  public async enqueue(type: JobType, data: Record<string, any>, userId?: string, maxAttempts = 3): Promise<QueueJobPayload> {
+  public async enqueue(type: JobType, data: Record<string, any>, userId?: string, maxAttempts = 3, attempt = 0): Promise<QueueJobPayload> {
     const id = `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const job: QueueJobPayload = {
       id,
@@ -44,7 +44,7 @@ export class JobQueueManager {
       userId,
       data,
       status: 'QUEUED',
-      attempt: 0,
+      attempt,
       maxAttempts,
       createdAt: new Date().toISOString(),
     };

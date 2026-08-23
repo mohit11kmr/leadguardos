@@ -24,7 +24,7 @@ export const ExpressFixModal: React.FC<ExpressFixModalProps> = ({ isOpen, onClos
     const text = encodeURIComponent(
       `Hi LeadGuard Team, I want to book the Express 15-Min Lead Leak Fix (₹2,999) for my website: ${domain}. My name is ${name || 'Business Owner'}.`
     );
-    window.open(`https://wa.me/919876543210?text=${text}`, '_blank');
+    window.open(`https://wa.me/918307070605?text=${text}`, '_blank');
   };
 
   return (

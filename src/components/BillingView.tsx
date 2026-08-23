@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Zap, Check, Shield, ArrowRight, CreditCard, Clock, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { apiFetch } from '../lib/api';
 
 interface BillingViewProps {
   onOpenExpressFix: () => void;
@@ -11,7 +12,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ onOpenExpressFix }) =>
   const [entitlements, setEntitlements] = useState<any>(null);
 
   useEffect(() => {
-    fetch('/api/entitlements')
+    apiFetch('/api/entitlements')
       .then(res => res.json())
       .then(data => setEntitlements(data))
       .catch(err => console.error('Entitlements fetch error:', err));

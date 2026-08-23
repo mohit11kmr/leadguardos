@@ -94,20 +94,23 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
     <div className="space-y-6">
       
       {/* 3-Second Executive Diagnostic Banner */}
-      <div className="rounded-3xl border border-slate-800/90 bg-gradient-to-b from-slate-900/95 via-slate-900/90 to-slate-950 p-6 md:p-8 shadow-2xl backdrop-blur-md space-y-6">
+      <div className="rounded-3xl border border-slate-800/80 bg-slate-950/80 p-6 md:p-8 shadow-2xl backdrop-blur-2xl space-y-6 relative overflow-hidden">
         
+        {/* Subtle Ambient Glow */}
+        <div className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-rose-500/10 blur-3xl" />
+
         {/* Domain & Quick Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-5">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-2xl bg-slate-800 border border-slate-700/80 flex items-center justify-center text-slate-300 shadow-inner">
-              <ShieldCheck className="h-5 w-5 text-rose-400" />
+            <div className="h-11 w-11 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shadow-md">
+              <ShieldCheck className="h-6 w-6 text-rose-400" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
-                  Audit Report: <span className="text-rose-400 font-mono">{result.domain}</span>
+                  Audit Report: <span className="text-rose-400 font-mono text-glow-rose">{result.domain}</span>
                 </h2>
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/30">
                   LIVE SCANNED
                 </span>
               </div>
@@ -120,9 +123,9 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowPlainSummary(!showPlainSummary)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-xs font-semibold text-slate-300 border border-slate-700/80 transition-all"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-slate-300 border border-slate-700/80 transition-all shadow-sm"
             >
-              <HelpCircle className="h-3.5 w-3.5 text-indigo-400" />
+              <HelpCircle className="h-3.5 w-3.5 text-cyan-400" />
               <span>{showPlainSummary ? 'Hide Simple Guide' : 'Explain in Simple Hindi/English'}</span>
             </button>
           </div>
@@ -132,7 +135,7 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-stretch">
           
           {/* Card 1: Question 1: Is Something Wrong? */}
-          <div className={`rounded-2xl border ${scoreTheme.border} ${scoreTheme.bg} p-5 flex flex-col justify-between space-y-3 relative overflow-hidden`}>
+          <div className={`rounded-2xl border ${scoreTheme.border} ${scoreTheme.bg} p-5 flex flex-col justify-between space-y-3 relative overflow-hidden backdrop-blur-md`}>
             <div className="space-y-1">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 1. Website Status
@@ -164,7 +167,7 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
           </div>
 
           {/* Card 2: Question 2: How Serious Is It? */}
-          <div className="rounded-2xl border border-slate-800/90 bg-slate-950/80 p-5 flex flex-col justify-between space-y-3">
+          <div className="rounded-2xl border border-slate-800/90 bg-slate-900/60 p-5 flex flex-col justify-between space-y-3 backdrop-blur-md">
             <div className="space-y-1">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 2. Health Score & Potential Impact
@@ -187,17 +190,17 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
             {/* Confidence Badge */}
             <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-800/60">
               <span className="text-slate-400">Model Confidence:</span>
-              <span className="px-2 py-0.5 rounded-full bg-slate-800 text-rose-300 font-semibold border border-slate-700 text-[10px]">
+              <span className="px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-300 font-semibold border border-rose-500/30 text-[10px]">
                 HIGH CONFIDENCE
               </span>
             </div>
 
             {/* Health Meter Bar */}
             <div className="space-y-1">
-              <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
+              <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
                 <div
                   className={`h-full rounded-full transition-all duration-700 ${
-                    isHealthy ? 'bg-emerald-500' : isModerate ? 'bg-amber-500' : 'bg-rose-500'
+                    isHealthy ? 'bg-emerald-500 shadow-sm shadow-emerald-500' : isModerate ? 'bg-amber-500 shadow-sm shadow-amber-500' : 'bg-rose-500 shadow-sm shadow-rose-500'
                   }`}
                   style={{ width: `${result.score}%` }}
                 />
@@ -211,7 +214,7 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
           </div>
 
           {/* Card 3: Question 3: What Should I Do Next? */}
-          <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 p-5 flex flex-col justify-between space-y-3">
+          <div className="rounded-2xl border border-rose-500/30 bg-gradient-to-b from-rose-950/30 to-slate-950 p-5 flex flex-col justify-between space-y-3 backdrop-blur-md shadow-lg shadow-rose-950/20">
             <div className="space-y-1">
               <span className="text-[11px] font-bold uppercase tracking-wider text-rose-300">
                 3. Recommended Immediate Action
@@ -221,7 +224,7 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
               </h3>
               <p className="text-xs text-slate-300 leading-relaxed">
                 {result.score < 80
-                  ? 'Apply the verified 1-click code fixes below or let our engineers resolve your +9191 WhatsApp & tracking bugs within 2 hours.'
+                  ? 'Apply verified 1-click code fixes below or let our engineers resolve your +9191 WhatsApp & tracking bugs.'
                   : 'Your website channels are clean! Enable 24/7 Watchdog to get alerted if a link breaks in the future.'}
               </p>
             </div>
@@ -229,9 +232,9 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
             <button
               id="fix-now-primary-cta"
               onClick={onOpenExpressFix}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white py-3 px-4 text-xs sm:text-sm font-bold shadow-lg shadow-rose-950/60 active:scale-95 transition-all"
+              className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white py-3 px-4 text-xs sm:text-sm font-bold shadow-lg shadow-rose-950/60 active:scale-95 transition-all border border-rose-400/30"
             >
-              <Zap className="h-4 w-4" />
+              <Zap className="h-4 w-4 text-amber-300 fill-amber-300" />
               <span>{result.score < 80 ? 'Fix My Website Leaks (₹2,999)' : 'Optimize Further'}</span>
               <ArrowRight className="h-4 w-4" />
             </button>
@@ -241,16 +244,16 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
 
         {/* Simple Plain-English / आसान भाषा में Explanation Box */}
         {showPlainSummary && (
-          <div className="rounded-2xl border border-indigo-500/30 bg-indigo-950/20 p-4 sm:p-5 space-y-3">
+          <div className="rounded-2xl border border-cyan-500/30 bg-slate-900/80 p-4 sm:p-5 space-y-3 backdrop-blur-md">
             <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-indigo-400 shrink-0" />
-              <h4 className="text-xs sm:text-sm font-bold text-indigo-200">
+              <Sparkles className="h-4 w-4 text-cyan-400 shrink-0" />
+              <h4 className="text-xs sm:text-sm font-bold text-cyan-200">
                 Summary in Plain Language (आसान भाषा में सारांश)
               </h4>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-              <div className="rounded-xl bg-slate-950/60 p-3 border border-indigo-900/40 space-y-1">
+              <div className="rounded-xl bg-slate-950/80 p-3 border border-slate-800 space-y-1">
                 <span className="font-bold text-slate-200">📱 WhatsApp Contact:</span>
                 <p className="text-slate-300">
                   {result.whatsappLinks && result.whatsappLinks.length > 0 && result.whatsappLinks.every(w => w.isValid)
@@ -261,7 +264,7 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
                 </p>
               </div>
 
-              <div className="rounded-xl bg-slate-950/60 p-3 border border-indigo-900/40 space-y-1">
+              <div className="rounded-xl bg-slate-950/80 p-3 border border-slate-800 space-y-1">
                 <span className="font-bold text-slate-200">📞 Phone Call Button:</span>
                 <p className="text-slate-300">
                   {result.phoneLinks && result.phoneLinks.length > 0 && result.phoneLinks.some(p => p.isValid)
@@ -270,7 +273,7 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
                 </p>
               </div>
 
-              <div className="rounded-xl bg-slate-950/60 p-3 border border-indigo-900/40 space-y-1">
+              <div className="rounded-xl bg-slate-950/80 p-3 border border-slate-800 space-y-1">
                 <span className="font-bold text-slate-200">🎯 Ad Tracking (Meta Pixel):</span>
                 <p className="text-slate-300">
                   {result.metaPixel?.present
@@ -279,7 +282,7 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
                 </p>
               </div>
 
-              <div className="rounded-xl bg-slate-950/60 p-3 border border-indigo-900/40 space-y-1">
+              <div className="rounded-xl bg-slate-950/80 p-3 border border-slate-800 space-y-1">
                 <span className="font-bold text-slate-200">🔍 Google SEO Status:</span>
                 <p className="text-slate-300">
                   {result.seoPenalty?.isIndexable !== false

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { storage, WatchdogTarget } from './storage';
 import { executeLiveWebsiteScan } from './scannerEngine';
 import { safeFetch } from './security/safeFetch';
+import { jobQueue } from './queue/jobQueue';
 
 export interface WatchdogJob {
   jobId: string;
@@ -46,6 +47,7 @@ export class WatchdogScheduler {
     this.isRunningCheck = true;
 
     try {
+      await this.enqueueDueSchedules();
       const targets = storage.getWatchdogTargets().filter(
         t => t.status === 'ACTIVE_TRIAL' || t.status === 'ACTIVE_SUBSCRIPTION'
       );
@@ -78,6 +80,24 @@ export class WatchdogScheduler {
       console.warn('[WatchdogScheduler] Probe iteration error:', err);
     } finally {
       this.isRunningCheck = false;
+    }
+  }
+
+  private async enqueueDueSchedules() {
+    const now = Date.now();
+    for (const schedule of storage.getSchedules()) {
+      if (!schedule.enabled) continue;
+      const nextRunMs = new Date(schedule.nextRunAt).getTime();
+      if (!Number.isFinite(nextRunMs)) {
+        storage.updateSchedule(schedule.id, { enabled: false });
+        continue;
+      }
+      if (nextRunMs > now) continue;
+      const existingJob = schedule.jobId ? jobQueue.getJob(schedule.jobId) : undefined;
+      if (existingJob?.status === 'QUEUED' || existingJob?.status === 'RUNNING') continue;
+      const job = await jobQueue.enqueue('scanWebsite', { url: schedule.targetUrl, options: { forceLive: true } }, schedule.userId);
+      const nextRunAt = new Date(now + (schedule.frequency === 'DAILY' ? 86400000 : 7 * 86400000)).toISOString();
+      storage.updateSchedule(schedule.id, { jobId: job.id, nextRunAt });
     }
   }
 
@@ -187,7 +207,7 @@ export class WatchdogScheduler {
       try {
         const bodyStr = JSON.stringify(payload);
         const signature = crypto
-          .createHmac('sha256', hook.secret || 'leadguard_secret')
+          .createHmac('sha256', hook.secret)
           .update(bodyStr)
           .digest('hex');
 

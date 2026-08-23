@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Activity, Users, DollarSign, Radio, AlertOctagon, RefreshCw, FileText } from 'lucide-react';
+import { apiFetch } from '../lib/api';
 
 export const AdminDashboardView: React.FC = () => {
   const [metricsData, setMetricsData] = useState<any>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch('/api/admin/overview')
+    apiFetch('/api/admin/overview')
       .then(res => res.json())
       .then(data => {
         setMetricsData(data.metrics || {});

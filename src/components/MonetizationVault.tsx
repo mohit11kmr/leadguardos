@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Zap, Shield, Check, Star, ArrowRight, Sparkles, Building2, UserCheck, Wrench, ShieldAlert, CreditCard, QrCode, Download, CheckCircle2, Lock } from 'lucide-react';
+import { Zap, Shield, Check, Star, ArrowRight, Sparkles, Building2, UserCheck, Wrench, ShieldAlert, CreditCard, QrCode, Download, CheckCircle2, Lock, MessageCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 interface MonetizationVaultProps {
@@ -54,16 +54,18 @@ export const MonetizationVault: React.FC<MonetizationVaultProps> = ({
     <div className="space-y-8 animate-fade-in">
       
       {/* Header */}
-      <div className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900/90 via-slate-900 to-slate-950 p-6 md:p-8 shadow-xl text-center max-w-4xl mx-auto">
-        <div className="inline-flex items-center gap-2 rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-rose-400 mb-3">
-          <Zap className="h-3.5 w-3.5 text-rose-400" />
+      <div className="rounded-3xl border border-rose-500/20 bg-cyber-grid bg-slate-950/80 p-6 md:p-10 shadow-2xl backdrop-blur-2xl text-center max-w-4xl mx-auto relative overflow-hidden">
+        <div className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 h-64 w-64 rounded-full bg-rose-500/10 blur-3xl" />
+        
+        <div className="inline-flex items-center gap-2 rounded-full border border-rose-500/30 bg-rose-500/10 px-4 py-1.5 text-xs font-bold uppercase tracking-wider text-rose-300 shadow-md mb-3">
+          <Zap className="h-4 w-4 text-amber-300 fill-amber-300 animate-pulse" />
           <span>Production-Ready 3-Tier Monetization Stack</span>
         </div>
-        <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+        <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
           Monetization & Plans Architecture
         </h1>
         <p className="mt-2 text-xs sm:text-sm text-slate-300 leading-relaxed max-w-2xl mx-auto">
-          Tailored for Indian businesses & marketing agencies — from one-time 15-minute emergency repairs to continuous ₹299/mo SaaS watchdog monitoring.
+          Tailored for Indian businesses & marketing agencies — from one-time 15-minute emergency repairs to continuous ₹299/mo SaaS watchdog monitoring with HMAC-verified Razorpay checkout.
         </p>
       </div>
 
@@ -73,7 +75,7 @@ export const MonetizationVault: React.FC<MonetizationVaultProps> = ({
         {/* TIER 1: One-Time Audit & Fix Services */}
         <div className="space-y-4">
           <div className="flex items-center gap-2">
-            <span className="rounded-full bg-rose-500/20 text-rose-400 px-3 py-1 text-xs font-black uppercase border border-rose-500/30">
+            <span className="rounded-full bg-rose-500/20 text-rose-300 px-3.5 py-1 text-xs font-black uppercase border border-rose-500/30 shadow-sm">
               Tier 1 • One-Time Services
             </span>
             <h2 className="text-xl font-bold text-white">Forensic Audit & Rapid Repair</h2>
@@ -443,21 +445,40 @@ export const MonetizationVault: React.FC<MonetizationVaultProps> = ({
                     <QrCode className="h-6 w-6 text-emerald-400" />
                   </div>
                   <div>
-                    <h4 className="text-base font-bold text-white">Instant UPI & Card Checkout</h4>
-                    <p className="text-xs text-slate-400 mt-1">Scan via Google Pay, PhonePe, Paytm, or Credit Card</p>
+                    <h4 className="text-base font-bold text-white">Instant UPI & WhatsApp Checkout</h4>
+                    <p className="text-xs text-slate-400 mt-1">Pay via Google Pay, PhonePe, Paytm, or GPay UPI</p>
                   </div>
                   <div className="text-3xl font-black text-emerald-400">{selectedPlanModal.price}</div>
-                  <div className="text-[11px] font-mono text-slate-400 bg-slate-900 p-2 rounded-lg border border-slate-800">
-                    UPI ID: <span className="text-slate-200 font-bold">leadguard.pay@icici</span>
+                  
+                  <div className="text-xs font-mono text-slate-300 bg-slate-900/90 p-3 rounded-xl border border-slate-800 space-y-1">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">Direct Founder UPI / GPay Number:</div>
+                    <div className="text-sm font-bold text-emerald-400">+91 83070 70605</div>
+                    <div className="text-[10px] text-slate-400 font-sans">Mohit Sikarwar (LeadGuard OS)</div>
                   </div>
                 </div>
 
-                <button
-                  onClick={handleCompleteOrder}
-                  className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3 text-xs transition-all shadow-lg active:scale-95"
-                >
-                  Simulate Successful Payment & Activate Shield
-                </button>
+                <div className="space-y-2">
+                  <button
+                    onClick={() => {
+                      const text = encodeURIComponent(
+                        `Namaste Mohit! I want to order the ${selectedPlanModal.name} (${selectedPlanModal.price}) for my website: ${customerDomain || 'My Site'}.\n\nName: ${customerName || 'Business Owner'}\nPhone: ${customerPhone || 'My Phone'}\n\nPlease share GPay / PhonePe UPI QR code to complete payment.`
+                      );
+                      window.open(`https://wa.me/918307070605?text=${text}`, '_blank');
+                      handleCompleteOrder();
+                    }}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3.5 text-xs transition-all shadow-lg shadow-emerald-950/60 active:scale-95 border border-emerald-400/30"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    <span>Pay & Activate via WhatsApp (+91 83070 70605)</span>
+                  </button>
+
+                  <button
+                    onClick={handleCompleteOrder}
+                    className="w-full rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white font-semibold py-2.5 text-xs transition-colors border border-slate-800"
+                  >
+                    Simulate Test Payment
+                  </button>
+                </div>
               </div>
             )}
 
@@ -465,9 +486,9 @@ export const MonetizationVault: React.FC<MonetizationVaultProps> = ({
               <div className="space-y-6 text-center">
                 <div className="rounded-2xl bg-emerald-500/10 p-6 border border-emerald-500/30 space-y-3">
                   <CheckCircle2 className="h-12 w-12 text-emerald-400 mx-auto" />
-                  <h4 className="text-lg font-bold text-emerald-300">Order Confirmed & Shield Activated!</h4>
+                  <h4 className="text-lg font-bold text-emerald-300">Order Placed & Dispatched!</h4>
                   <p className="text-xs text-slate-300">
-                    Thank you {customerName || 'Partner'}! Your {selectedPlanModal.name} for <span className="font-mono text-white">{customerDomain || 'your site'}</span> is now queued. Our engineers will verify WhatsApp routing and deliver confirmation to {customerPhone || 'your WhatsApp'}.
+                    Thank you {customerName || 'Partner'}! Your {selectedPlanModal.name} order for <span className="font-mono text-white">{customerDomain || 'your site'}</span> is received. Mohit Sikarwar (+91 83070 70605) will confirm payment and activate your service on WhatsApp.
                   </p>
                 </div>
 

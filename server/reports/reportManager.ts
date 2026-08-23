@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { AuditResult } from '../../src/types';
+import { toPublicAuditReport } from './publicReport';
 
 export interface ShareableSnapshot {
   token: string;
@@ -30,7 +31,7 @@ export class ReportManager {
     const snapshot: ShareableSnapshot = {
       token,
       scanId: auditResult.scanId,
-      snapshot: JSON.parse(JSON.stringify(auditResult)), // Immutable deep clone
+      snapshot: JSON.parse(JSON.stringify(toPublicAuditReport(auditResult))),
       passwordHash,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + ttlDays * 24 * 3600 * 1000).toISOString(),

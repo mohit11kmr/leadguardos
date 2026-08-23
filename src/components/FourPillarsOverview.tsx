@@ -61,15 +61,15 @@ export const FourPillarsOverview: React.FC<FourPillarsOverviewProps> = ({
   };
 
   const getScoreColor = (score: number) => {
-    if (score >= 80) return 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
-    if (score >= 50) return 'text-amber-400 border-amber-500/30 bg-amber-500/10';
-    return 'text-rose-400 border-rose-500/30 bg-rose-500/10';
+    if (score >= 80) return 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10 shadow-sm shadow-emerald-950/40';
+    if (score >= 50) return 'text-amber-400 border-amber-500/30 bg-amber-500/10 shadow-sm shadow-amber-950/40';
+    return 'text-rose-400 border-rose-500/30 bg-rose-500/10 shadow-sm shadow-rose-950/40';
   };
 
   const getScoreBarColor = (score: number) => {
-    if (score >= 80) return 'bg-emerald-500';
-    if (score >= 50) return 'bg-amber-500';
-    return 'bg-rose-500';
+    if (score >= 80) return 'bg-gradient-to-r from-emerald-600 to-emerald-400 shadow-sm shadow-emerald-500';
+    if (score >= 50) return 'bg-gradient-to-r from-amber-600 to-amber-400 shadow-sm shadow-amber-500';
+    return 'bg-gradient-to-r from-rose-600 to-rose-400 shadow-sm shadow-rose-500';
   };
 
   const pillarCards = [
@@ -78,7 +78,7 @@ export const FourPillarsOverview: React.FC<FourPillarsOverviewProps> = ({
       title: 'Lead Guardian',
       weightText: '35% Impact',
       icon: MessageSquare,
-      iconColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+      iconColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
       data: pillars.lead,
       description: 'WhatsApp, Click-to-Call, Email & Google Maps routing verification.',
     },
@@ -87,7 +87,7 @@ export const FourPillarsOverview: React.FC<FourPillarsOverviewProps> = ({
       title: 'AdShield',
       weightText: '20% Impact',
       icon: Target,
-      iconColor: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+      iconColor: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30',
       data: pillars.ad,
       description: 'Meta Pixel (fbq), Google Tag (GA4), GTM & Conversion attribution.',
     },
@@ -96,7 +96,7 @@ export const FourPillarsOverview: React.FC<FourPillarsOverviewProps> = ({
       title: 'SEO & Penalty Shield',
       weightText: '20% Impact',
       icon: Search,
-      iconColor: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+      iconColor: 'text-purple-400 bg-purple-500/10 border-purple-500/30',
       data: pillars.seo,
       description: 'Robots noindex de-indexing risk, Canonical, Sitemap & HTTPS status.',
     },
@@ -105,7 +105,7 @@ export const FourPillarsOverview: React.FC<FourPillarsOverviewProps> = ({
       title: 'Cyber & Hack Shield',
       weightText: '25% Impact',
       icon: ShieldAlert,
-      iconColor: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+      iconColor: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
       data: pillars.cyber,
       description: 'Spam/Gambling keywords, Base64 obfuscation, hidden iframes & mobile redirects.',
     },
@@ -116,7 +116,7 @@ export const FourPillarsOverview: React.FC<FourPillarsOverviewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <div className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-indigo-400" />
+            <ShieldCheck className="h-5 w-5 text-rose-400" />
             <h2 className="text-lg font-bold text-white tracking-tight">4-Pillar Diagnostic Health Breakdown</h2>
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
@@ -128,7 +128,7 @@ export const FourPillarsOverview: React.FC<FourPillarsOverviewProps> = ({
         {activePillarFilter !== 'ALL' && (
           <button
             onClick={() => onSelectPillar('ALL')}
-            className="text-xs text-indigo-400 hover:text-indigo-300 font-medium underline underline-offset-4 self-start sm:self-auto"
+            className="text-xs text-rose-400 hover:text-rose-300 font-medium underline underline-offset-4 self-start sm:self-auto transition-colors"
           >
             Show All 4 Pillars
           </button>
@@ -148,17 +148,17 @@ export const FourPillarsOverview: React.FC<FourPillarsOverviewProps> = ({
             <div
               key={card.id}
               onClick={() => onSelectPillar(isSelected ? 'ALL' : card.id)}
-              className={`rounded-2xl border transition-all duration-200 p-5 flex flex-col justify-between cursor-pointer relative overflow-hidden backdrop-blur-sm ${
+              className={`rounded-2xl border transition-all duration-300 p-5 flex flex-col justify-between cursor-pointer relative overflow-hidden backdrop-blur-xl ${
                 isSelected
-                  ? 'border-indigo-500 bg-slate-900 shadow-lg shadow-indigo-950/40 ring-1 ring-indigo-500/50'
-                  : 'border-slate-800/90 bg-slate-900/70 hover:border-slate-700 hover:bg-slate-900/90'
+                  ? 'border-rose-500 bg-slate-900 shadow-xl shadow-rose-950/40 ring-1 ring-rose-500/50 scale-[1.02]'
+                  : 'border-slate-800/80 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-900/90 hover:-translate-y-0.5 shadow-lg'
               }`}
             >
               {/* Pillar Header */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <div className={`flex h-9 w-9 items-center justify-center rounded-xl border ${card.iconColor}`}>
+                    <div className={`flex h-9 w-9 items-center justify-center rounded-xl border ${card.iconColor} shadow-md`}>
                       <Icon className="h-4 w-4" />
                     </div>
                     <div>
@@ -210,7 +210,7 @@ export const FourPillarsOverview: React.FC<FourPillarsOverviewProps> = ({
 
               {/* Action Link */}
               <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                <span className={`font-semibold flex items-center gap-1 ${isSelected ? 'text-indigo-400' : 'text-slate-400 group-hover:text-slate-200'}`}>
+                <span className={`font-semibold flex items-center gap-1 ${isSelected ? 'text-rose-400' : 'text-slate-400 group-hover:text-slate-200'}`}>
                   {isSelected ? 'Viewing Findings' : 'View Findings'}
                   <ArrowRight className="h-3 w-3" />
                 </span>
@@ -225,3 +225,4 @@ export const FourPillarsOverview: React.FC<FourPillarsOverviewProps> = ({
     </div>
   );
 };
+

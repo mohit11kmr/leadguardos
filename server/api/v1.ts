@@ -4,8 +4,11 @@ import { executeLiveWebsiteScan } from '../scannerEngine';
 import { storage } from '../storage';
 import { EntitlementService } from '../services/entitlementService';
 import { reportManager } from '../reports/reportManager';
+import { validateAndResolveSafeUrl } from '../ssrfGuard';
 
 export const v1Router = Router();
+const WATCHDOG_CHANNELS = new Set(['TELEGRAM', 'WHATSAPP', 'EMAIL']);
+const WATCHDOG_FREQUENCIES = new Set(['DAILY', 'HOURLY', 'WEEKLY', '15MIN']);
 
 // Middleware: Verify API Key
 function requireApiKey(req: Request, res: Response, next: any) {
@@ -26,6 +29,11 @@ function requireApiKey(req: Request, res: Response, next: any) {
 
 v1Router.use(requireApiKey);
 
+function canAccessOwnedResource(req: Request, ownerId?: string): boolean {
+  const user = (req as any).user;
+  return !ownerId || ownerId === user?.id || user?.role === 'ADMIN';
+}
+
 // 1. Create Scan (POST /api/v1/scans)
 v1Router.post('/scans', async (req: Request, res: Response) => {
   try {
@@ -40,7 +48,9 @@ v1Router.post('/scans', async (req: Request, res: Response) => {
       return res.status(403).json({ error: { code: 'QUOTA_EXCEEDED', message: entitlement.reason } });
     }
 
-    const result = await executeLiveWebsiteScan(url, options);
+    const result = await executeLiveWebsiteScan(url, { ...options, forceLive: true });
+    result.userId = user.id;
+    storage.saveScan(result);
     storage.incrementUserScanUsage(user.id);
 
     res.status(201).json({
@@ -60,6 +70,9 @@ v1Router.post('/scans', async (req: Request, res: Response) => {
 v1Router.get('/scans/:id', (req: Request, res: Response) => {
   const scan = storage.getScan(req.params.id);
   if (!scan) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Scan not found' } });
+  if (!canAccessOwnedResource(req, scan.userId)) {
+    return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You do not have access to this scan.' } });
+  }
   res.json(scan);
 });
 
@@ -74,24 +87,40 @@ v1Router.get('/scans', (req: Request, res: Response) => {
 v1Router.get('/scans/:id/findings', (req: Request, res: Response) => {
   const scan = storage.getScan(req.params.id);
   if (!scan) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Scan not found' } });
+  if (!canAccessOwnedResource(req, scan.userId)) {
+    return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You do not have access to this scan.' } });
+  }
   res.json({ scanId: scan.scanId, issues: scan.allIssues || [] });
 });
 
 // 5. Create Watchdog Target (POST /api/v1/watchdog)
-v1Router.post('/watchdog', (req: Request, res: Response) => {
+v1Router.post('/watchdog', async (req: Request, res: Response) => {
   const { url, contact, channel, frequency } = req.body;
   if (!url) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'url is required' } });
+  if (typeof url !== 'string' || url.length > 2048) {
+    return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'url is invalid' } });
+  }
+  const normalizedChannel = channel || 'TELEGRAM';
+  const normalizedFrequency = frequency || 'DAILY';
+  if (!WATCHDOG_CHANNELS.has(normalizedChannel) || !WATCHDOG_FREQUENCIES.has(normalizedFrequency)) {
+    return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'channel or frequency is invalid' } });
+  }
+
+  const validation = await validateAndResolveSafeUrl(url);
+  if (!validation.valid || !validation.normalized) {
+    return res.status(400).json({ error: { code: 'INVALID_TARGET_URL', message: validation.error || 'Target URL is not allowed.' } });
+  }
 
   const userId = (req as any).user.id;
-  const domain = url.replace(/^https?:\/\//i, '').split('/')[0];
+  const domain = new URL(validation.normalized).hostname;
   const target = {
     id: `wd_v1_${Date.now()}`,
     userId,
-    targetUrl: url,
+    targetUrl: validation.normalized,
     domain,
-    contact: contact || 'API User',
-    channel: channel || 'TELEGRAM',
-    frequency: frequency || 'DAILY',
+    contact: typeof contact === 'string' && contact.length <= 255 ? contact : 'API User',
+    channel: normalizedChannel,
+    frequency: normalizedFrequency,
     status: 'ACTIVE_TRIAL' as const,
     createdAt: new Date().toISOString(),
     trialExpiresAt: new Date(Date.now() + 14 * 24 * 3600 * 1000).toISOString(),
@@ -105,14 +134,23 @@ v1Router.post('/watchdog', (req: Request, res: Response) => {
 v1Router.get('/watchdog/:id', (req: Request, res: Response) => {
   const target = storage.getWatchdogTarget(req.params.id);
   if (!target) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Watchdog target not found' } });
+  if (!canAccessOwnedResource(req, target.userId)) {
+    return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You do not have access to this watchdog target.' } });
+  }
   res.json(target);
 });
 
 // 7. Get Shareable Report Token (POST /api/v1/reports/share)
 v1Router.post('/reports/share', (req: Request, res: Response) => {
   const { scanId, password } = req.body;
+  if (typeof scanId !== 'string' || scanId.length > 128 || (password !== undefined && (typeof password !== 'string' || password.length > 256))) {
+    return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Invalid report sharing parameters.' } });
+  }
   const scan = storage.getScan(scanId);
   if (!scan) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Scan not found' } });
+  if (!canAccessOwnedResource(req, scan.userId)) {
+    return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You do not have access to this scan.' } });
+  }
 
   const shareToken = reportManager.createShareableSnapshot(scan, password);
   res.json({ shareUrl: `${req.protocol}://${req.get('host')}/report/share/${shareToken.token}`, token: shareToken.token, expiresAt: shareToken.expiresAt });

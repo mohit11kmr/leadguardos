@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AuditResult, CompetitorSabotageOpportunity } from '../types';
 import { Swords, ShieldAlert, Zap, TrendingUp, AlertTriangle, ArrowRight, CheckCircle2, XCircle, Sparkles, ExternalLink, Target, MessageSquare } from 'lucide-react';
+import { apiFetch } from '../lib/api';
 
 interface CompetitorSabotageRadarProps {
   currentAudit?: AuditResult | null;
@@ -47,7 +48,7 @@ export const CompetitorSabotageRadar: React.FC<CompetitorSabotageRadarProps> = (
     setError(null);
 
     try {
-      const res = await fetch('/api/competitor-sabotage', {
+      const res = await apiFetch('/api/competitor-sabotage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -77,27 +78,27 @@ export const CompetitorSabotageRadar: React.FC<CompetitorSabotageRadarProps> = (
   return (
     <div className="space-y-8">
       {/* Module Header */}
-      <div className="rounded-3xl border border-slate-800/90 bg-gradient-to-br from-slate-950 via-slate-900/80 to-slate-950 p-6 md:p-8 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-rose-600/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
+      <div className="rounded-3xl border border-rose-500/20 bg-cyber-grid bg-slate-950/80 p-6 md:p-8 shadow-2xl backdrop-blur-2xl relative overflow-hidden">
+        <div className="pointer-events-none absolute -top-24 -right-24 h-80 w-80 bg-rose-600/15 rounded-full blur-[100px]" />
         
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 rounded-full bg-rose-500/10 border border-rose-500/20 px-3 py-1 text-xs font-semibold text-rose-400">
-              <Swords className="h-3.5 w-3.5" />
-              <span>Module 1: The Competitor Sabotage Radar</span>
+            <div className="inline-flex items-center gap-2 rounded-full bg-rose-500/10 border border-rose-500/30 px-3.5 py-1 text-xs font-semibold text-rose-300 shadow-sm">
+              <Swords className="h-3.5 w-3.5 text-rose-400" />
+              <span>Module 1: The Competitor Sabotage Radar Engine</span>
             </div>
             <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
-              Exploit Competitor Conversion Flaws & Steal Their Leads
+              Exploit Competitor Conversion Flaws & Steal Their High-Intent Leads
             </h2>
-            <p className="text-sm text-slate-300 max-w-2xl">
-              Concurrently scan up to 3 competitors. LeadGuard identifies missing Meta Pixels, broken WhatsApp buttons, and SEO penalties on their sites so you can outbid and outconvert them in real-time.
+            <p className="text-sm text-slate-300 max-w-2xl leading-relaxed">
+              Concurrently scan up to 3 competitors. LeadGuard identifies missing Meta Pixels, broken WhatsApp buttons (+9191 errors), and SEO penalties on their sites so you can outbid and outconvert them in real-time.
             </p>
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 text-center">
-              <span className="text-xs text-slate-400 uppercase tracking-wider block font-mono">Scan Engine</span>
-              <span className="text-base font-bold text-emerald-400 flex items-center justify-center gap-1 mt-0.5">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 text-center backdrop-blur-md">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-mono font-bold">Scan Engine</span>
+              <span className="text-sm font-bold text-emerald-400 flex items-center justify-center gap-1.5 mt-0.5">
                 <CheckCircle2 className="h-4 w-4" /> Real DOM Concurrency
               </span>
             </div>
@@ -110,7 +111,7 @@ export const CompetitorSabotageRadar: React.FC<CompetitorSabotageRadarProps> = (
             {/* My Website URL */}
             <div className="lg:col-span-1 space-y-1.5">
               <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                 Your Website URL:
               </label>
               <input
@@ -118,14 +119,14 @@ export const CompetitorSabotageRadar: React.FC<CompetitorSabotageRadarProps> = (
                 value={myUrl}
                 onChange={(e) => setMyUrl(e.target.value)}
                 placeholder="https://yourwebsite.com"
-                className="w-full rounded-xl bg-slate-900 border border-slate-700/80 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                className="w-full rounded-xl bg-slate-900/90 border border-slate-700/80 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
               />
             </div>
 
             {/* Competitor URLs */}
             <div className="lg:col-span-3 space-y-1.5">
               <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+                <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse"></span>
                 Competitor Target URLs (up to 3):
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -136,7 +137,7 @@ export const CompetitorSabotageRadar: React.FC<CompetitorSabotageRadarProps> = (
                     value={comp}
                     onChange={(e) => handleCompetitorChange(idx, e.target.value)}
                     placeholder={`Competitor #${idx + 1} URL`}
-                    className="w-full rounded-xl bg-slate-900 border border-slate-700/80 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
+                    className="w-full rounded-xl bg-slate-900/90 border border-slate-700/80 px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
                   />
                 ))}
               </div>
@@ -144,7 +145,7 @@ export const CompetitorSabotageRadar: React.FC<CompetitorSabotageRadarProps> = (
           </div>
 
           {error && (
-            <div className="rounded-xl border border-rose-500/30 bg-rose-950/20 p-3 text-xs text-rose-300 flex items-center gap-2">
+            <div className="rounded-xl border border-rose-500/30 bg-rose-950/30 p-3 text-xs text-rose-300 flex items-center gap-2 font-medium">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               <span>{error}</span>
             </div>
@@ -154,7 +155,7 @@ export const CompetitorSabotageRadar: React.FC<CompetitorSabotageRadarProps> = (
             <button
               type="submit"
               disabled={isLoading}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-rose-950/50 transition-all disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 px-7 py-3 text-sm font-bold text-white shadow-lg shadow-rose-950/60 border border-rose-400/30 transition-all disabled:opacity-50"
             >
               {isLoading ? (
                 <>
@@ -163,7 +164,7 @@ export const CompetitorSabotageRadar: React.FC<CompetitorSabotageRadarProps> = (
                 </>
               ) : (
                 <>
-                  <Swords className="h-4 w-4" />
+                  <Zap className="h-4 w-4 text-amber-300 fill-amber-300" />
                   <span>Run Sabotage Radar Scan</span>
                 </>
               )}
@@ -184,17 +185,17 @@ export const CompetitorSabotageRadar: React.FC<CompetitorSabotageRadarProps> = (
                 Direct side-by-side weakness comparison and weaponized ad tactics
               </p>
             </div>
-            <span className="rounded-lg bg-slate-900 border border-slate-800 px-3 py-1 text-xs text-slate-300 font-mono">
+            <span className="rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-1.5 text-xs text-slate-300 font-mono font-semibold shadow-sm">
               {sabotageResults.competitors.length} Competitors Analyzed
             </span>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             {/* 1. Your Website Card */}
-            <div className="lg:col-span-1 rounded-3xl border border-emerald-500/30 bg-slate-950/90 p-6 shadow-xl space-y-5 flex flex-col justify-between">
+            <div className="lg:col-span-1 rounded-3xl border border-emerald-500/30 bg-slate-950/90 p-6 shadow-xl space-y-5 flex flex-col justify-between backdrop-blur-xl">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 text-[11px] font-bold uppercase">
+                  <span className="rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2.5 py-0.5 text-[11px] font-bold uppercase">
                     Your Website
                   </span>
                   <span className="text-xs font-mono text-emerald-400">

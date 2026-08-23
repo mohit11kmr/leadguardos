@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Layers, Search, Loader2, AlertCircle, ArrowUpRight, Download, Send, Zap, CheckCircle2, XCircle } from 'lucide-react';
+import { apiFetch } from '../lib/api';
 
 interface BatchProspectScannerProps {
   onSelectProspectForPitch: (prospect: { domain: string; businessName: string; issues: string }) => void;
@@ -46,7 +47,7 @@ export const BatchProspectScanner: React.FC<BatchProspectScannerProps> = ({ onSe
       .filter((u) => u.length > 0);
 
     try {
-      const response = await fetch('/api/scan-batch', {
+      const response = await apiFetch('/api/scan-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ urls: urlList }),

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User, Bell, Key, Download, Trash2, ShieldAlert, Check, Copy } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { apiFetch } from '../lib/api';
 
 export const AccountSettingsView: React.FC = () => {
   const { user, profile, signOut } = useAuth();
@@ -12,7 +13,7 @@ export const AccountSettingsView: React.FC = () => {
 
   const handleCreateApiKey = async () => {
     try {
-      const res = await fetch('/api/keys/create', { method: 'POST' });
+      const res = await apiFetch('/api/keys/create', { method: 'POST' });
       const data = await res.json();
       if (data.apiKey) {
         setApiKeyInfo(data);
@@ -32,7 +33,7 @@ export const AccountSettingsView: React.FC = () => {
 
   const handleExportPersonalData = async () => {
     try {
-      const res = await fetch('/api/user/export-data');
+      const res = await apiFetch('/api/user/export-data');
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -48,7 +49,7 @@ export const AccountSettingsView: React.FC = () => {
     if (deleteConfirmText.toUpperCase() !== 'DELETE') return;
     setIsDeleting(true);
     try {
-      const res = await fetch('/api/user/delete-account', { method: 'POST' });
+      const res = await apiFetch('/api/user/delete-account', { method: 'POST' });
       if (res.ok) {
         setDeletedMsg(true);
         setTimeout(() => {

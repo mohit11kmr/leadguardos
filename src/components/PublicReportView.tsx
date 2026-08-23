@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AuditResult } from '../types';
 import { Shield, AlertTriangle, CheckCircle2, TrendingDown, Phone, MessageCircle, FileText, ArrowRight, ExternalLink, Share2, Copy, Download, Zap, Sparkles } from 'lucide-react';
 import { generateAuditPdf } from '../utils/pdfGenerator';
+import { LeadAuditPanel } from './LeadAuditPanel';
 
 interface PublicReportViewProps {
   report: AuditResult;
@@ -15,6 +16,7 @@ export const PublicReportView: React.FC<PublicReportViewProps> = ({
   onBackToScanner,
 }) => {
   const [copiedLink, setCopiedLink] = useState(false);
+  const [activeResultTab, setActiveResultTab] = useState<'security' | 'lead' | 'ai'>('security');
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(window.location.href);
@@ -74,7 +76,19 @@ export const PublicReportView: React.FC<PublicReportViewProps> = ({
         </div>
       </div>
 
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+        {(['security', 'lead', 'ai'] as const).map(tab => (
+          <button key={tab} onClick={() => setActiveResultTab(tab)} className={`rounded-lg px-4 py-2 text-xs font-bold capitalize ${activeResultTab === tab ? 'bg-rose-600 text-white' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`}>
+            {tab === 'lead' ? 'Lead Audit' : tab === 'ai' ? 'AI Fixes' : 'Security'}
+          </button>
+        ))}
+      </div>
+
+      {activeResultTab === 'lead' && <LeadAuditPanel result={report} />}
+      {activeResultTab === 'ai' && <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 text-sm text-slate-400">{report.aiRemediation?.status === 'COMPLETED' ? <pre className="whitespace-pre-wrap">{report.aiRemediation.content}</pre> : report.aiRemediation?.status === 'FAILED' ? 'AI remediation is unavailable.' : 'AI remediation is being prepared in the background.'}</div>}
+
       {/* Main Score Hero Card */}
+      {activeResultTab === 'security' && <>
       <div className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900/90 via-slate-900 to-slate-950 p-6 md:p-8 shadow-2xl relative overflow-hidden">
         <div className="flex flex-col md:flex-row items-center justify-between gap-8">
           
@@ -246,6 +260,7 @@ export const PublicReportView: React.FC<PublicReportViewProps> = ({
           </div>
         )}
       </div>
+      </>}
 
       {/* CTA Box: Express Fix */}
       <div className="rounded-3xl border-2 border-rose-500/50 bg-gradient-to-r from-slate-900 via-rose-950/40 to-slate-900 p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-2xl">

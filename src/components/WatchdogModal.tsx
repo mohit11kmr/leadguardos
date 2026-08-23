@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, ShieldAlert, Send, CheckCircle2, BellRing, Sparkles, Loader2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { apiFetch } from '../lib/api';
 
 interface WatchdogModalProps {
   isOpen: boolean;
@@ -24,7 +25,7 @@ export const WatchdogModal: React.FC<WatchdogModalProps> = ({ isOpen, onClose, d
 
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/watchdog/subscribe', {
+      const res = await apiFetch('/api/watchdog/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetUrl: url, contact, channel }),

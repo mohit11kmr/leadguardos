@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { Shield, TrendingDown, Layers, Radio, Zap, ChevronDown, Swords, MessageCircle, ShoppingCart, Crosshair, Phone, Globe, User, LogIn, LogOut, Wrench, Settings, CreditCard, ShieldCheck } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
+import { AuthModal } from './AuthModal';
 
-export type AppTab = 'scanner' | 'sabotage-radar' | 'zero-intent' | 'cart-death' | 'hunter' | 'funnel' | 'agency' | 'watchdog' | 'pricing' | 'billing' | 'settings' | 'admin' | 'developer' | 'workspace';
+export type AppTab = 'scanner' | 'dashboard' | 'schedules' | 'sabotage-radar' | 'zero-intent' | 'cart-death' | 'hunter' | 'funnel' | 'agency' | 'watchdog' | 'pricing' | 'billing' | 'settings' | 'admin' | 'developer' | 'workspace';
 
 interface NavbarProps {
   activeTab: AppTab;
@@ -19,17 +20,20 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenContact,
 }) => {
   const { lang, setLang, t } = useLanguage();
-  const { user, profile, signInWithGoogle, signOut, isAdmin } = useAuth();
+  const { user, profile, signOut, isAdmin } = useAuth();
   const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   const primaryTabs = [
-    { id: 'scanner', label: t('nav.liveAudit', 'Audit Dashboard'), icon: Shield },
-    { id: 'watchdog', label: t('nav.watchdog', 'Watchdog Radar'), icon: Radio },
-    { id: 'funnel', label: t('nav.funnel', 'Funnel Simulator'), icon: TrendingDown },
-    { id: 'pricing', label: t('nav.pricing', 'Plans & Upgrades'), icon: Zap },
+    { id: 'scanner', label: t('nav.liveAudit', 'Live Audit'), icon: Shield },
+    { id: 'watchdog', label: t('nav.watchdog', '24/7 Watchdog'), icon: Radio },
+    { id: 'pricing', label: t('nav.pricing', 'Plans & Pricing'), icon: Zap },
   ];
 
   const secondaryTools = [
+    { id: 'dashboard', label: 'Executive Intelligence', description: 'Vulnerability trends & 7-day risk analysis', icon: TrendingDown },
+    { id: 'schedules', label: 'Automated Schedules', description: 'Configure 24/7 background audit timers', icon: Radio },
+    { id: 'funnel', label: 'Funnel Simulator', description: 'Simulate ad spend dropoffs & conversion leaks', icon: TrendingDown },
     { id: 'workspace', label: 'Agency Workspace', description: 'Client management & white-label reports', icon: Layers },
     { id: 'developer', label: 'Developer Portal', description: 'REST API keys, webhooks & OpenAPI spec', icon: Wrench },
     { id: 'sabotage-radar', label: 'Competitive Monitor', description: 'Audit competitor landing pages & leaks', icon: Swords },
@@ -41,32 +45,36 @@ export const Navbar: React.FC<NavbarProps> = ({
   const isSecondaryActive = secondaryTools.some(tool => tool.id === activeTab);
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl">
+    <header className="sticky top-0 z-40 w-full border-b border-rose-500/20 bg-slate-950/85 backdrop-blur-2xl shadow-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
         
         {/* Brand Identity */}
         <div 
-          className="flex items-center gap-3 cursor-pointer select-none group" 
+          className="flex items-center gap-2.5 cursor-pointer select-none group shrink-0" 
           onClick={() => setActiveTab('scanner')}
         >
-          <div className="w-9 h-9 bg-gradient-to-br from-rose-500 to-rose-700 rounded-xl flex items-center justify-center font-bold text-white shadow-lg shadow-rose-950/40 border border-rose-400/30 group-hover:scale-105 transition-transform">
-            <Shield className="h-5 w-5 text-white" />
+          <div className="relative flex items-center justify-center">
+            <div className="absolute -inset-1 rounded-xl bg-gradient-to-r from-rose-500 to-rose-700 opacity-60 blur-sm group-hover:opacity-100 transition-opacity"></div>
+            <div className="relative w-9 h-9 bg-slate-950 rounded-xl flex items-center justify-center font-bold text-white shadow-lg border border-rose-500/40">
+              <Shield className="h-5 w-5 text-rose-400" />
+            </div>
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <span className="text-base font-bold tracking-tight text-white">
-                LeadGuard<span className="text-rose-500 font-extrabold ml-0.5">OS</span>
+                LeadGuard<span className="bg-gradient-to-r from-rose-400 to-amber-300 bg-clip-text text-transparent font-extrabold ml-0.5">OS</span>
               </span>
-              <span className="hidden sm:inline-flex items-center rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-rose-400 border border-rose-500/20">
-                Revenue Shield
+              <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-300 border border-rose-500/30">
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-400 animate-pulse" />
+                Shield
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 hidden sm:block">Diagnostic & Conversion Audit</p>
+            <p className="text-[10px] text-slate-400 hidden sm:block">Diagnostic & Lead Recovery</p>
           </div>
         </div>
 
-        {/* Clean Structured Navigation Bar */}
-        <nav className="hidden lg:flex items-center gap-1.5 rounded-xl bg-slate-900/80 p-1 border border-slate-800/80">
+        {/* Clean Structured Navigation Bar (3 Primary Tabs + Tools Dropdown) */}
+        <nav className="hidden lg:flex items-center gap-1.5 rounded-xl bg-slate-900/90 p-1 border border-slate-800 shadow-inner">
           {primaryTabs.map((t) => {
             const Icon = t.icon;
             const isActive = activeTab === t.id;
@@ -75,13 +83,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 key={t.id}
                 id={`nav-tab-${t.id}`}
                 onClick={() => setActiveTab(t.id as AppTab)}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold tracking-wide whitespace-nowrap transition-all ${
+                className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold tracking-wide whitespace-nowrap transition-all relative ${
                   isActive
-                    ? 'bg-rose-600 text-white shadow-sm shadow-rose-900/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                    ? 'bg-gradient-to-r from-rose-600 to-rose-700 text-white shadow-md shadow-rose-950/60 border border-rose-400/30'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/70'
                 }`}
               >
-                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                 <span>{t.label}</span>
               </button>
             );
@@ -91,10 +99,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="relative">
             <button
               onClick={() => setIsToolsDropdownOpen(!isToolsDropdownOpen)}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold tracking-wide whitespace-nowrap transition-all ${
+              className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold tracking-wide whitespace-nowrap transition-all ${
                 isSecondaryActive
-                  ? 'bg-rose-950/60 text-rose-300 border border-rose-500/40'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  ? 'bg-rose-950/80 text-rose-300 border border-rose-500/50 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/70'
               }`}
             >
               <Wrench className="h-3.5 w-3.5 text-rose-400 shrink-0" />
@@ -104,11 +112,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {isToolsDropdownOpen && (
               <div 
-                className="absolute right-0 mt-2 w-64 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-2 z-50 space-y-1"
+                className="absolute right-0 mt-2 w-72 rounded-2xl bg-slate-950/95 border border-rose-500/30 shadow-2xl p-2 z-50 space-y-1 backdrop-blur-2xl max-h-[420px] overflow-y-auto"
                 onMouseLeave={() => setIsToolsDropdownOpen(false)}
               >
                 <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Diagnostic & Intelligence Tools
+                  Diagnostic Modules & Tools
                 </div>
                 {secondaryTools.map((tool) => {
                   const Icon = tool.icon;
@@ -122,8 +130,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                       }}
                       className={`w-full text-left flex items-start gap-2.5 p-2.5 rounded-xl text-xs transition-colors ${
                         isActive
-                          ? 'bg-rose-500/20 border border-rose-500/30 text-white font-medium'
-                          : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                          ? 'bg-rose-500/20 border border-rose-500/40 text-white font-medium shadow-sm'
+                          : 'text-slate-300 hover:bg-slate-900 hover:text-white'
                       }`}
                     >
                       <Icon className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
@@ -134,13 +142,32 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </button>
                   );
                 })}
+
+                {/* Sample Presets inside Tools */}
+                <div className="border-t border-slate-800/80 pt-2 mt-2 px-3 pb-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Load Demo Presets:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      onClick={() => { onSelectSample('drsharmadental.in'); setActiveTab('scanner'); setIsToolsDropdownOpen(false); }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-rose-500/20 text-slate-300 hover:text-rose-300 text-[11px] border border-slate-800 transition-colors"
+                    >
+                      Dr. Sharma Dental
+                    </button>
+                    <button
+                      onClick={() => { onSelectSample('elitesalonmumbai.com'); setActiveTab('scanner'); setIsToolsDropdownOpen(false); }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-amber-500/20 text-slate-300 hover:text-amber-300 text-[11px] border border-slate-800 transition-colors"
+                    >
+                      Elite Salon
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
         </nav>
 
-        {/* Actions Toolbar */}
-        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+        {/* Actions Toolbar (Clean, No Phone Number Clutter) */}
+        <div className="flex items-center gap-2 shrink-0">
           
           {/* Language Switcher */}
           <button
@@ -152,48 +179,27 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="uppercase">{lang === 'en' ? 'HI' : 'EN'}</span>
           </button>
 
-          {/* Help Contact */}
+          {/* Help Contact Button (Clean Icon Only, No Raw Number) */}
           <button
             onClick={onOpenContact}
-            className="hidden md:inline-flex items-center gap-1.5 rounded-lg bg-slate-900 border border-emerald-500/30 hover:border-emerald-500/60 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition-colors shadow-sm whitespace-nowrap"
+            className="flex items-center gap-1.5 rounded-lg bg-slate-900 border border-emerald-500/40 hover:border-emerald-500/70 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition-colors shadow-sm whitespace-nowrap"
+            title="Direct Founder Support & Help"
           >
             <Phone className="h-3.5 w-3.5 text-emerald-400 animate-pulse shrink-0" />
-            <span className="whitespace-nowrap">Help (8307070605)</span>
+            <span className="hidden sm:inline">Help</span>
           </button>
 
-          {/* Demos Dropdown */}
-          <div className="relative shrink-0">
-            <select
-              id="demo-preset-select"
-              onChange={(e) => {
-                if (e.target.value) {
-                  onSelectSample(e.target.value);
-                  setActiveTab('scanner');
-                }
-              }}
-              defaultValue=""
-              aria-label="Test Demo Case Studies"
-              className="rounded-lg bg-slate-900 border border-slate-700/80 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-rose-500/40 appearance-none pr-7 cursor-pointer shadow-sm whitespace-nowrap"
-            >
-              <option value="" disabled>Demos</option>
-              <option value="drsharmadental.in">Dr. Sharma Dental</option>
-              <option value="elitesalonmumbai.com">Elite Salon</option>
-              <option value="leadguard.ai">LeadGuard AI</option>
-            </select>
-            <ChevronDown className="h-3.5 w-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
           {/* User Auth Profile */}
-          {user ? (
+          {user || profile ? (
             <div className="flex items-center gap-2 pl-1 border-l border-slate-800">
               <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1">
-                {user.photoURL ? (
+                {user?.photoURL ? (
                   <img src={user.photoURL} alt="Avatar" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
                 ) : (
                   <User className="w-4 h-4 text-rose-400" />
                 )}
                 <span className="text-xs font-medium text-slate-200 max-w-[90px] truncate hidden sm:inline">
-                  {user.displayName?.split(' ')[0] || 'User'}
+                  {profile?.displayName?.split(' ')[0] || user?.displayName?.split(' ')[0] || 'User'}
                 </span>
                 <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
                   {profile?.role || 'USER'}
@@ -209,8 +215,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           ) : (
             <button
-              onClick={() => signInWithGoogle()}
-              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white px-2.5 py-1.5 text-xs font-semibold shadow-md shadow-rose-950/50 transition-all whitespace-nowrap"
+              onClick={() => setIsAuthModalOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white px-3 py-1.5 text-xs font-semibold shadow-md shadow-rose-950/50 transition-all whitespace-nowrap active:scale-95"
             >
               <LogIn className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Sign In</span>
@@ -242,6 +248,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           );
         })}
       </div>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+      />
     </header>
   );
 };

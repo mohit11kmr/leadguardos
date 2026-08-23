@@ -32,6 +32,11 @@ import { AgencyWorkspaceView } from './components/AgencyWorkspaceView';
 import { OnboardingBanner } from './components/OnboardingBanner';
 import { AuditResult, GlobalScanStats, PillarType } from './types';
 import { Shield, AlertCircle, Sparkles, CheckCircle2, ArrowRight, Search, ShieldCheck, Zap } from 'lucide-react';
+import { apiFetch } from './lib/api';
+import { LeadAuditPanel } from './components/LeadAuditPanel';
+import { ExecutiveDashboardView } from './components/ExecutiveDashboardView';
+import { SchedulesView } from './components/SchedulesView';
+import { MobileLinkSimulator } from './components/MobileLinkSimulator';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('scanner');
@@ -41,6 +46,7 @@ export default function App() {
   const [activeUrl, setActiveUrl] = useState('');
   const [globalStats, setGlobalStats] = useState<GlobalScanStats | null>(null);
   const [selectedPillar, setSelectedPillar] = useState<PillarType | 'ALL'>('ALL');
+  const [resultTab, setResultTab] = useState<'security' | 'lead' | 'ai'>('security');
 
   // Public Report Route Detection
   const [publicReport, setPublicReport] = useState<AuditResult | null>(null);
@@ -85,7 +91,7 @@ export default function App() {
         const scanId = reportMatch[1];
         setIsLoadingPublicReport(true);
         try {
-          const res = await fetch(`/api/scan/${scanId}`);
+          const res = await apiFetch(`/api/scan/${scanId}`);
           if (res.ok) {
             const data = await res.json();
             setPublicReport(data);
@@ -108,7 +114,7 @@ export default function App() {
     setActiveUrl(url);
 
     try {
-      const response = await fetch('/api/scan', {
+      const response = await apiFetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
@@ -133,7 +139,7 @@ export default function App() {
 
   const handleIncrementFix = async () => {
     try {
-      const res = await fetch('/api/scan-stats/increment-fix', { method: 'POST' });
+      const res = await apiFetch('/api/scan-stats/increment-fix', { method: 'POST' });
       if (res.ok) {
         fetchGlobalStats();
       }
@@ -263,6 +269,12 @@ export default function App() {
             {/* Audit Results View (Only shown after user runs a scan) */}
             {auditResult && !isLoading && (
               <div className="space-y-8">
+                <div className="flex items-center gap-2 overflow-x-auto border-b border-slate-800 pb-2">
+                  {(['security', 'lead', 'ai'] as const).map(tab => <button key={tab} onClick={() => setResultTab(tab)} className={`rounded-lg px-4 py-2 text-xs font-bold capitalize ${resultTab === tab ? 'bg-rose-600 text-white' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`}>{tab === 'lead' ? 'Lead Audit' : tab === 'ai' ? 'AI Fixes' : 'Security'}</button>)}
+                </div>
+                {resultTab === 'lead' && <LeadAuditPanel result={auditResult} />}
+                {resultTab === 'ai' && <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 md:p-8"><h2 className="text-xl font-bold text-white">AI Fixes</h2>{auditResult.aiRemediation?.status === 'COMPLETED' ? <pre className="mt-4 whitespace-pre-wrap text-sm text-slate-300">{auditResult.aiRemediation.content}</pre> : <p className="mt-4 text-sm text-slate-400">{auditResult.aiRemediation?.status === 'FAILED' ? 'AI remediation is currently unavailable.' : 'Remediation is being prepared in the background.'}</p>}</div>}
+                {resultTab === 'security' && <>
                 
                 {/* 1. Score & Financial Impact Overview */}
                 <ScoreDashboard
@@ -275,6 +287,9 @@ export default function App() {
                   onOpenAlerts={() => setIsAlertsOpen(true)}
                   onOpenShareModal={() => setIsShareModalOpen(true)}
                 />
+
+                {/* 1.5 Interactive Real Customer Mobile Simulator */}
+                <MobileLinkSimulator domain={auditResult.domain} />
 
                 {/* 2. Four Pillars Architecture Overview */}
                 <FourPillarsOverview
@@ -316,6 +331,7 @@ export default function App() {
 
                 {/* 6. Comprehensive Verification Matrix */}
                 <ChannelMatrix result={auditResult} />
+                </>}
 
               </div>
             )}
@@ -325,6 +341,9 @@ export default function App() {
 
           </div>
         )}
+
+        {activeTab === 'dashboard' && <ExecutiveDashboardView />}
+        {activeTab === 'schedules' && <SchedulesView />}
 
         {/* MODULE 1: COMPETITOR SABOTAGE RADAR */}
         {activeTab === 'sabotage-radar' && (
@@ -364,9 +383,9 @@ export default function App() {
         )}
 
         {/* TAB 2: INTERACTIVE FUNNEL SIMULATOR */}
-        {activeTab === 'funnel' && auditResult && (
+        {activeTab === 'funnel' && (
           <div className="space-y-6">
-            <FunnelLeakSimulator result={auditResult} />
+            <FunnelLeakSimulator result={auditResult || ({} as any)} />
           </div>
         )}
 

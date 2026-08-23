@@ -115,6 +115,16 @@ export interface StructuredAuditResult {
     totalTimeMs: number;
   };
   scannedAt: string;
+  leadAuditData?: {
+    emails: string[];
+    phones: string[];
+    whatsapp: string[];
+    forms: any[];
+    analytics: any;
+    brokenLinks: any[];
+    durationMs: number;
+    error?: string;
+  };
   aiDiagnosticAdvice?: string;
   isDemo?: boolean;
 }

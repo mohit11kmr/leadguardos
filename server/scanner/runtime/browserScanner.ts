@@ -1,3 +1,5 @@
+import { validateAndResolveSafeUrl } from '../../ssrfGuard';
+
 export interface BrowserRuntimeResult {
   networkPings: {
     metaPixel: boolean;
@@ -48,6 +50,20 @@ export class BrowserScanner {
 
         page.setDefaultTimeout(timeoutMs);
         page.setDefaultNavigationTimeout(timeoutMs);
+
+        await page.route('**/*', async (route: any) => {
+          const requestUrl = route.request().url();
+          if (!/^https?:\/\//i.test(requestUrl)) {
+            return route.abort();
+          }
+
+          const validation = await validateAndResolveSafeUrl(requestUrl);
+          if (!validation.valid) {
+            return route.abort();
+          }
+
+          return route.continue();
+        });
 
         // Network Request Interception
         page.on('request', (req: any) => {

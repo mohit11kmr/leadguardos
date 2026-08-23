@@ -53,3 +53,25 @@ export function verifyPaymentSignature(
     return false;
   }
 }
+
+export function isPaymentBoundToOrder(orderId: string, providerOrderId: string, storedProviderOrderId?: string): boolean {
+  return Boolean(orderId && providerOrderId && providerOrderId === (storedProviderOrderId || orderId));
+}
+
+export function verifyWebhookSignature(
+  rawPayload: string | Buffer,
+  signature: string,
+  secret: string
+): boolean {
+  if (!rawPayload || !signature || !secret) return false;
+  const expectedSig = crypto
+    .createHmac('sha256', secret)
+    .update(rawPayload)
+    .digest('hex');
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig));
+  } catch {
+    return false;
+  }
+}

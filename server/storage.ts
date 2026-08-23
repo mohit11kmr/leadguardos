@@ -32,6 +32,13 @@ export interface ScanRecord {
   };
   scannedAt: string;
   aiDiagnosticAdvice?: string;
+  leadAuditData?: any;
+  aiRemediation?: {
+    status: 'PENDING' | 'COMPLETED' | 'FAILED';
+    content?: string;
+    error?: string;
+    updatedAt: string;
+  };
 }
 
 export interface WatchdogTarget {
@@ -61,6 +68,19 @@ export interface WatchdogCheckLog {
   details?: string;
 }
 
+export interface ScanSchedule {
+  id: string;
+  userId: string;
+  targetUrl: string;
+  frequency: 'DAILY' | 'WEEKLY';
+  cronExpression: string;
+  enabled: boolean;
+  jobId?: string;
+  nextRunAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface WebhookConfig {
   id: string;
   userId?: string;
@@ -86,6 +106,8 @@ export interface OrderRecord {
   customerEmail?: string;
   domain?: string;
   status: 'CREATED' | 'PAYMENT_PENDING' | 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
+  providerOrderId?: string;
+  providerPaymentId?: string;
   createdAt: string;
 }
 
@@ -110,6 +132,7 @@ class StorageEngine {
   private scans: Map<string, ScanRecord> = new Map();
   private watchdogTargets: Map<string, WatchdogTarget> = new Map();
   private watchdogChecks: WatchdogCheckLog[] = [];
+  private schedules: Map<string, ScanSchedule> = new Map();
   private webhooks: Map<string, WebhookConfig> = new Map();
   private orders: OrderRecord[] = [];
   private users: Map<string, UserAccount> = new Map();
@@ -122,7 +145,7 @@ class StorageEngine {
   };
 
   constructor() {
-    const dataDir = path.join(process.cwd(), 'data');
+    const dataDir = process.env.LEADGUARD_DATA_DIR || path.join(process.cwd(), 'data');
     if (!fs.existsSync(dataDir)) {
       try {
         fs.mkdirSync(dataDir, { recursive: true });
@@ -149,6 +172,9 @@ class StorageEngine {
         if (parsed.watchdogChecks && Array.isArray(parsed.watchdogChecks)) {
           this.watchdogChecks = parsed.watchdogChecks;
         }
+        if (parsed.schedules && Array.isArray(parsed.schedules)) {
+          for (const schedule of parsed.schedules) this.schedules.set(schedule.id, schedule);
+        }
         if (parsed.webhooks && Array.isArray(parsed.webhooks)) {
           for (const wh of parsed.webhooks) this.webhooks.set(wh.id, wh);
         }
@@ -174,12 +200,15 @@ class StorageEngine {
         scans: Array.from(this.scans.values()).slice(-200), // Retain most recent 200 scans
         watchdogTargets: Array.from(this.watchdogTargets.values()),
         watchdogChecks: this.watchdogChecks.slice(0, 100),
+        schedules: Array.from(this.schedules.values()),
         webhooks: Array.from(this.webhooks.values()),
         orders: this.orders.slice(-100),
         users: Array.from(this.users.values()),
         stats: this.stats,
       };
-      fs.writeFileSync(this.dataFilePath, JSON.stringify(payload, null, 2), 'utf-8');
+      const tempPath = `${this.dataFilePath}.tmp-${process.pid}`;
+      fs.writeFileSync(tempPath, JSON.stringify(payload, null, 2), 'utf-8');
+      fs.renameSync(tempPath, this.dataFilePath);
     } catch (err) {
       console.warn('[StorageEngine] Error saving to disk:', err);
     }
@@ -239,6 +268,15 @@ class StorageEngine {
     return this.scans.get(scanId);
   }
 
+  public updateScan(scanId: string, updates: Partial<ScanRecord>): ScanRecord | undefined {
+    const existing = this.scans.get(scanId);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates };
+    this.scans.set(scanId, updated);
+    this.saveToDisk();
+    return updated;
+  }
+
   public getScansForUser(userId: string): ScanRecord[] {
     return Array.from(this.scans.values()).filter(s => s.userId === userId);
   }
@@ -254,6 +292,39 @@ class StorageEngine {
       .filter(s => s.userId === userId)
       .sort((a, b) => new Date(b.scannedAt).getTime() - new Date(a.scannedAt).getTime())
       .slice(0, limit);
+  }
+
+  // --- Scan Schedule Methods ---
+  public addSchedule(schedule: ScanSchedule) {
+    this.schedules.set(schedule.id, schedule);
+    this.saveToDisk();
+  }
+
+  public getSchedulesForUser(userId: string): ScanSchedule[] {
+    return Array.from(this.schedules.values()).filter(schedule => schedule.userId === userId);
+  }
+
+  public getSchedules(): ScanSchedule[] {
+    return Array.from(this.schedules.values());
+  }
+
+  public getSchedule(id: string): ScanSchedule | undefined {
+    return this.schedules.get(id);
+  }
+
+  public updateSchedule(id: string, updates: Partial<ScanSchedule>): ScanSchedule | undefined {
+    const existing = this.schedules.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates, updatedAt: new Date().toISOString() };
+    this.schedules.set(id, updated);
+    this.saveToDisk();
+    return updated;
+  }
+
+  public deleteSchedule(id: string): boolean {
+    const deleted = this.schedules.delete(id);
+    if (deleted) this.saveToDisk();
+    return deleted;
   }
 
   // --- Watchdog Methods ---

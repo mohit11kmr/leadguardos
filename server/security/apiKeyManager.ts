@@ -52,6 +52,18 @@ export class ApiKeyManager {
     return false;
   }
 
+  public static revokeApiKeyForUser(keyId: string, userId: string): boolean {
+    for (const [hash, record] of this.keysMap.entries()) {
+      if (record.keyId === keyId && record.userId === userId) {
+        record.active = false;
+        record.revokedAt = new Date().toISOString();
+        this.keysMap.set(hash, record);
+        return true;
+      }
+    }
+    return false;
+  }
+
   public static hashKey(key: string): string {
     return crypto.createHash('sha256').update(key).digest('hex');
   }

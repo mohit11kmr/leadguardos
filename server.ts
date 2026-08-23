@@ -5,8 +5,8 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import { validateAndResolveSafeUrl } from "./server/ssrfGuard";
-import { executeLiveWebsiteScan, SAMPLE_PRESETS } from "./server/scannerEngine";
-import { storage } from "./server/storage";
+import { buildAuditPayload, executeLiveWebsiteScan, generateIssuesFromExtractedData, SAMPLE_PRESETS } from "./server/scannerEngine";
+import { storage, ScanSchedule } from "./server/storage";
 import { watchdogScheduler } from "./server/watchdogScheduler";
 import { FEATURE_REGISTRY } from "./src/config/features";
 import { APP_CONFIG } from "./src/config/appConfig";
@@ -14,16 +14,30 @@ import { requireAuth, optionalAuth, requireRole, signToken, verifyToken, Authent
 import { PLAN_CONFIG } from "./server/config/pricing";
 import { EntitlementService } from "./server/services/entitlementService";
 import { ProductAnalytics } from "./server/observability/analytics";
-import { verifyPaymentSignature } from "./server/services/paymentService";
+import { calculateTierPrice, isPaymentBoundToOrder, verifyPaymentSignature, verifyWebhookSignature } from "./server/services/paymentService";
 import { validateEnvironment } from "./server/config/envValidator";
+import { toPublicAuditReport } from "./server/reports/publicReport";
+import { shouldRecordGlobalStats } from "./server/observability/statsPolicy";
 
 dotenv.config();
 validateEnvironment();
 
+interface RawBodyRequest extends Request {
+  rawBody?: Buffer;
+}
+
 const app = express();
 const PORT = 3000;
+const processedPaymentWebhookIds = new Set<string>();
+const WATCHDOG_CHANNELS = new Set(["TELEGRAM", "WHATSAPP", "EMAIL"]);
+const WATCHDOG_FREQUENCIES = new Set(["DAILY", "HOURLY", "WEEKLY", "15MIN"]);
 
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({
+  limit: "5mb",
+  verify: (req: RawBodyRequest, _res, buf) => {
+    req.rawBody = Buffer.from(buf);
+  },
+}));
 
 // Version header middleware
 app.use((_req: Request, res: Response, next: NextFunction) => {
@@ -177,8 +191,82 @@ app.get("/api/scan-stats", (req: Request, res: Response) => {
   res.json(storage.getStats());
 });
 
+function scheduleCron(frequency: 'DAILY' | 'WEEKLY'): string {
+  return frequency === 'DAILY' ? '0 9 * * *' : '0 9 * * 1';
+}
+
+app.get("/api/schedules", requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  res.json({ schedules: storage.getSchedulesForUser(req.user!.id) });
+});
+
+app.post("/api/schedules", requireAuth, rateLimiter(20), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { targetUrl, frequency } = req.body;
+    if (typeof targetUrl !== 'string' || targetUrl.length > 2048 || !['DAILY', 'WEEKLY'].includes(frequency)) {
+      return sendError(res, 400, 'INVALID_INPUT', 'A valid URL and DAILY or WEEKLY frequency are required.', req);
+    }
+    const validation = await validateAndResolveSafeUrl(targetUrl);
+    if (!validation.valid || !validation.normalized) return sendError(res, 400, 'INVALID_TARGET_URL', validation.error || 'Target URL is not allowed.', req);
+    if (storage.getSchedulesForUser(req.user!.id).length >= 50) return sendError(res, 429, 'SCHEDULE_LIMIT', 'Maximum of 50 schedules per user reached.', req);
+    const now = new Date();
+    const schedule: ScanSchedule = {
+      id: `sch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      userId: req.user!.id,
+      targetUrl: validation.normalized,
+      frequency,
+      cronExpression: scheduleCron(frequency),
+      enabled: true,
+      nextRunAt: new Date(now.getTime() + (frequency === 'DAILY' ? 86400000 : 7 * 86400000)).toISOString(),
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    storage.addSchedule(schedule);
+    res.status(201).json({ schedule });
+  } catch (error: any) {
+    sendError(res, 500, 'SCHEDULE_ERROR', error?.message || 'Failed to create schedule.', req);
+  }
+});
+
+app.patch("/api/schedules/:id", requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const schedule = storage.getSchedule(req.params.id);
+  if (!schedule) return sendError(res, 404, 'NOT_FOUND', 'Schedule not found.', req);
+  if (schedule.userId !== req.user!.id) return sendError(res, 403, 'FORBIDDEN', 'You do not have permission to update this schedule.', req);
+  const updates: Partial<ScanSchedule> = {};
+  if (typeof req.body.enabled === 'boolean') updates.enabled = req.body.enabled;
+  if (req.body.frequency === 'DAILY' || req.body.frequency === 'WEEKLY') {
+    updates.frequency = req.body.frequency;
+    updates.cronExpression = scheduleCron(req.body.frequency);
+    updates.nextRunAt = new Date(Date.now() + (req.body.frequency === 'DAILY' ? 86400000 : 7 * 86400000)).toISOString();
+  }
+  const updated = storage.updateSchedule(schedule.id, updates);
+  res.json({ schedule: updated });
+});
+
+app.delete("/api/schedules/:id", requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const schedule = storage.getSchedule(req.params.id);
+  if (!schedule) return sendError(res, 404, 'NOT_FOUND', 'Schedule not found.', req);
+  if (schedule.userId !== req.user!.id) return sendError(res, 403, 'FORBIDDEN', 'You do not have permission to delete this schedule.', req);
+  res.json({ success: storage.deleteSchedule(schedule.id) });
+});
+
+app.get("/api/dashboard", requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const since = Date.now() - 7 * 86400000;
+  const scans = storage.getScansHistoryForUser(req.user!.id, 200).filter(scan => new Date(scan.scannedAt).getTime() >= since);
+  const byDay = new Map<string, number>();
+  const severity = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+  for (const scan of scans) {
+    const day = scan.scannedAt.slice(0, 10);
+    byDay.set(day, (byDay.get(day) || 0) + scan.allIssues.length);
+    for (const issue of scan.allIssues) if (issue.severity in severity) severity[issue.severity as keyof typeof severity]++;
+  }
+  const riskiestUrls = [...new Map(scans.map(scan => [scan.targetUrl, scan])).values()]
+    .map(scan => ({ targetUrl: scan.targetUrl, domain: scan.domain, riskScore: scan.allIssues.reduce((total, issue) => total + ({ CRITICAL: 10, HIGH: 6, MEDIUM: 3, LOW: 1, INFO: 0 }[issue.severity as string] || 0), 0) }))
+    .sort((a, b) => b.riskScore - a.riskScore).slice(0, 3);
+  res.json({ scans: scans.length, vulnerabilitiesPerDay: [...byDay.entries()].map(([date, count]) => ({ date, count })).sort((a, b) => a.date.localeCompare(b.date)), severityDistribution: severity, riskiestUrls });
+});
+
 // Increment Fix Counter API
-app.post("/api/scan-stats/increment-fix", (req: Request, res: Response) => {
+app.post("/api/scan-stats/increment-fix", requireAuth, (req: AuthenticatedRequest, res: Response) => {
   storage.incrementFixes();
   res.json({ success: true, stats: storage.getStats() });
 });
@@ -190,7 +278,7 @@ app.get("/api/scans/history", optionalAuth, (req: AuthenticatedRequest, res: Res
     return res.json({ history });
   }
   const history = storage.getScansHistory(15);
-  res.json({ history });
+  res.json({ history: history.map(scan => toPublicAuditReport(scan as any)) });
 });
 
 // Explicit Demo Preset Scan API (Isolated from Production /api/scan)
@@ -200,7 +288,6 @@ app.post("/api/demo-scan", rateLimiter(60), async (req: Request, res: Response) 
     const presetKey = String(presetId).replace(/^https?:\/\//i, '').split('/')[0].toLowerCase();
     const preset = SAMPLE_PRESETS[presetKey] || SAMPLE_PRESETS["drsharmadental.in"];
 
-    const { generateIssuesFromExtractedData, buildAuditPayload } = require("./server/scannerEngine");
     const issues = generateIssuesFromExtractedData(preset);
     const auditResult = buildAuditPayload(`https://${preset.domain}`, preset.domain, preset, issues, Date.now() - 200, 180, 25);
 
@@ -223,7 +310,7 @@ app.post("/api/scan", rateLimiter(45), optionalAuth, async (req: AuthenticatedRe
     const auditResult = await executeLiveWebsiteScan(url, { forceLive: true });
 
     // Server-side user identity attachment
-    if (req.user) {
+    if (shouldRecordGlobalStats(req.user?.id)) {
       auditResult.userId = req.user.id;
     }
 
@@ -245,12 +332,16 @@ Provide a sharp, 2-sentence executive summary in Hinglish (Hindi + English) expl
     }
 
     // Persist scan in DB
+    auditResult.aiRemediation = { status: 'PENDING', updatedAt: new Date().toISOString() };
     storage.saveScan(auditResult);
-    storage.incrementScanStats(
-      auditResult.allIssues.length > 0,
-      auditResult.score >= 80,
-      auditResult.allIssues.length
-    );
+    await jobQueue.enqueue('aiAnalysis', { scanId: auditResult.scanId, findings: auditResult.allIssues }, auditResult.userId, 2);
+    if (req.user) {
+      storage.incrementScanStats(
+        auditResult.allIssues.length > 0,
+        auditResult.score >= 80,
+        auditResult.allIssues.length
+      );
+    }
 
     res.json(auditResult);
   } catch (error: any) {
@@ -276,7 +367,7 @@ app.get("/api/scan/:id", optionalAuth, (req: AuthenticatedRequest, res: Response
     }
   }
 
-  res.json(report);
+  res.json(req.user ? report : toPublicAuditReport(report as any));
 });
 
 // JSON export for developers & agencies (IDOR & Ownership Scoped)
@@ -296,30 +387,39 @@ app.get("/api/scan/:id/export", optionalAuth, (req: AuthenticatedRequest, res: R
   }
 
   res.setHeader("Content-Disposition", `attachment; filename="leadguard-audit-${report.domain}.json"`);
-  res.json(report);
+  res.json(req.user ? report : toPublicAuditReport(report as any));
 });
 
 // 24/7 Monitoring registration (Authenticated & User Scoped)
-app.post("/api/watchdog/subscribe", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+app.post("/api/watchdog/subscribe", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { targetUrl, contact, channel = "TELEGRAM", frequency = "DAILY" } = req.body;
     if (!targetUrl || !contact) {
       return sendError(res, 400, "INVALID_INPUT", "Website URL and contact details are required.", req);
     }
+    if (typeof targetUrl !== "string" || targetUrl.length > 2048 || typeof contact !== "string" || contact.length > 255) {
+      return sendError(res, 400, "INVALID_INPUT", "Website URL or contact details are invalid.", req);
+    }
+    if (!WATCHDOG_CHANNELS.has(channel) || !WATCHDOG_FREQUENCIES.has(frequency)) {
+      return sendError(res, 400, "INVALID_INPUT", "Unsupported watchdog channel or frequency.", req);
+    }
 
     // SSRF Check on watchdog target URL
-    const syntax = validateAndResolveSafeUrl(targetUrl);
+    const validation = await validateAndResolveSafeUrl(targetUrl);
+    if (!validation.valid || !validation.normalized) {
+      return sendError(res, 400, "INVALID_TARGET_URL", validation.error || "Target URL is not allowed.", req);
+    }
 
-    const domain = targetUrl.replace(/^https?:\/\//i, '').split('/')[0];
-    const userId = req.user?.id || `usr_anon_${Date.now()}`;
+    const domain = new URL(validation.normalized).hostname;
+    const userId = req.user!.id;
     const target = {
       id: `wd_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       userId,
-      targetUrl,
+      targetUrl: validation.normalized,
       domain,
       contact,
-      channel: channel as any,
-      frequency: frequency as any,
+      channel,
+      frequency,
       createdAt: new Date().toISOString(),
       trialExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       status: "ACTIVE_TRIAL" as const,
@@ -350,12 +450,12 @@ app.post("/api/watchdog/subscribe", optionalAuth, (req: AuthenticatedRequest, re
 });
 
 // List active watchdog monitors (User Scoped)
-app.get("/api/watchdog/list", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+app.get("/api/watchdog/list", requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const userId = req.user?.id;
   const isAdmin = req.user?.role === "ADMIN";
 
-  const monitors = isAdmin ? storage.getWatchdogTargets() : userId ? storage.getWatchdogTargetsForUser(userId) : storage.getWatchdogTargets().slice(0, 3);
-  const recentChecks = userId ? storage.getWatchdogCheckLogsForUser(userId, 25) : storage.getWatchdogCheckLogs(25);
+  const monitors = isAdmin ? storage.getWatchdogTargets() : storage.getWatchdogTargetsForUser(userId!);
+  const recentChecks = isAdmin ? storage.getWatchdogCheckLogs(25) : storage.getWatchdogCheckLogsForUser(userId!, 25);
 
   res.json({
     activeMonitors: monitors,
@@ -364,7 +464,7 @@ app.get("/api/watchdog/list", optionalAuth, (req: AuthenticatedRequest, res: Res
   });
 });
 
-app.delete("/api/watchdog/:id", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+app.delete("/api/watchdog/:id", requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const target = storage.getWatchdogTarget(id);
   if (!target) {
@@ -380,20 +480,28 @@ app.delete("/api/watchdog/:id", optionalAuth, (req: AuthenticatedRequest, res: R
 });
 
 // Webhooks API (User Scoped)
-app.post("/api/webhooks/register", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+app.post("/api/webhooks/register", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, url, events = ["watchdog.incident_detected"] } = req.body;
     if (!name || !url) {
       return sendError(res, 400, "INVALID_INPUT", "Webhook name and destination URL are required.", req);
     }
+    if (typeof name !== "string" || name.length > 100 || typeof url !== "string" || url.length > 2048 || !Array.isArray(events) || events.length > 20 || events.some((event: any) => typeof event !== "string" || event.length > 100)) {
+      return sendError(res, 400, "INVALID_INPUT", "Webhook name, destination URL, or events are invalid.", req);
+    }
 
-    const userId = req.user?.id || `usr_anon_${Date.now()}`;
+    const validation = await validateAndResolveSafeUrl(url);
+    if (!validation.valid || !validation.normalized) {
+      return sendError(res, 400, "INVALID_WEBHOOK_URL", validation.error || "Webhook destination URL is not allowed.", req);
+    }
+
+    const userId = req.user!.id;
     const secret = crypto.randomBytes(16).toString("hex");
     const webhook = {
       id: `whk_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       userId,
       name,
-      url,
+      url: validation.normalized,
       secret,
       events,
       active: true,
@@ -408,14 +516,55 @@ app.post("/api/webhooks/register", optionalAuth, (req: AuthenticatedRequest, res
   }
 });
 
-app.get("/api/webhooks/list", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+app.get("/api/webhooks/list", requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const userId = req.user?.id;
   const isAdmin = req.user?.role === "ADMIN";
-  const webhooks = isAdmin ? storage.getWebhooks() : userId ? storage.getWebhooksForUser(userId) : storage.getWebhooks();
+  const webhooks = isAdmin ? storage.getWebhooks() : storage.getWebhooksForUser(userId!);
   res.json({ webhooks });
 });
 
-app.delete("/api/webhooks/:id", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+app.get("/api/webhooks", requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.user?.id;
+  const isAdmin = req.user?.role === "ADMIN";
+  const webhooks = isAdmin ? storage.getWebhooks() : storage.getWebhooksForUser(userId!);
+  res.json({ webhooks });
+});
+
+app.post("/api/webhooks", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { name = "LeadGuard Webhook", url, events = ["watchdog.incident_detected"] } = req.body;
+    if (!url) {
+      return sendError(res, 400, "INVALID_INPUT", "Webhook destination URL is required.", req);
+    }
+    if (typeof name !== "string" || name.length > 100 || typeof url !== "string" || url.length > 2048 || !Array.isArray(events) || events.length > 20 || events.some((event: any) => typeof event !== "string" || event.length > 100)) {
+      return sendError(res, 400, "INVALID_INPUT", "Webhook name, destination URL, or events are invalid.", req);
+    }
+
+    const validation = await validateAndResolveSafeUrl(url);
+    if (!validation.valid || !validation.normalized) {
+      return sendError(res, 400, "INVALID_WEBHOOK_URL", validation.error || "Webhook destination URL is not allowed.", req);
+    }
+
+    const webhook = {
+      id: `whk_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      userId: req.user!.id,
+      name,
+      url: validation.normalized,
+      secret: crypto.randomBytes(16).toString("hex"),
+      events,
+      active: true,
+      createdAt: new Date().toISOString(),
+      failureCount: 0,
+    };
+
+    storage.addWebhook(webhook);
+    res.json({ success: true, webhook });
+  } catch (err: any) {
+    sendError(res, 500, "WEBHOOK_ERROR", err?.message || "Failed to register webhook.", req);
+  }
+});
+
+app.delete("/api/webhooks/:id", requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const webhook = storage.getWebhook(id);
   if (!webhook) {
@@ -430,11 +579,26 @@ app.delete("/api/webhooks/:id", optionalAuth, (req: AuthenticatedRequest, res: R
   res.json({ success: deleted });
 });
 
-app.post("/api/webhooks/test", async (req: Request, res: Response) => {
+app.post("/api/webhooks/test", requireAuth, rateLimiter(20), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { url, secret = "leadguard_secret" } = req.body;
-    if (!url) {
-      return res.status(400).json({ error: { code: "BAD_REQUEST", message: "Target URL required." } });
+    const { id, url, secret = "leadguard_secret" } = req.body;
+    let targetUrl = url;
+    let signingSecret = secret;
+
+    if (id) {
+      const webhook = storage.getWebhook(String(id));
+      if (!webhook) {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "Webhook configuration not found." } });
+      }
+      if (webhook.userId && req.user?.id !== webhook.userId && req.user?.role !== "ADMIN") {
+        return res.status(403).json({ error: { code: "FORBIDDEN", message: "You do not have permission to test this webhook." } });
+      }
+      targetUrl = webhook.url;
+      signingSecret = webhook.secret;
+    }
+
+    if (!targetUrl) {
+      return res.status(400).json({ error: { code: "BAD_REQUEST", message: "Target webhook URL or webhook ID required." } });
     }
 
     const testPayload = {
@@ -446,10 +610,10 @@ app.post("/api/webhooks/test", async (req: Request, res: Response) => {
     };
 
     const bodyStr = JSON.stringify(testPayload);
-    const signature = crypto.createHmac("sha256", secret).update(bodyStr).digest("hex");
+    const signature = crypto.createHmac("sha256", signingSecret).update(bodyStr).digest("hex");
 
     const { safeFetch } = await import("./server/security/safeFetch");
-    const response = await safeFetch(url, {
+    const response = await safeFetch(targetUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -471,18 +635,18 @@ app.post("/api/webhooks/test", async (req: Request, res: Response) => {
 });
 
 // Monetization Orders API - Server Calculated Price & Immutable Payment State
-app.post("/api/monetization/order", (req: Request, res: Response) => {
+app.post("/api/monetization/order", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
   try {
     const { tierId = "tier-express-fix", paymentMethod = "UPI", customerName, customerPhone, customerEmail, domain } = req.body;
     
     // Server calculates product price - NEVER trust amountINR or status from client
-    const { calculateTierPrice } = require("./server/services/paymentService");
     const tier = calculateTierPrice(tierId);
 
     const order = {
       orderId: `ord_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       tierId,
       tierName: tier.tierName,
+      userId: req.user?.id,
       amountINR: tier.priceINR, // Server computed
       paymentMethod,
       customerName,
@@ -501,14 +665,13 @@ app.post("/api/monetization/order", (req: Request, res: Response) => {
 });
 
 // Payment Verification Endpoint (Server-verified HMAC signature)
-app.post("/api/monetization/verify-payment", (req: Request, res: Response) => {
+app.post("/api/monetization/verify-payment", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
   try {
     const { orderId, razorpayPaymentId, razorpayOrderId, razorpaySignature } = req.body;
     if (!orderId || !razorpaySignature) {
       return res.status(400).json({ error: { code: "INVALID_PAYMENT", message: "Order ID and payment signature required." } });
     }
 
-    const { verifyPaymentSignature } = require("./server/services/paymentService");
     const secret = process.env.RAZORPAY_KEY_SECRET || "leadguard_test_razorpay_secret";
     const isValid = verifyPaymentSignature(razorpayOrderId || orderId, razorpayPaymentId || "pay_mock", razorpaySignature, secret);
 
@@ -518,10 +681,17 @@ app.post("/api/monetization/verify-payment", (req: Request, res: Response) => {
 
     const orders = storage.getOrders();
     const targetOrder = orders.find(o => o.orderId === orderId);
-    if (targetOrder) {
-      targetOrder.status = "PAID";
-      storage.saveToDisk();
+    if (!targetOrder) return res.status(404).json({ error: { code: "ORDER_NOT_FOUND", message: "Order not found." } });
+    if (targetOrder.userId && targetOrder.userId !== req.user?.id) {
+      return res.status(403).json({ error: { code: "FORBIDDEN", message: "You do not have permission to verify this order." } });
     }
+    if (!isPaymentBoundToOrder(targetOrder.orderId, razorpayOrderId || orderId, (targetOrder as any).providerOrderId)) {
+      return res.status(400).json({ error: { code: "ORDER_MISMATCH", message: "Payment does not match the requested order." } });
+    }
+    targetOrder.status = "PAID";
+    (targetOrder as any).providerOrderId = razorpayOrderId || orderId;
+    (targetOrder as any).providerPaymentId = razorpayPaymentId || "pay_mock";
+    storage.saveToDisk();
 
     res.json({ success: true, message: "Payment verified successfully", order: targetOrder });
   } catch (err: any) {
@@ -529,12 +699,15 @@ app.post("/api/monetization/verify-payment", (req: Request, res: Response) => {
   }
 });
 
-app.get("/api/monetization/orders", (req: Request, res: Response) => {
-  res.json({ orders: storage.getOrders() });
+app.get("/api/monetization/orders", requireAuth, (req: AuthenticatedRequest, res: Response) => {
+  const orders = req.user?.role === "ADMIN"
+    ? storage.getOrders()
+    : storage.getOrdersForUser(req.user!.id);
+  res.json({ orders });
 });
 
 // Competitor Sabotage Radar API
-app.post("/api/competitor-sabotage", rateLimiter(20), async (req: Request, res: Response) => {
+app.post("/api/competitor-sabotage", requireAuth, rateLimiter(20), async (req: Request, res: Response) => {
   try {
     const { myUrl, competitorUrls } = req.body;
     if (!myUrl || !Array.isArray(competitorUrls) || competitorUrls.length === 0) {
@@ -649,7 +822,7 @@ app.post("/api/competitor-sabotage", rateLimiter(20), async (req: Request, res: 
 });
 
 // Batch Website Scanner & Hunter Machine (Throttled & Quota Protected)
-app.post("/api/scan-batch", rateLimiter(20), async (req: Request, res: Response) => {
+app.post("/api/scan-batch", requireAuth, rateLimiter(20), async (req: Request, res: Response) => {
   try {
     const { urls } = req.body;
     if (!urls || !Array.isArray(urls) || urls.length === 0) {
@@ -740,7 +913,7 @@ app.post("/api/scan-batch", rateLimiter(20), async (req: Request, res: Response)
 });
 
 // AI Cold Pitch Generator
-app.post("/api/ai/pitch-generator", async (req: Request, res: Response) => {
+app.post("/api/ai/pitch-generator", requireAuth, rateLimiter(20), async (req: Request, res: Response) => {
   try {
     const { clientName = "Founder", businessName = "your business", auditSummary = "Broken WhatsApp routing & missing Meta Pixel", tone = "direct_urgent", language = "hinglish" } = req.body;
 
@@ -806,7 +979,9 @@ app.post("/api/keys/create", requireAuth, (req: AuthenticatedRequest, res: Respo
 app.post("/api/keys/revoke", requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const { keyId } = req.body;
   if (!keyId) return res.status(400).json({ error: "keyId is required" });
-  const success = ApiKeyManager.revokeApiKey(keyId);
+  const success = req.user?.role === "ADMIN"
+    ? ApiKeyManager.revokeApiKey(keyId)
+    : ApiKeyManager.revokeApiKeyForUser(keyId, req.user!.id);
   if (success) {
     AuditLogger.log({ userId: req.user?.id, action: "REVOKE_API_KEY", resource: keyId, ipAddress: req.ip });
     res.json({ status: "REVOKED", keyId });
@@ -819,14 +994,22 @@ app.post("/api/keys/revoke", requireAuth, (req: AuthenticatedRequest, res: Respo
 app.post("/api/queue/enqueue", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const { type, data } = req.body;
   if (!type || !data) return res.status(400).json({ error: "type and data are required" });
+  const allowedTypes = new Set(['scanWebsite', 'sendWebhook', 'sendNotification', 'generatePdf']);
+  if (typeof type !== 'string' || !allowedTypes.has(type) || typeof data !== 'object' || Array.isArray(data)) {
+    return res.status(400).json({ error: "Unsupported job type or invalid job data" });
+  }
 
-  const job = await jobQueue.enqueue(type, data, req.user?.id);
+  const job = await jobQueue.enqueue(type as any, data, req.user?.id);
   res.json({ jobId: job.id, status: job.status, createdAt: job.createdAt });
 });
 
 app.get("/api/queue/job/:id", requireAuth, (req: Request, res: Response) => {
   const job = jobQueue.getJob(req.params.id);
   if (!job) return res.status(404).json({ error: "Job not found" });
+  const user = (req as AuthenticatedRequest).user;
+  if (job.userId && user?.id !== job.userId && user?.role !== "ADMIN") {
+    return res.status(403).json({ error: "Forbidden" });
+  }
   res.json(job);
 });
 
@@ -898,21 +1081,33 @@ app.get("/api/admin/overview", requireAuth, requireRole("ADMIN"), (req: Authenti
 });
 
 // 5. Authoritative Razorpay Payment Webhook
-app.post("/api/payments/webhook", (req: Request, res: Response) => {
+app.post("/api/payments/webhook", (req: RawBodyRequest, res: Response) => {
   const signature = req.headers["x-razorpay-signature"] as string;
-  const payload = JSON.stringify(req.body);
+  const payload = req.rawBody || Buffer.from(JSON.stringify(req.body));
 
   if (!signature) {
     return res.status(400).json({ error: "Missing webhook signature" });
   }
 
-  const isValid = verifyPaymentSignature("ord_webhook", "pay_webhook", signature, process.env.RAZORPAY_KEY_SECRET || "leadguard_dev_razorpay_secret");
+  const secret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV === "production" ? "" : "leadguard_dev_razorpay_secret");
+  const isValid = verifyWebhookSignature(payload, signature, secret);
   if (!isValid) {
     AuditLogger.log({ action: "PAYMENT_WEBHOOK_FAILED", resource: "WEBHOOK", details: { reason: "Invalid HMAC signature" } });
     return res.status(400).json({ error: "Invalid payment signature" });
   }
 
   const { event, payload: eventData } = req.body;
+  const eventId = typeof req.body?.id === "string" ? req.body.id : undefined;
+  if (eventId) {
+    if (processedPaymentWebhookIds.has(eventId)) {
+      return res.json({ status: "DUPLICATE_IGNORED", event });
+    }
+    processedPaymentWebhookIds.add(eventId);
+    if (processedPaymentWebhookIds.size > 1000) {
+      processedPaymentWebhookIds.clear();
+    }
+  }
+
   if (event === "payment.captured") {
     const orderId = eventData?.payment?.entity?.order_id;
     AuditLogger.log({ action: "PAYMENT_WEBHOOK_CAPTURED", resource: orderId || "WEBHOOK" });

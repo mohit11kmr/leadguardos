@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Briefcase, Sparkles, Copy, Check, Send, TrendingUp, Calculator, ArrowRight, Loader2, MessageSquare, Mail } from 'lucide-react';
 import { AuditResult } from '../types';
+import { apiFetch } from '../lib/api';
 
 interface AgencyPitchSuiteProps {
   currentAudit: AuditResult | null;
@@ -48,7 +49,7 @@ LeadGuard Specialist`
     e.preventDefault();
     setIsGenerating(true);
     try {
-      const res = await fetch('/api/ai/pitch-generator', {
+      const res = await apiFetch('/api/ai/pitch-generator', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

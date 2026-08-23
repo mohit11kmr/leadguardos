@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Activity, CheckCircle, AlertOctagon, Bell, Send, RefreshCw, Radio, Server, Check, Webhook, Layers } from 'lucide-react';
+import { ShieldAlert, Activity, CheckCircle, AlertOctagon, Bell, Send, RefreshCw, Radio, Server, Check, Webhook, Layers, Zap } from 'lucide-react';
 import { WebhooksManager } from './WebhooksManager';
+import { apiFetch } from '../lib/api';
 
 interface WatchdogConsoleProps {
   onOpenNewMonitor: () => void;
@@ -14,7 +15,7 @@ export const WatchdogConsole: React.FC<WatchdogConsoleProps> = ({ onOpenNewMonit
   const [selectedChannel, setSelectedChannel] = useState<'TELEGRAM' | 'WHATSAPP' | 'EMAIL'>('TELEGRAM');
 
   useEffect(() => {
-    fetch('/api/watchdog/list')
+    apiFetch('/api/watchdog/list')
       .then((res) => res.json())
       .then((data) => {
         setMonitors(data.activeMonitors || []);
@@ -29,16 +30,16 @@ export const WatchdogConsole: React.FC<WatchdogConsoleProps> = ({ onOpenNewMonit
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in max-w-5xl mx-auto">
       
       {/* Sub-Navigation Switcher */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setActiveSubTab('RADAR')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               activeSubTab === 'RADAR'
-                ? 'bg-red-600 text-white shadow-md shadow-red-950/40'
+                ? 'bg-rose-600 text-white shadow-md shadow-rose-950/40 border border-rose-400/30'
                 : 'text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-800'
             }`}
           >
@@ -50,7 +51,7 @@ export const WatchdogConsole: React.FC<WatchdogConsoleProps> = ({ onOpenNewMonit
             onClick={() => setActiveSubTab('WEBHOOKS')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               activeSubTab === 'WEBHOOKS'
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950/40'
+                ? 'bg-rose-600 text-white shadow-md shadow-rose-950/40 border border-rose-400/30'
                 : 'text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-800'
             }`}
           >
@@ -62,7 +63,7 @@ export const WatchdogConsole: React.FC<WatchdogConsoleProps> = ({ onOpenNewMonit
         {activeSubTab === 'RADAR' && (
           <button
             onClick={onOpenNewMonitor}
-            className="flex items-center gap-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white px-3.5 py-2 text-xs font-bold uppercase tracking-wider transition-all shadow-md shadow-red-900/30 active:scale-95"
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white px-3.5 py-2 text-xs font-bold uppercase tracking-wider transition-all shadow-lg shadow-rose-950/50 border border-rose-400/30 active:scale-95"
           >
             <Bell className="h-3.5 w-3.5" />
             <span>Add Monitored Site</span>
@@ -73,16 +74,16 @@ export const WatchdogConsole: React.FC<WatchdogConsoleProps> = ({ onOpenNewMonit
       {activeSubTab === 'WEBHOOKS' ? (
         <WebhooksManager />
       ) : (
-        <div className="rounded-3xl border border-slate-800 bg-slate-900/90 p-6 md:p-8 shadow-xl space-y-8">
+        <div className="rounded-3xl border border-slate-800/80 bg-slate-950/80 p-6 md:p-8 shadow-2xl backdrop-blur-2xl space-y-8">
           
           {/* Header */}
           <div>
-            <span className="text-[10px] font-extrabold font-mono text-red-400 uppercase tracking-widest flex items-center gap-1.5">
-              <Radio className="h-3.5 w-3.5 text-red-500 animate-pulse" />
+            <span className="text-[10px] font-extrabold font-mono text-rose-400 uppercase tracking-widest flex items-center gap-1.5">
+              <Radio className="h-3.5 w-3.5 text-rose-500 animate-pulse" />
               24/7 Autonomous Radar & Uptime Shield
             </span>
             <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2 mt-0.5">
-              <ShieldAlert className="h-6 w-6 text-red-500" />
+              <ShieldAlert className="h-6 w-6 text-rose-400" />
               Watchdog Live Monitoring Control Console
             </h2>
             <p className="text-xs text-slate-400 mt-1">
@@ -92,39 +93,39 @@ export const WatchdogConsole: React.FC<WatchdogConsoleProps> = ({ onOpenNewMonit
 
           {/* Quick Status Stats */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 space-y-1">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-1 backdrop-blur-md">
               <div className="flex items-center justify-between text-slate-400 text-[10px] font-extrabold uppercase">
                 <span>Radar State</span>
                 <Activity className="h-4 w-4 text-emerald-400" />
               </div>
-              <div className="text-xl font-black text-emerald-400">ACTIVE RADAR</div>
+              <div className="text-lg font-black text-emerald-400 text-glow-emerald">ACTIVE RADAR</div>
               <p className="text-[11px] text-slate-400">Ping Interval: Every 5 Mins</p>
             </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 space-y-1">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-1 backdrop-blur-md">
               <div className="flex items-center justify-between text-slate-400 text-[10px] font-extrabold uppercase">
                 <span>Monitored Domains</span>
                 <Server className="h-4 w-4 text-slate-400" />
               </div>
-              <div className="text-xl font-black text-white font-mono">{Math.max(4, monitors.length)} Sites</div>
+              <div className="text-lg font-black text-white font-mono">{Math.max(4, monitors.length)} Sites</div>
               <p className="text-[11px] text-slate-400">Cross-verified across 6 channels</p>
             </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 space-y-1">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-1 backdrop-blur-md">
               <div className="flex items-center justify-between text-slate-400 text-[10px] font-extrabold uppercase">
                 <span>Critical Incidents</span>
-                <AlertOctagon className="h-4 w-4 text-red-500" />
+                <AlertOctagon className="h-4 w-4 text-rose-400" />
               </div>
-              <div className="text-xl font-black text-red-500 font-mono">3 Active Leaks</div>
+              <div className="text-lg font-black text-rose-400 text-glow-rose font-mono">3 Active Leaks</div>
               <p className="text-[11px] text-slate-400">Double +9191 & 404 Reviews</p>
             </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 space-y-1">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-1 backdrop-blur-md">
               <div className="flex items-center justify-between text-slate-400 text-[10px] font-extrabold uppercase">
                 <span>Alert Channels</span>
                 <Bell className="h-4 w-4 text-slate-400" />
               </div>
-              <div className="text-xl font-black text-slate-200">Telegram & WA</div>
+              <div className="text-lg font-black text-slate-200">Telegram & WA</div>
               <p className="text-[11px] text-slate-400">Instant notification &lt; 30 secs</p>
             </div>
           </div>
@@ -138,12 +139,12 @@ export const WatchdogConsole: React.FC<WatchdogConsoleProps> = ({ onOpenNewMonit
               <span className="text-[10px] font-mono text-slate-400">Auto-refreshing live stream</span>
             </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-950 divide-y divide-slate-800/60 overflow-hidden">
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/90 divide-y divide-slate-800/60 overflow-hidden shadow-inner">
               {recentChecks.map((chk) => (
                 <div key={chk.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                   <div className="flex items-center gap-3">
                     <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${
-                      chk.status.startsWith('FAIL') ? 'bg-red-500 animate-ping' : 'bg-emerald-500'
+                      chk.status.startsWith('FAIL') ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'
                     }`} />
                     <div>
                       <div className="font-bold text-white flex items-center gap-2">
@@ -171,10 +172,10 @@ export const WatchdogConsole: React.FC<WatchdogConsoleProps> = ({ onOpenNewMonit
           </div>
 
           {/* Test Alert Dispatcher Box */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5 space-y-4">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 space-y-4 backdrop-blur-md">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Bell className="h-4 w-4 text-red-500" />
+                <Bell className="h-4 w-4 text-rose-400" />
                 <h4 className="text-xs font-bold text-white uppercase tracking-wider">Test Instant Emergency Alert</h4>
               </div>
               <span className="text-[11px] text-slate-400 font-mono">Dispatches simulated incident payload</span>
@@ -187,8 +188,8 @@ export const WatchdogConsole: React.FC<WatchdogConsoleProps> = ({ onOpenNewMonit
                   onClick={() => setSelectedChannel(ch)}
                   className={`rounded-xl border p-2.5 text-xs font-bold uppercase tracking-wider transition-all ${
                     selectedChannel === ch
-                      ? 'border-red-500 bg-red-950/40 text-red-400'
-                      : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-white'
+                      ? 'border-rose-500 bg-rose-950/40 text-rose-300 shadow-sm'
+                      : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-white'
                   }`}
                 >
                   {ch} Alert
@@ -197,13 +198,13 @@ export const WatchdogConsole: React.FC<WatchdogConsoleProps> = ({ onOpenNewMonit
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
-              <div className="flex-1 w-full rounded-xl bg-slate-900 border border-slate-800 p-2.5 text-xs text-slate-300 font-mono">
+              <div className="flex-1 w-full rounded-xl bg-slate-950 border border-slate-800 p-3 text-xs text-slate-300 font-mono">
                 🚨 [LeadGuard Alert]: Critical Drop on drsharmadental.in! WhatsApp link returned +9191 invalid error. Est loss: ₹800/hr.
               </div>
               
               <button
                 onClick={handleSendTestAlert}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-red-600 hover:bg-red-500 text-white px-5 py-2.5 text-xs font-bold uppercase tracking-wider transition-all shadow-md active:scale-95"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white px-5 py-2.5 text-xs font-bold uppercase tracking-wider transition-all shadow-lg shadow-rose-950/50 border border-rose-400/30 active:scale-95"
               >
                 {testSent ? (
                   <>

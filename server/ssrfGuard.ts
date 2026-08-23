@@ -100,6 +100,9 @@ export function validateUrlSyntax(rawUrl: string): { valid: boolean; error?: str
     if (!['http:', 'https:'].includes(parsed.protocol)) {
       return { valid: false, error: 'Only HTTP and HTTPS protocols are supported' };
     }
+    if (parsed.username || parsed.password) {
+      return { valid: false, error: 'URLs containing embedded credentials are not supported.' };
+    }
 
     const host = parsed.hostname.toLowerCase();
 

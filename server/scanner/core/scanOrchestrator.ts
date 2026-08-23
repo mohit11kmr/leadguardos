@@ -13,6 +13,7 @@ import { ScoringEngine } from '../scoring/scoringEngine';
 import { ImpactCalculator } from '../scoring/impactCalculator';
 import { FindingBuilder } from '../reporting/findingBuilder';
 import { ScanCache } from './cache';
+import { analyzeForms, checkBrokenLinks, detectAnalytics, extractEmails, extractPhones, extractWhatsApp } from '../../../src/services/lead-audit.service';
 
 export class ScanOrchestrator {
   public static async executeScan(rawUrl: string, options: ScanOptions = {}): Promise<StructuredAuditResult> {
@@ -41,6 +42,26 @@ export class ScanOrchestrator {
     });
 
     const html = await httpResponse.text();
+    const leadAuditStartedAt = Date.now();
+    let leadAuditData;
+    try {
+      leadAuditData = {
+        emails: extractEmails(html),
+        phones: extractPhones(html),
+        whatsapp: extractWhatsApp(html),
+        forms: analyzeForms(html, targetUrl),
+        analytics: detectAnalytics(html),
+        brokenLinks: await checkBrokenLinks(html, targetUrl, Math.min(options.timeoutMs || 2000, 2000)),
+        durationMs: Date.now() - leadAuditStartedAt,
+      };
+    } catch (error: any) {
+      leadAuditData = {
+        emails: [], phones: [], whatsapp: [], forms: [],
+        analytics: { gtag: false, googleTagManager: false, fbq: false, detected: [] },
+        brokenLinks: [], durationMs: Date.now() - leadAuditStartedAt,
+        error: error?.message || 'Lead Audit failed',
+      };
+    }
     const headers: Record<string, string> = {};
     if (httpResponse.headers && typeof (httpResponse.headers as any).forEach === 'function') {
       (httpResponse.headers as any).forEach((val: string, key: string) => {
@@ -125,6 +146,7 @@ export class ScanOrchestrator {
       freeIssue: legacyIssues.length > 0 ? legacyIssues[0] : null,
       performance: perfResult.performance,
       scannedAt: new Date().toISOString(),
+      leadAuditData,
     };
 
     // Cache Result

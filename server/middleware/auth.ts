@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
+import { ApiKeyManager } from '../security/apiKeyManager';
+import { verifyFirebaseIdToken } from '../security/firebaseAuth';
 
 export interface AuthUser {
   id: string;
@@ -11,7 +13,15 @@ export interface AuthenticatedRequest extends Request {
   user?: AuthUser;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'leadguard_jwt_secret_production_key_2026';
+const DEV_JWT_SECRET = 'leadguard_dev_jwt_secret_key_32_chars';
+
+function getJwtSecret(): string {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET is required in production');
+  }
+  return DEV_JWT_SECRET;
+}
 
 export function signToken(user: AuthUser): string {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
@@ -26,7 +36,7 @@ export function signToken(user: AuthUser): string {
   ).toString('base64url');
 
   const signature = crypto
-    .createHmac('sha256', JWT_SECRET)
+    .createHmac('sha256', getJwtSecret())
     .update(`${header}.${payload}`)
     .digest('base64url');
 
@@ -40,7 +50,7 @@ export function verifyToken(token: string): AuthUser | null {
 
     const [header, payload, signature] = parts;
     const expectedSig = crypto
-      .createHmac('sha256', JWT_SECRET)
+      .createHmac('sha256', getJwtSecret())
       .update(`${header}.${payload}`)
       .digest('base64url');
 
@@ -63,7 +73,7 @@ export function verifyToken(token: string): AuthUser | null {
   }
 }
 
-export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   const apiKeyHeader = req.headers['x-api-key'] as string;
 
@@ -74,16 +84,27 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
       req.user = user;
       return next();
     }
+
+    const firebaseUser = await verifyFirebaseIdToken(token);
+    if (firebaseUser) {
+      req.user = {
+        id: firebaseUser.uid,
+        email: firebaseUser.email || `${firebaseUser.uid}@firebase.local`,
+        role: firebaseUser.role || 'USER',
+      };
+      return next();
+    }
   }
 
   // Support Master API key for automated jobs / testing or API access
   if (apiKeyHeader) {
-    if (apiKeyHeader === process.env.ADMIN_API_KEY || apiKeyHeader === 'lg_admin_secret_key_2026') {
+    if (process.env.ADMIN_API_KEY && apiKeyHeader === process.env.ADMIN_API_KEY) {
       req.user = { id: 'usr_admin', email: 'admin@leadguard.os', role: 'ADMIN' };
       return next();
     }
-    if (apiKeyHeader.startsWith('lg_live_')) {
-      req.user = { id: `usr_apikey_${apiKeyHeader.substring(8, 16)}`, email: 'api_user@leadguard.os', role: 'USER' };
+    const keyRecord = ApiKeyManager.verifyApiKey(apiKeyHeader);
+    if (keyRecord) {
+      req.user = { id: keyRecord.userId, email: 'api_user@leadguard.os', role: 'USER' };
       return next();
     }
   }
@@ -96,16 +117,30 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
   });
 }
 
-export function optionalAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+export async function optionalAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   const apiKeyHeader = req.headers['x-api-key'] as string;
 
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
     const user = verifyToken(token);
-    if (user) req.user = user;
-  } else if (apiKeyHeader && apiKeyHeader.startsWith('lg_')) {
-    req.user = { id: `usr_apikey_${apiKeyHeader.substring(8, 16)}`, email: 'api_user@leadguard.os', role: 'USER' };
+    if (user) {
+      req.user = user;
+    } else {
+      const firebaseUser = await verifyFirebaseIdToken(token);
+      if (firebaseUser) {
+        req.user = {
+          id: firebaseUser.uid,
+          email: firebaseUser.email || `${firebaseUser.uid}@firebase.local`,
+          role: firebaseUser.role || 'USER',
+        };
+      }
+    }
+  } else if (apiKeyHeader) {
+    const keyRecord = ApiKeyManager.verifyApiKey(apiKeyHeader);
+    if (keyRecord) {
+      req.user = { id: keyRecord.userId, email: 'api_user@leadguard.os', role: 'USER' };
+    }
   }
 
   next();

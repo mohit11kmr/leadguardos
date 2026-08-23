@@ -202,6 +202,12 @@ export interface AuditResult {
   };
   scannedAt: string;
   aiDiagnosticAdvice?: string;
+  aiRemediation?: {
+    status: 'PENDING' | 'COMPLETED' | 'FAILED';
+    content?: string;
+    error?: string;
+    updatedAt: string;
+  };
 }
 
 export interface WatchdogLead {

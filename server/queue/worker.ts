@@ -1,6 +1,8 @@
 import { jobQueue, QueueJobPayload } from './jobQueue';
 import { RetryPolicy } from './retryPolicy';
 import { executeLiveWebsiteScan } from '../scannerEngine';
+import { storage } from '../storage';
+import { generateRemediation } from '../services/ai.service';
 
 export class BackgroundWorker {
   private timer: NodeJS.Timeout | null = null;
@@ -42,6 +44,7 @@ export class BackgroundWorker {
   }
 
   public async executeJob(job: QueueJobPayload): Promise<void> {
+    if (job.status !== 'QUEUED') return;
     jobQueue.updateJobStatus(job.id, {
       status: 'RUNNING',
       attempt: job.attempt + 1,
@@ -66,6 +69,20 @@ export class BackgroundWorker {
           result = { delivered: true };
           break;
 
+        case 'aiAnalysis': {
+          const scan = storage.getScan(job.data.scanId);
+          if (!scan || (scan.userId && scan.userId !== job.userId)) {
+            throw new Error('AI job is not authorized for this scan');
+          }
+          const remediation = await generateRemediation(job.data.findings);
+          storage.updateScan(job.data.scanId, {
+            aiRemediation: { ...remediation, updatedAt: new Date().toISOString() },
+          });
+          if (remediation.status === 'FAILED') throw new Error(remediation.error || 'AI remediation failed');
+          result = remediation;
+          break;
+        }
+
         default:
           result = { status: 'PROCESSED', data: job.data };
           break;
@@ -83,7 +100,7 @@ export class BackgroundWorker {
         const delay = RetryPolicy.getBackoffDelayMs(job.attempt + 1);
         console.warn(`[Worker] Job ${job.id} failed (${err.message}). Retrying in ${delay}ms...`);
         setTimeout(() => {
-          jobQueue.enqueue(job.type, job.data, job.userId, job.maxAttempts);
+          jobQueue.enqueue(job.type, job.data, job.userId, job.maxAttempts, job.attempt);
         }, delay);
       } else {
         jobQueue.updateJobStatus(job.id, {

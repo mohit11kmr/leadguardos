@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Webhook, Shield, Check, Copy, AlertCircle, RefreshCw, Send, Trash2, Key, BellRing, Sparkles } from 'lucide-react';
+import { apiFetch } from '../lib/api';
 
 interface WebhookItem {
   id: string;
@@ -20,7 +21,7 @@ export const WebhooksManager: React.FC = () => {
 
   const fetchWebhooks = async () => {
     try {
-      const res = await fetch('/api/webhooks');
+      const res = await apiFetch('/api/webhooks');
       if (res.ok) {
         const data = await res.json();
         setWebhooks(data.webhooks || []);
@@ -40,7 +41,7 @@ export const WebhooksManager: React.FC = () => {
 
     setIsLoading(true);
     try {
-      const res = await fetch('/api/webhooks', {
+      const res = await apiFetch('/api/webhooks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: newUrl }),
@@ -59,7 +60,7 @@ export const WebhooksManager: React.FC = () => {
 
   const handleTestWebhook = async (id: string) => {
     try {
-      const res = await fetch('/api/webhooks/test', {
+      const res = await apiFetch('/api/webhooks/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
@@ -81,7 +82,7 @@ export const WebhooksManager: React.FC = () => {
 
   const handleDeleteWebhook = async (id: string) => {
     try {
-      await fetch(`/api/webhooks/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/webhooks/${id}`, { method: 'DELETE' });
       setWebhooks(webhooks.filter((w) => w.id !== id));
     } catch (err) {
       console.error('Failed to delete webhook:', err);

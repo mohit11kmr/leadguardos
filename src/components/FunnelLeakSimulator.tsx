@@ -13,10 +13,10 @@ export const FunnelLeakSimulator: React.FC<FunnelLeakSimulatorProps> = ({ result
   const [clickRate, setClickRate] = useState<number>(6.5); // % of visitors clicking WhatsApp/Call
 
   // Heuristic drop-off rates based on scan results
-  const hasBrokenWhatsApp = result.whatsappLinks.some((w) => !w.isValid) || result.whatsappLinks.length === 0;
-  const hasBrokenPhone = result.phoneLinks.some((p) => !p.isValid);
-  const isPixelMissing = !result.metaPixel.exists;
-  const hasNoIndex = result.seoPenalty.hasNoIndex;
+  const hasBrokenWhatsApp = (result?.whatsappLinks || []).some((w) => !w.isValid) || (result?.whatsappLinks || []).length === 0;
+  const hasBrokenPhone = (result?.phoneLinks || []).some((p) => !p.isValid);
+  const isPixelMissing = !result?.metaPixel?.exists;
+  const hasNoIndex = !!result?.seoPenalty?.hasNoIndex;
 
   // Funnel calculations
   const totalClickers = Math.round((monthlyVisitors * (clickRate / 100)));

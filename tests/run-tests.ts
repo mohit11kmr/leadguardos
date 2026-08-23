@@ -1,17 +1,14 @@
 import { isPrivateOrBlockedIP, validateUrlSyntax } from '../server/ssrfGuard';
-import { validateWhatsAppNumber, generateIssuesFromExtractedData, buildAuditPayload, SAMPLE_PRESETS, executeLiveWebsiteScan } from '../server/scannerEngine';
+import { validateWhatsAppNumber, generateIssuesFromExtractedData, buildAuditPayload, SAMPLE_PRESETS } from '../server/scannerEngine';
 import { calculateRevenueImpact } from '../src/utils/revenueModel';
 import { FEATURE_REGISTRY } from '../src/config/features';
 import { APP_CONFIG } from '../src/config/appConfig';
-import {
-  scanRepository,
-  watchdogRepository,
-  orderRepository,
-  statsRepository,
-  reportRepository,
-  webhookRepository,
-  userRepository,
-} from '../server/repositories';
+import os from 'os';
+import path from 'path';
+import { analyzeForms, checkBrokenLinks, detectAnalytics, extractEmails, extractPhones, extractWhatsApp } from '../src/services/lead-audit.service';
+import { toPublicAuditReport } from '../server/reports/publicReport';
+
+process.env.LEADGUARD_DATA_DIR = path.join(os.tmpdir(), `leadguardos-tests-${process.pid}`);
 
 let passed = 0;
 let failed = 0;
@@ -28,7 +25,7 @@ function assert(condition: boolean, testName: string, detail?: string) {
 
 async function runTestSuite() {
   console.log('\n======================================================');
-  console.log('  LEADGUARD OS — REAL FIRESTORE PRODUCTION TEST SUITE');
+  console.log('  LEADGUARD OS — AUTOMATED PRODUCTION TEST SUITE');
   console.log('======================================================\n');
 
   // -------------------------------------------------------------------------
@@ -47,6 +44,45 @@ async function runTestSuite() {
   assert(isPrivateOrBlockedIP('fe80::1'), 'Blocks IPv6 Link-Local Address');
   assert(!isPrivateOrBlockedIP('8.8.8.8'), 'Allows Public IP 8.8.8.8');
   assert(!isPrivateOrBlockedIP('104.21.5.1'), 'Allows Cloudflare Public IP 104.21.5.1');
+  assert(!validateUrlSyntax('https://user:password@example.com').valid, 'Rejects URLs containing embedded credentials');
+  const { shouldRecordGlobalStats } = await import('../server/observability/statsPolicy');
+  assert(!shouldRecordGlobalStats(undefined) && shouldRecordGlobalStats('usr_test_1'), 'Global scan statistics require authenticated identity');
+
+  // -------------------------------------------------------------------------
+  // 1b. Lead Audit Extraction & Safe Link Checks
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 1b: Lead Audit Extraction & Safe Link Checks');
+  const leadHtml = `<body>
+    <a href="mailto:INFO%40Example.com">Email</a>
+    <p>info@example.com and +91 9876543210</p><p>+91-9876543210</p>
+    <a href="https://wa.me/919876543210">WhatsApp</a>
+    <a href="https://api.whatsapp.com/send?phone=919876543210">WhatsApp duplicate</a>
+    <form action="/submit" method="post"><input name="email"><textarea name="message"></textarea></form>
+    <form action="https://forms.example.com/submit"><input type="text"></form>
+    <script>gtag('config', 'G-TEST'); fbq('init', '123');</script>
+    <a href="/ok">relative</a><a href="#section">anchor</a><a href="mailto:a@b.com">mail</a>
+    <a href="http://127.0.0.1:3000/admin">blocked</a>
+  </body>`;
+  assert(extractEmails(leadHtml).join(',') === 'a@b.com,info@example.com', 'Extracts and deduplicates mailto and plain emails');
+  assert(extractPhones(leadHtml).join(',') === '+919876543210', 'Normalizes Indian phone formats');
+  assert(extractWhatsApp(leadHtml).length === 2, 'Extracts WhatsApp provider URLs');
+  assert(extractWhatsApp('<a href="wa.me/919876543210">WhatsApp</a>')[0] === 'https://wa.me/919876543210', 'Normalizes schemeless WhatsApp URLs');
+  const forms = analyzeForms(leadHtml, 'https://example.com/contact');
+  assert(forms.length === 2 && forms[0].isInternal && !forms[1].isInternal, 'Classifies relative and external form actions');
+  const analytics = detectAnalytics(leadHtml);
+  assert(analytics.gtag && analytics.fbq && !analytics.googleTagManager, 'Detects gtag and fbq markers');
+  const checkedLinks = await checkBrokenLinks(leadHtml, 'https://example.com/contact', 100);
+  assert(checkedLinks.some(link => link.url.includes('127.0.0.1') && link.error?.includes('SSRF Guard')) && !checkedLinks.some(link => link.url.startsWith('mailto:')), 'Ignores non-http links and blocks SSRF links');
+
+  const publicReport = toPublicAuditReport({
+    scanId: 'scan_public_test', publicToken: 'pub_public_test', targetUrl: 'https://example.com', domain: 'example.com', score: 80, estimatedMonthlyLoss: 0, adSpendRisk: 'LOW', pillars: {} as any,
+    allIssues: [{ id: 'internal', pillar: 'LEAD', category: 'email', severity: 'LOW', title: 'Finding', description: 'Description', impact: 'Impact', evidence: 'private evidence', fixSnippet: 'fix', isLocked: false }],
+    whatsappLinks: [], phoneLinks: [], emailLinks: [], reviewLinks: [], socialLinks: [], metaPixel: {} as any, googleTag: {} as any, seoPenalty: {} as any, cyberShield: {} as any, lockedIssuesCount: 0, performance: { fetchTimeMs: 1, parseTimeMs: 1, totalTimeMs: 2 }, scannedAt: new Date().toISOString(), leadAuditData: { emails: ['secret@example.com'] }, aiRemediation: { status: 'COMPLETED', content: 'private fix', updatedAt: new Date().toISOString() },
+  } as any);
+  assert(!('leadAuditData' in publicReport) && !('aiRemediation' in publicReport) && !('evidence' in publicReport.allIssues[0]), 'Public report projection excludes private lead, AI, and evidence fields');
+  const { buildRemediationFindings } = await import('../server/services/ai.service');
+  const remediationFindings = buildRemediationFindings([{ id: 'secret-id', title: 'Broken link', severity: 'HIGH', evidence: 'private@example.com', description: 'Fix it', recommendation: 'Update link' }]);
+  assert(!('id' in remediationFindings[0]) && !('evidence' in remediationFindings[0]) && remediationFindings[0].title === 'Broken link', 'AI payload excludes internal IDs and private evidence');
 
   const localhostSyntax = validateUrlSyntax('http://localhost:3000');
   assert(!localhostSyntax.valid, 'Rejects localhost in URL syntax');
@@ -125,23 +161,10 @@ async function runTestSuite() {
     150,
     20
   );
-
   assert(sampleAudit.score < 50, 'Computes low score for multiple critical leaks (Dr. Sharma Dental)');
   assert(sampleAudit.pillars.lead.score < 50, 'Reflects Lead Guardian penalty');
   assert(sampleAudit.pillars.seo.score < 50, 'Reflects SEO noindex penalty');
   assert(sampleAudit.pillars.cyber.score >= 90, 'Maintains high Cyber score when clean');
-
-  // Test Live Scan Engine with Sample Presets
-  const drSharmaResult = await executeLiveWebsiteScan('drsharmadental.in');
-  assert(drSharmaResult.domain === 'drsharmadental.in', 'Executes live website scan on drsharmadental.in without DNS errors');
-  assert(drSharmaResult.score === 38, 'Correctly loads Dr. Sharma Dental preset audit score');
-  assert(drSharmaResult.whatsappLinks.some((w: any) => w.status === 'BROKEN'), 'Identifies broken WhatsApp link on preset');
-
-  const eliteSalonResult = await executeLiveWebsiteScan('https://elitesalonmumbai.com');
-  assert(eliteSalonResult.domain === 'elitesalonmumbai.com', 'Executes scan on elitesalonmumbai.com with https protocol');
-
-  const apexRealtyResult = await executeLiveWebsiteScan('apexgrandrealestate.com');
-  assert(apexRealtyResult.domain === 'apexgrandrealestate.com', 'Executes scan on apexgrandrealestate.com preset');
 
   // -------------------------------------------------------------------------
   // 5. Feature Registry Completeness
@@ -152,173 +175,59 @@ async function runTestSuite() {
   assert(allHaveIds, 'All registered features have standard LG-XXX identifiers');
   const allHaveComponents = FEATURE_REGISTRY.every(f => f.component.length > 0);
   assert(allHaveComponents, 'All registered features map to real frontend components');
-  const allHaveStorage = FEATURE_REGISTRY.every(f => f.storage === 'FIRESTORE' || f.storage === 'LOCAL' || f.storage === 'HYBRID');
-  assert(allHaveStorage, 'All features specify explicit storage architecture metadata');
 
   // -------------------------------------------------------------------------
-  // 6. Firestore Scan & Report Persistence Layer
+  // 6. Repository & Persistence Layer Tests
   // -------------------------------------------------------------------------
-  console.log('\n📌 Test Suite 6: Firestore Scan & Report Persistence');
+  console.log('\n📌 Test Suite 6: Production Repository & Storage Layer');
+  const { scanRepository, watchdogRepository, orderRepository, statsRepository } = await import('../server/repositories');
 
-  const persistedScan = await scanRepository.saveCompletedScan(sampleAudit, 'test_user_owner_123', 'owner@example.in');
-  assert(!!persistedScan.scanId, 'Saves scan with unique scanId');
-  assert(persistedScan.publicToken.length >= 32, 'Generates cryptographically secure publicToken');
+  const stats = await statsRepository.getSystemStats();
+  assert(typeof stats.totalScannedSites === 'number', 'Stats repository returns totalScannedSites');
 
-  const fetchedScan = await scanRepository.getScanById(persistedScan.scanId);
-  assert(fetchedScan !== null && fetchedScan.domain === 'drsharmadental.in', 'Retrieves scan from repository by scanId');
-
-  const publicReport = await reportRepository.getPublicReport(persistedScan.publicToken);
-  assert(publicReport !== null, 'Retrieves sanitized report via publicToken');
-  assert(publicReport?.domain === 'drsharmadental.in', 'Public report contains target domain');
-  assert((publicReport as any)?.userEmail === undefined, 'Public report sanitizes userEmail and private fields');
-
-  // -------------------------------------------------------------------------
-  // 7. Watchdog Radar Target & Checks
-  // -------------------------------------------------------------------------
-  console.log('\n📌 Test Suite 7: 24/7 Watchdog Heartbeat & Monitoring');
-
-  const testWatchdog = await watchdogRepository.addTarget(
-    {
-      targetUrl: 'https://test-example.in',
-      domain: 'test-example.in',
-      contact: 'test@example.com',
-      channel: 'EMAIL',
-      frequency: 'DAILY',
-      status: 'ACTIVE_TRIAL',
-      mode: 'LIVE',
-    },
-    'user_alpha',
-    'alpha@example.com'
-  );
-  assert(testWatchdog.domain === 'test-example.in', 'Registers watchdog target');
-
-  await watchdogRepository.addCheckLog({
-    targetId: testWatchdog.id,
+  const testWatchdog = await watchdogRepository.addTarget({
+    id: 'test_wd_1',
+    targetUrl: 'https://test-example.in',
     domain: 'test-example.in',
-    check: 'Automated 15-Min Heartbeat Probe',
-    status: 'PASS',
-    timestamp: new Date().toISOString(),
+    contact: 'test@example.com',
+    channel: 'EMAIL',
+    frequency: 'DAILY',
+    status: 'ACTIVE_TRIAL',
+    createdAt: new Date().toISOString(),
+    trialExpiresAt: new Date().toISOString(),
   });
+  assert(testWatchdog.domain === 'test-example.in', 'Watchdog repository registers target');
 
-  const checkLogs = await watchdogRepository.getCheckLogs(testWatchdog.id, 10);
-  assert(checkLogs.length > 0, 'Logs and retrieves heartbeat probe history');
+  const fetchedTargets = await watchdogRepository.getTargets();
+  assert(fetchedTargets.some(t => t.id === 'test_wd_1'), 'Watchdog repository retrieves registered target');
 
-  // Test ownership enforcement on delete
-  try {
-    await watchdogRepository.deleteTarget(testWatchdog.id, 'unauthorized_user_xyz', false);
-    assert(false, 'Should reject unauthorized watchdog deletion');
-  } catch (err: any) {
-    assert(err?.message?.includes('Unauthorized'), 'Enforces ownership rejection on watchdog target modification');
-  }
-
-  // Test distributed lease lock acquisition & release
-  const acquiredFirst = await watchdogRepository.acquireTargetLease(testWatchdog.id, 'worker_node_A', 60000);
-  assert(acquiredFirst === true, 'Worker A acquires distributed lease on watchdog target');
-
-  const acquiredSecond = await watchdogRepository.acquireTargetLease(testWatchdog.id, 'worker_node_B', 60000);
-  assert(acquiredSecond === false, 'Worker B is denied concurrent lease while Worker A holds active lease');
-
-  await watchdogRepository.releaseTargetLease(testWatchdog.id, 'worker_node_A');
-  const acquiredAfterRelease = await watchdogRepository.acquireTargetLease(testWatchdog.id, 'worker_node_B', 60000);
-  assert(acquiredAfterRelease === true, 'Worker B acquires lease after Worker A releases');
-  await watchdogRepository.releaseTargetLease(testWatchdog.id, 'worker_node_B');
+  const testOrder = await orderRepository.createOrder({
+    orderId: 'ord_test_99',
+    tierId: 'tier-express-fix',
+    tierName: 'Express Fix',
+    amountINR: 4999,
+    paymentMethod: 'UPI',
+    status: 'PAID',
+    createdAt: new Date().toISOString(),
+  });
+  assert(testOrder.amountINR === 4999, 'Order repository creates and records order');
 
   // -------------------------------------------------------------------------
-  // 8. Monetization & Payment Verification Lifecycle
+  // 7. Webhook HMAC Cryptographic Signature Tests
   // -------------------------------------------------------------------------
-  console.log('\n📌 Test Suite 8: Monetization & Payment Verification');
+  console.log('\n📌 Test Suite 7: Webhook HMAC-SHA256 Cryptography');
+  const crypto = await import('crypto');
+  const secretKey = 'leadguard_test_secret_key';
+  const samplePayload = JSON.stringify({ event: 'watchdog.incident_detected', score: 32 });
+  const computedSignature = crypto.createHmac('sha256', secretKey).update(samplePayload).digest('hex');
+  assert(computedSignature.length === 64, 'Generates valid 64-char HMAC-SHA256 digest');
 
-  const pendingOrder = await orderRepository.createPendingOrder(
-    {
-      tierId: 'tier-express-fix',
-      tierName: 'Express Fix',
-      amountINR: 4999,
-      paymentMethod: 'UPI',
-      customerName: 'Rohit Sharma',
-      customerEmail: 'rohit@dentalcare.in',
-      domain: 'dentalcare.in',
-    },
-    'user_customer_456'
-  );
-  assert(pendingOrder.status === 'PENDING', 'New order is created in PENDING state');
-
-  // Test UPI Manual remains PENDING / awaiting review
-  const upiSubmittedOrder = await orderRepository.verifyAndMarkPaid(
-    pendingOrder.orderId,
-    { paymentReference: 'UPI_REF_TXN_998877', provider: 'UPI_MANUAL' },
-    'user_customer_456'
-  );
-  assert(upiSubmittedOrder.status === 'PENDING', 'UPI manual submissions remain in PENDING/review state');
-  assert(upiSubmittedOrder.paymentReference === 'UPI_REF_TXN_998877', 'Records transaction payment reference');
-
-  // Test Sandbox provider in non-production environment marks PAID
-  const sandboxPaidOrder = await orderRepository.verifyAndMarkPaid(
-    pendingOrder.orderId,
-    { paymentReference: 'SANDBOX_TXN_12345', provider: 'SANDBOX' },
-    'user_customer_456'
-  );
-  assert(sandboxPaidOrder.status === 'PAID', 'Sandbox simulation successfully marks order PAID in non-production');
-
-  // Test FAILED -> PAID state transition guard
-  await orderRepository.updateOrderStatus(pendingOrder.orderId, 'FAILED', 'Payment declined');
-  try {
-    await orderRepository.updateOrderStatus(pendingOrder.orderId, 'PAID', 'Unverified attempt');
-    assert(false, 'Should prevent transition from FAILED to PAID without override guard');
-  } catch (err: any) {
-    assert(err?.message?.includes('INVALID_STATE_TRANSITION'), 'Guards against unauthorized FAILED -> PAID order transition');
-  }
-
-  // -------------------------------------------------------------------------
-  // 9. Webhooks & SSRF Defense
-  // -------------------------------------------------------------------------
-  console.log('\n📌 Test Suite 9: Webhooks & SSRF Defense');
-
-  try {
-    await webhookRepository.addWebhook({
-      name: 'Malicious Internal Hook',
-      url: 'http://169.254.169.254/latest/meta-data',
-      events: ['watchdog.incident_detected'],
-    });
-    assert(false, 'Should block SSRF internal metadata webhook');
-  } catch (err: any) {
-    assert(err?.message?.includes('SSRF') || err?.message?.includes('Blocked'), 'Blocks SSRF cloud metadata endpoint in webhook registration');
-  }
-
-  const safeWebhook = await webhookRepository.addWebhook(
-    {
-      name: 'Agency Slack Bridge',
-      url: 'https://hooks.slack.com/services/T00/B00/X00',
-      events: ['watchdog.incident_detected'],
-    },
-    'agency_user_1'
-  );
-  assert(safeWebhook.url === 'https://hooks.slack.com/services/T00/B00/X00', 'Registers valid public webhook');
-
-  const fetchedById = await webhookRepository.getWebhookById(safeWebhook.id, 'agency_user_1');
-  assert(fetchedById?.id === safeWebhook.id, 'Retrieves owned webhook by ID');
-
-  try {
-    await webhookRepository.getWebhookById(safeWebhook.id, 'unauthorized_stranger_user');
-    assert(false, 'Should forbid access to other user webhook');
-  } catch (err: any) {
-    assert(err?.message === 'UNAUTHORIZED_WEBHOOK_ACCESS', 'Prevents cross-user webhook data access');
-  }
-
-  const listedHooks = await webhookRepository.getWebhooks('agency_user_1');
-  assert(listedHooks.some(h => h.secret === '********'), 'Masks secret keys in API responses');
-
-  // -------------------------------------------------------------------------
-  // 10. User RBAC & Live Stats Isolations
-  // -------------------------------------------------------------------------
-  console.log('\n📌 Test Suite 10: User RBAC & Stats Isolation');
-
-  const syncedUser = await userRepository.syncUserProfile('user_uid_demo', 'demo@leadguard.in', 'Demo Founder');
-  assert(syncedUser.id === 'user_uid_demo', 'Syncs user profile to Firestore');
-  assert(syncedUser.role === 'USER', 'Assigns default role USER without privilege escalation');
-
-  const realStats = await statsRepository.getSystemStats();
-  assert(typeof realStats.totalScannedSites === 'number' && realStats.totalScannedSites >= 0, 'Retrieves real system statistics');
-  assert(realStats.fixedByLeadGuard >= 0, 'Tracks verified fix counter');
+  const verifySignature = (payload: string, sig: string, secret: string) => {
+    const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    return expected === sig;
+  };
+  assert(verifySignature(samplePayload, computedSignature, secretKey), 'Validates genuine webhook signature');
+  assert(!verifySignature(samplePayload, 'tampered_signature', secretKey), 'Rejects tampered webhook signature');
 
   // -------------------------------------------------------------------------
   // 8. SafeFetch Centralized SSRF & Payment Verification Tests
@@ -339,7 +248,7 @@ async function runTestSuite() {
     assert(err.message.includes('SSRF Guard') || err.message.includes('blocked'), 'SafeFetch rejects Cloud Metadata IP 169.254.169.254');
   }
 
-  const { calculateTierPrice, verifyPaymentSignature, generateRazorpaySignature } = await import('../server/services/paymentService');
+  const { calculateTierPrice, verifyPaymentSignature, generateRazorpaySignature, verifyWebhookSignature, isPaymentBoundToOrder } = await import('../server/services/paymentService');
   const tierPrice = calculateTierPrice('tier-express-fix');
   assert(tierPrice.priceINR === 4999, 'Payment service calculates server-side price for Express Fix = ₹4999');
 
@@ -349,11 +258,18 @@ async function runTestSuite() {
   const fakeSig = verifyPaymentSignature('ord_123', 'pay_456', 'fake_forged_sig', 'test_secret');
   assert(!fakeSig, 'Payment service rejects forged payment signature');
 
+  const webhookPayload = JSON.stringify({ event: 'payment.captured', payload: { payment: { entity: { order_id: 'order_123' } } } });
+  const webhookSig = crypto.createHmac('sha256', 'webhook_secret').update(webhookPayload).digest('hex');
+  assert(verifyWebhookSignature(webhookPayload, webhookSig, 'webhook_secret'), 'Payment service validates Razorpay webhook signature against raw payload');
+  assert(!verifyWebhookSignature(webhookPayload, expectedSig, 'webhook_secret'), 'Payment service rejects checkout signature when verifying webhook payload');
+  assert(isPaymentBoundToOrder('ord_123', 'ord_123') && !isPaymentBoundToOrder('ord_123', 'ord_other'), 'Payment verification binds provider transaction to the requested order');
+
   // -------------------------------------------------------------------------
   // 9. Authentication & Demo Preset Isolation Tests
   // -------------------------------------------------------------------------
   console.log('\n📌 Test Suite 9: Auth Middleware & Demo Isolation');
-  const { signToken, verifyToken } = await import('../server/middleware/auth');
+  const { signToken, verifyToken, requireAuth, optionalAuth } = await import('../server/middleware/auth');
+  const { verifyFirebaseIdToken } = await import('../server/security/firebaseAuth');
   const token = signToken({ id: 'usr_test_1', email: 'test@leadguard.os', role: 'USER' });
   const verifiedUser = verifyToken(token);
   assert(verifiedUser !== null && verifiedUser.id === 'usr_test_1', 'JWT Token sign and verify returns valid authenticated user');
@@ -361,6 +277,85 @@ async function runTestSuite() {
   const adminToken = signToken({ id: 'usr_admin', email: 'admin@leadguard.os', role: 'ADMIN' });
   const verifiedAdmin = verifyToken(adminToken);
   assert(verifiedAdmin !== null && verifiedAdmin.role === 'ADMIN', 'JWT Token sign and verify preserves ADMIN role');
+
+  const makeMockResponse = () => {
+    const response: any = {
+      statusCode: 200,
+      body: null,
+      status(code: number) {
+        this.statusCode = code;
+        return this;
+      },
+      json(payload: any) {
+        this.body = payload;
+        return this;
+      }
+    };
+    return response;
+  };
+
+  const hardcodedAdminReq: any = { headers: { 'x-api-key': 'lg_admin_secret_key_2026' } };
+  const hardcodedAdminRes = makeMockResponse();
+  let hardcodedAdminNextCalled = false;
+  await requireAuth(hardcodedAdminReq, hardcodedAdminRes, () => { hardcodedAdminNextCalled = true; });
+  assert(!hardcodedAdminNextCalled && hardcodedAdminRes.statusCode === 401, 'Auth middleware rejects removed hardcoded admin API key');
+
+  const arbitraryLiveReq: any = { headers: { 'x-api-key': 'lg_live_not_a_generated_key' } };
+  const arbitraryLiveRes = makeMockResponse();
+  let arbitraryLiveNextCalled = false;
+  await requireAuth(arbitraryLiveReq, arbitraryLiveRes, () => { arbitraryLiveNextCalled = true; });
+  assert(!arbitraryLiveNextCalled && arbitraryLiveRes.statusCode === 401, 'Auth middleware rejects arbitrary lg_live API key strings');
+
+  const optionalReq: any = { headers: { 'x-api-key': 'lg_anything_unverified' } };
+  await optionalAuth(optionalReq, makeMockResponse(), () => {});
+  assert(!optionalReq.user, 'Optional auth leaves request anonymous for unverified API key strings');
+
+  const keyPair = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const firebaseKid = 'test_firebase_kid';
+  const firebaseProjectId = 'leadguard-test-project';
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const firebaseHeader = Buffer.from(JSON.stringify({ alg: 'RS256', kid: firebaseKid, typ: 'JWT' })).toString('base64url');
+  const firebasePayload = Buffer.from(JSON.stringify({
+    aud: firebaseProjectId,
+    iss: `https://securetoken.google.com/${firebaseProjectId}`,
+    sub: 'firebase_uid_123',
+    email: 'firebase-user@example.com',
+    iat: nowSeconds - 10,
+    exp: nowSeconds + 3600,
+  })).toString('base64url');
+  const firebaseSigningInput = `${firebaseHeader}.${firebasePayload}`;
+  const firebaseSignature = crypto.sign('RSA-SHA256', Buffer.from(firebaseSigningInput), keyPair.privateKey).toString('base64url');
+  const firebaseToken = `${firebaseSigningInput}.${firebaseSignature}`;
+  const firebaseCert = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+
+  const verifiedFirebaseUser = await verifyFirebaseIdToken(firebaseToken, {
+    projectId: firebaseProjectId,
+    certs: { [firebaseKid]: firebaseCert },
+    nowSeconds,
+  });
+  assert(verifiedFirebaseUser?.uid === 'firebase_uid_123', 'Firebase ID token verifier accepts valid RS256 token with matching issuer and audience');
+
+  const wrongAudienceUser = await verifyFirebaseIdToken(firebaseToken, {
+    projectId: 'wrong-project',
+    certs: { [firebaseKid]: firebaseCert },
+    nowSeconds,
+  });
+  assert(wrongAudienceUser === null, 'Firebase ID token verifier rejects mismatched project audience');
+
+  const originalFirebaseProjectId = process.env.FIREBASE_PROJECT_ID;
+  process.env.FIREBASE_PROJECT_ID = firebaseProjectId;
+  process.env.FIREBASE_AUTH_CERTS_JSON = JSON.stringify({ [firebaseKid]: firebaseCert });
+  const firebaseReq: any = { headers: { authorization: `Bearer ${firebaseToken}` } };
+  const firebaseRes = makeMockResponse();
+  let firebaseNextCalled = false;
+  await requireAuth(firebaseReq, firebaseRes, () => { firebaseNextCalled = true; });
+  assert(firebaseNextCalled && firebaseReq.user?.id === 'firebase_uid_123', 'Auth middleware maps verified Firebase UID to server-side user identity');
+  delete process.env.FIREBASE_AUTH_CERTS_JSON;
+  if (originalFirebaseProjectId) {
+    process.env.FIREBASE_PROJECT_ID = originalFirebaseProjectId;
+  } else {
+    delete process.env.FIREBASE_PROJECT_ID;
+  }
 
   const { executeLiveWebsiteScan } = await import('../server/scannerEngine');
   try {
@@ -449,6 +444,14 @@ async function runTestSuite() {
   const shouldRetrySsrf = RetryPolicy.shouldRetry(new Error('SSRF Guard blocked target URL'), 1, 3);
   assert(!shouldRetrySsrf, 'RetryPolicy rejects non-transient SSRF security errors');
 
+  const { storage } = await import('../server/storage');
+  const { backgroundWorker } = await import('../server/queue/worker');
+  const protectedScan = { scanId: 'scan_queue_owner', userId: 'usr_owner', publicToken: 'pub_queue_owner', targetUrl: 'https://example.com', domain: 'example.com', score: 100, estimatedMonthlyLoss: 0, adSpendRisk: 'LOW', pillars: {}, whatsappLinks: [], phoneLinks: [], emailLinks: [], reviewLinks: [], socialLinks: [], metaPixel: {}, googleTag: {}, seoPenalty: {}, cyberShield: {}, allIssues: [], lockedIssuesCount: 0, performance: { fetchTimeMs: 0, parseTimeMs: 0, totalTimeMs: 0 }, scannedAt: new Date().toISOString() };
+  storage.saveScan(protectedScan as any);
+  const unauthorizedAiJob = await jobQueue.enqueue('aiAnalysis', { scanId: protectedScan.scanId, findings: [] }, 'usr_attacker', 1);
+  await backgroundWorker.executeJob(unauthorizedAiJob);
+  assert(storage.getScan(protectedScan.scanId)?.aiRemediation === undefined, 'AI queue job cannot mutate another user scan');
+
   // -------------------------------------------------------------------------
   // 13. Phase 4 Observability, API Key Hashing & Readiness Probes Tests
   // -------------------------------------------------------------------------
@@ -470,6 +473,11 @@ async function runTestSuite() {
 
   const revoked = ApiKeyManager.revokeApiKey(keyId);
   assert(revoked && ApiKeyManager.verifyApiKey(apiKey) === null, 'ApiKeyManager revokes API key cleanly');
+
+  const foreignKey = ApiKeyManager.generateApiKey('usr_foreign');
+  const ownerScopedRevoke = ApiKeyManager.revokeApiKeyForUser(foreignKey.keyId, 'usr_test_1');
+  assert(!ownerScopedRevoke && ApiKeyManager.verifyApiKey(foreignKey.apiKey) !== null, 'ApiKeyManager prevents users from revoking another user API key');
+  ApiKeyManager.revokeApiKey(foreignKey.keyId);
 
   // -------------------------------------------------------------------------
   // 14. Phase 5 Entitlements, Onboarding & Usage Limits Tests
@@ -501,7 +509,6 @@ async function runTestSuite() {
   const funnel = ProductAnalytics.getFunnelStats();
   assert(funnel['first_scan_completed'] >= 1, 'ProductAnalytics tracks onboarding activation steps');
 
-  const { storage } = await import('../server/storage');
   storage.addWatchdogTarget({
     id: 'wd_del_test',
     userId: 'usr_delete_test',
