@@ -41,6 +41,8 @@ import { AuthModal } from './components/AuthModal';
 import { TestimonialsWall, ReviewItem } from './components/TestimonialsWall';
 import { ReviewSubmissionModal } from './components/ReviewSubmissionModal';
 import { BlogHubView } from './components/BlogHubView';
+import { AboutLeadGuardModal } from './components/AboutLeadGuardModal';
+import { ServicesCatalogModal } from './components/ServicesCatalogModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('scanner');
@@ -71,6 +73,8 @@ export default function App() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isServicesOpen, setIsServicesOpen] = useState(false);
   const [customReviews, setCustomReviews] = useState<ReviewItem[]>([]);
 
   const handleAddReview = (newReview: Omit<ReviewItem, 'id' | 'approved' | 'date'>) => {
@@ -502,6 +506,8 @@ export default function App() {
         setActiveTab={setActiveTab}
         onOpenContact={() => setIsContactOpen(true)}
         onOpenAlerts={() => setIsAlertsOpen(true)}
+        onOpenAbout={() => setIsAboutOpen(true)}
+        onOpenServices={() => setIsServicesOpen(true)}
       />
 
       {/* 24-Hour Watchdog Modal */}
@@ -542,6 +548,20 @@ export default function App() {
         isOpen={isReviewModalOpen}
         onClose={() => setIsReviewModalOpen(false)}
         onSubmitReview={handleAddReview}
+      />
+
+      {/* About LeadGuard Story Modal */}
+      <AboutLeadGuardModal
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
+      />
+
+      {/* Detailed Services Catalog Modal */}
+      <ServicesCatalogModal
+        isOpen={isServicesOpen}
+        onClose={() => setIsServicesOpen(false)}
+        onOpenExpressFix={() => setIsExpressFixOpen(true)}
+        onOpenWatchdog={() => setIsWatchdogOpen(true)}
       />
 
       {/* Shareable Public Report Modal */}

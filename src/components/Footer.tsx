@@ -8,12 +8,16 @@ interface FooterProps {
   setActiveTab: (tab: AppTab) => void;
   onOpenContact: () => void;
   onOpenAlerts: () => void;
+  onOpenAbout?: () => void;
+  onOpenServices?: () => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({
   setActiveTab,
   onOpenContact,
   onOpenAlerts,
+  onOpenAbout,
+  onOpenServices,
 }) => {
   const { lang, setLang, t } = useLanguage();
   const [isLegalModalOpen, setIsLegalModalOpen] = useState(false);
@@ -101,8 +105,28 @@ export const Footer: React.FC<FooterProps> = ({
 
           {/* Quick Tools & Modules (Col 3) */}
           <div className="md:col-span-3 space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-white">Diagnostic Modules</h4>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-white">Company & Solutions</h4>
             <ul className="space-y-2 text-xs">
+              {onOpenAbout && (
+                <li>
+                  <button
+                    onClick={onOpenAbout}
+                    className="hover:text-rose-400 font-bold text-slate-200 transition-colors flex items-center gap-1"
+                  >
+                    <span>📖 About LeadGuard Story</span>
+                  </button>
+                </li>
+              )}
+              {onOpenServices && (
+                <li>
+                  <button
+                    onClick={onOpenServices}
+                    className="hover:text-rose-400 font-bold text-slate-200 transition-colors flex items-center gap-1"
+                  >
+                    <span>📋 Detailed Services Catalog</span>
+                  </button>
+                </li>
+              )}
               <li>
                 <button
                   onClick={() => { setActiveTab('scanner'); scrollToTop(); }}
@@ -133,14 +157,6 @@ export const Footer: React.FC<FooterProps> = ({
                   className="hover:text-rose-400 transition-colors"
                 >
                   Cart Death & Checkout Monitor
-                </button>
-              </li>
-              <li>
-                <button
-                  onClick={() => { setActiveTab('agency'); scrollToTop(); }}
-                  className="hover:text-rose-400 transition-colors"
-                >
-                  Agency Cold-Pitch & ROI Suite
                 </button>
               </li>
             </ul>
