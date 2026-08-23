@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Shield, TrendingDown, Layers, Radio, Zap, ChevronDown, Swords, MessageCircle, ShoppingCart, Crosshair, Phone, Globe, User, LogIn, LogOut, Wrench, Settings, CreditCard, ShieldCheck } from 'lucide-react';
+import { Shield, TrendingDown, Layers, Radio, Zap, ChevronDown, Swords, MessageCircle, ShoppingCart, Crosshair, Phone, Globe, User, LogIn, LogOut, Wrench, Settings, CreditCard, ShieldCheck, Sun, Moon, Monitor } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
+import { useTheme, ThemeMode } from '../context/ThemeContext';
 import { AuthModal } from './AuthModal';
 
 export type AppTab = 'scanner' | 'dashboard' | 'schedules' | 'sabotage-radar' | 'zero-intent' | 'cart-death' | 'hunter' | 'funnel' | 'agency' | 'watchdog' | 'pricing' | 'billing' | 'settings' | 'admin' | 'developer' | 'workspace';
@@ -11,6 +12,7 @@ interface NavbarProps {
   setActiveTab: (tab: AppTab) => void;
   onSelectSample: (domain: string) => void;
   onOpenContact: () => void;
+  onOpenAuth: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -18,11 +20,18 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   onSelectSample,
   onOpenContact,
+  onOpenAuth,
 }) => {
   const { lang, setLang, t } = useLanguage();
   const { user, profile, signOut, isAdmin } = useAuth();
+  const { theme, setTheme } = useTheme();
   const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState(false);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
+  const cycleTheme = () => {
+    const modes: ThemeMode[] = ['dark', 'light', 'system'];
+    const nextIndex = (modes.indexOf(theme) + 1) % modes.length;
+    setTheme(modes[nextIndex]);
+  };
 
   const primaryTabs = [
     { id: 'scanner', label: t('nav.liveAudit', 'Live Audit'), icon: Shield },
@@ -179,6 +188,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="uppercase">{lang === 'en' ? 'HI' : 'EN'}</span>
           </button>
 
+          {/* Theme Switcher (Day / Night / System) */}
+          <button
+            onClick={cycleTheme}
+            className="flex items-center gap-1.5 rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs font-bold text-slate-200 hover:border-slate-700 transition-colors shadow-sm whitespace-nowrap capitalize"
+            title={`Current Theme: ${theme}. Click to switch (Night / Day / System)`}
+          >
+            {theme === 'dark' && <Moon className="h-3.5 w-3.5 text-amber-300 shrink-0" />}
+            {theme === 'light' && <Sun className="h-3.5 w-3.5 text-amber-400 shrink-0" />}
+            {theme === 'system' && <Monitor className="h-3.5 w-3.5 text-cyan-400 shrink-0" />}
+            <span className="hidden sm:inline capitalize">{theme === 'dark' ? 'Night' : theme === 'light' ? 'Day' : 'System'}</span>
+          </button>
+
           {/* Help Contact Button (Clean Icon Only, No Raw Number) */}
           <button
             onClick={onOpenContact}
@@ -215,7 +236,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           ) : (
             <button
-              onClick={() => setIsAuthModalOpen(true)}
+              onClick={onOpenAuth}
               className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white px-3 py-1.5 text-xs font-semibold shadow-md shadow-rose-950/50 transition-all whitespace-nowrap active:scale-95"
             >
               <LogIn className="w-3.5 h-3.5" />
@@ -248,12 +269,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           );
         })}
       </div>
-
-      {/* Auth Modal */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-      />
     </header>
   );
 };

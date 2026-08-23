@@ -55,8 +55,8 @@ export const ContactUsModal: React.FC<ContactUsModalProps> = ({ isOpen, onClose 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-fade-in overflow-y-auto">
-      <div className="relative w-full max-w-xl rounded-3xl border border-rose-500/30 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 p-6 sm:p-8 shadow-2xl overflow-hidden my-auto max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-[100] grid place-items-center p-4 sm:p-6 bg-slate-950/85 backdrop-blur-md animate-fade-in overflow-y-auto">
+      <div className="relative w-full max-w-xl rounded-3xl border border-rose-500/30 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 p-6 sm:p-8 shadow-2xl overflow-hidden m-auto">
         
         {/* Decorative Glow */}
         <div className="absolute -top-10 -right-10 w-48 h-48 bg-rose-500/10 rounded-full blur-3xl pointer-events-none" />

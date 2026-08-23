@@ -37,6 +37,7 @@ import { LeadAuditPanel } from './components/LeadAuditPanel';
 import { ExecutiveDashboardView } from './components/ExecutiveDashboardView';
 import { SchedulesView } from './components/SchedulesView';
 import { MobileLinkSimulator } from './components/MobileLinkSimulator';
+import { AuthModal } from './components/AuthModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('scanner');
@@ -65,6 +66,7 @@ export default function App() {
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
 
   const fetchGlobalStats = async () => {
     try {
@@ -200,6 +202,7 @@ export default function App() {
           handleScan(domain);
         }}
         onOpenContact={() => setIsContactOpen(true)}
+        onOpenAuth={() => setIsAuthOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -494,6 +497,12 @@ export default function App() {
         isOpen={isAlertsOpen}
         onClose={() => setIsAlertsOpen(false)}
         domain={auditResult?.domain || activeUrl}
+      />
+
+      {/* Auth Modal (Rendered at root level for perfect viewport centering) */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
       />
 
       {/* Shareable Public Report Modal */}

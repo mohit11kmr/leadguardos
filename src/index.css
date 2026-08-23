@@ -23,6 +23,100 @@
   }
 }
 
+/* Premium LeadGuard OS Platinum Day Theme */
+html.light-mode {
+  color-scheme: light;
+}
+
+html.light-mode body {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+/* Header Navbar in Light Mode */
+html.light-mode header {
+  background-color: rgba(255, 255, 255, 0.94) !important;
+  border-bottom-color: rgba(225, 29, 72, 0.25) !important;
+}
+
+/* Primary Glass Cards in Light Mode */
+html.light-mode .bg-slate-950,
+html.light-mode .bg-slate-900 {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.05), 0 8px 10px -6px rgba(15, 23, 42, 0.03) !important;
+}
+
+html.light-mode .bg-slate-950\/80,
+html.light-mode .bg-slate-900\/80,
+html.light-mode .bg-slate-900\/90,
+html.light-mode .bg-slate-950\/90,
+html.light-mode .bg-slate-950\/70,
+html.light-mode .bg-slate-950\/85 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+/* Secondary Background Containers */
+html.light-mode .bg-slate-950\/50,
+html.light-mode .bg-slate-900\/60,
+html.light-mode .bg-slate-900\/40 {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Text Hierarchy in Light Mode */
+html.light-mode .text-white {
+  color: #0f172a !important;
+}
+
+html.light-mode .text-slate-100,
+html.light-mode .text-slate-200 {
+  color: #1e293b !important;
+}
+
+html.light-mode .text-slate-300,
+html.light-mode .text-slate-400 {
+  color: #475569 !important;
+}
+
+html.light-mode .text-slate-500 {
+  color: #64748b !important;
+}
+
+/* Input Fields in Light Mode */
+html.light-mode input,
+html.light-mode select,
+html.light-mode textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Borders */
+html.light-mode .border-slate-800,
+html.light-mode .border-slate-700 {
+  border-color: #e2e8f0 !important;
+}
+
+/* Rose & Emerald Tints in Light Mode */
+html.light-mode .bg-rose-500\/10,
+html.light-mode .bg-rose-950\/30,
+html.light-mode .bg-rose-950\/40 {
+  background-color: #fff1f2 !important;
+  color: #be123c !important;
+}
+
+html.light-mode .text-rose-300,
+html.light-mode .text-rose-400 {
+  color: #e11d48 !important;
+}
+
+html.light-mode .bg-emerald-500\/10,
+html.light-mode .bg-emerald-950\/30 {
+  background-color: #ecfdf5 !important;
+  color: #047857 !important;
+}
+
 /* Glassmorphism & Cyber Utilities */
 .glass-panel {
   background: rgba(11, 16, 28, 0.7);
