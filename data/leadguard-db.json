@@ -55,6 +55,106 @@
   ],
   "watchdogChecks": [
     {
+      "id": "chk_1787458384600",
+      "userId": "usr_tenant_A",
+      "domain": "tenant-a-domain.com",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-23T04:13:04.600Z",
+      "details": "getaddrinfo ENOTFOUND tenant-a-domain.com"
+    },
+    {
+      "id": "chk_1787458384576",
+      "domain": "test-example.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-23T04:13:04.576Z",
+      "details": "getaddrinfo ENOTFOUND test-example.in"
+    },
+    {
+      "id": "chk_1787458384514",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-23T04:13:04.514Z",
+      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787458324525",
+      "userId": "usr_tenant_A",
+      "domain": "tenant-a-domain.com",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-23T04:12:04.525Z",
+      "details": "getaddrinfo ENOTFOUND tenant-a-domain.com"
+    },
+    {
+      "id": "chk_1787458324492",
+      "domain": "test-example.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-23T04:12:04.492Z",
+      "details": "getaddrinfo ENOTFOUND test-example.in"
+    },
+    {
+      "id": "chk_1787458324465",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-23T04:12:04.465Z",
+      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787458264661",
+      "userId": "usr_tenant_A",
+      "domain": "tenant-a-domain.com",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-23T04:11:04.661Z",
+      "details": "getaddrinfo ENOTFOUND tenant-a-domain.com"
+    },
+    {
+      "id": "chk_1787458264546",
+      "domain": "test-example.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-23T04:11:04.546Z",
+      "details": "getaddrinfo ENOTFOUND test-example.in"
+    },
+    {
+      "id": "chk_1787458264512",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-23T04:11:04.512Z",
+      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
+      "id": "chk_1787458204524",
+      "userId": "usr_tenant_A",
+      "domain": "tenant-a-domain.com",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-23T04:10:04.524Z",
+      "details": "getaddrinfo ENOTFOUND tenant-a-domain.com"
+    },
+    {
+      "id": "chk_1787458204495",
+      "domain": "test-example.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-23T04:10:04.495Z",
+      "details": "getaddrinfo ENOTFOUND test-example.in"
+    },
+    {
+      "id": "chk_1787458204468",
+      "domain": "drsharmadental.in",
+      "check": "Connectivity & Server Probe",
+      "status": "FAIL (Unreachable)",
+      "timestamp": "2026-08-23T04:10:04.468Z",
+      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
+    },
+    {
       "id": "chk_1787458144624",
       "userId": "usr_tenant_A",
       "domain": "tenant-a-domain.com",
@@ -786,106 +886,6 @@
       "check": "Connectivity & Server Probe",
       "status": "FAIL (Unreachable)",
       "timestamp": "2026-08-23T03:37:04.424Z",
-      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
-    },
-    {
-      "id": "chk_1787456164896",
-      "userId": "usr_tenant_A",
-      "domain": "tenant-a-domain.com",
-      "check": "Connectivity & Server Probe",
-      "status": "FAIL (Unreachable)",
-      "timestamp": "2026-08-23T03:36:04.896Z",
-      "details": "getaddrinfo ENOTFOUND tenant-a-domain.com"
-    },
-    {
-      "id": "chk_1787456164682",
-      "domain": "test-example.in",
-      "check": "Connectivity & Server Probe",
-      "status": "FAIL (Unreachable)",
-      "timestamp": "2026-08-23T03:36:04.682Z",
-      "details": "getaddrinfo ENOTFOUND test-example.in"
-    },
-    {
-      "id": "chk_1787456164622",
-      "domain": "drsharmadental.in",
-      "check": "Connectivity & Server Probe",
-      "status": "FAIL (Unreachable)",
-      "timestamp": "2026-08-23T03:36:04.622Z",
-      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
-    },
-    {
-      "id": "chk_1787456104477",
-      "userId": "usr_tenant_A",
-      "domain": "tenant-a-domain.com",
-      "check": "Connectivity & Server Probe",
-      "status": "FAIL (Unreachable)",
-      "timestamp": "2026-08-23T03:35:04.477Z",
-      "details": "getaddrinfo ENOTFOUND tenant-a-domain.com"
-    },
-    {
-      "id": "chk_1787456104456",
-      "domain": "test-example.in",
-      "check": "Connectivity & Server Probe",
-      "status": "FAIL (Unreachable)",
-      "timestamp": "2026-08-23T03:35:04.456Z",
-      "details": "getaddrinfo ENOTFOUND test-example.in"
-    },
-    {
-      "id": "chk_1787456104435",
-      "domain": "drsharmadental.in",
-      "check": "Connectivity & Server Probe",
-      "status": "FAIL (Unreachable)",
-      "timestamp": "2026-08-23T03:35:04.435Z",
-      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
-    },
-    {
-      "id": "chk_1787456044465",
-      "userId": "usr_tenant_A",
-      "domain": "tenant-a-domain.com",
-      "check": "Connectivity & Server Probe",
-      "status": "FAIL (Unreachable)",
-      "timestamp": "2026-08-23T03:34:04.465Z",
-      "details": "getaddrinfo ENOTFOUND tenant-a-domain.com"
-    },
-    {
-      "id": "chk_1787456044442",
-      "domain": "test-example.in",
-      "check": "Connectivity & Server Probe",
-      "status": "FAIL (Unreachable)",
-      "timestamp": "2026-08-23T03:34:04.442Z",
-      "details": "getaddrinfo ENOTFOUND test-example.in"
-    },
-    {
-      "id": "chk_1787456044422",
-      "domain": "drsharmadental.in",
-      "check": "Connectivity & Server Probe",
-      "status": "FAIL (Unreachable)",
-      "timestamp": "2026-08-23T03:34:04.422Z",
-      "details": "getaddrinfo ENOTFOUND drsharmadental.in"
-    },
-    {
-      "id": "chk_1787455984603",
-      "userId": "usr_tenant_A",
-      "domain": "tenant-a-domain.com",
-      "check": "Connectivity & Server Probe",
-      "status": "FAIL (Unreachable)",
-      "timestamp": "2026-08-23T03:33:04.603Z",
-      "details": "getaddrinfo ENOTFOUND tenant-a-domain.com"
-    },
-    {
-      "id": "chk_1787455984555",
-      "domain": "test-example.in",
-      "check": "Connectivity & Server Probe",
-      "status": "FAIL (Unreachable)",
-      "timestamp": "2026-08-23T03:33:04.555Z",
-      "details": "getaddrinfo ENOTFOUND test-example.in"
-    },
-    {
-      "id": "chk_1787455984491",
-      "domain": "drsharmadental.in",
-      "check": "Connectivity & Server Probe",
-      "status": "FAIL (Unreachable)",
-      "timestamp": "2026-08-23T03:33:04.491Z",
       "details": "getaddrinfo ENOTFOUND drsharmadental.in"
     }
   ],

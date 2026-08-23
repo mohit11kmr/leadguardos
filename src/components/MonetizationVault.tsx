@@ -365,8 +365,8 @@ export const MonetizationVault: React.FC<MonetizationVaultProps> = ({
 
       {/* Interactive Checkout Modal (Razorpay / UPI Instant Simulation) */}
       {selectedPlanModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6 md:p-8 max-w-lg w-full space-y-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-sm animate-fade-in overflow-y-auto">
+          <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6 md:p-8 max-w-lg w-full space-y-6 shadow-2xl my-auto max-h-[90vh] overflow-y-auto">
             
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div>
