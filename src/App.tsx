@@ -38,6 +38,9 @@ import { ExecutiveDashboardView } from './components/ExecutiveDashboardView';
 import { SchedulesView } from './components/SchedulesView';
 import { MobileLinkSimulator } from './components/MobileLinkSimulator';
 import { AuthModal } from './components/AuthModal';
+import { TestimonialsWall, ReviewItem } from './components/TestimonialsWall';
+import { ReviewSubmissionModal } from './components/ReviewSubmissionModal';
+import { BlogHubView } from './components/BlogHubView';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('scanner');
@@ -67,6 +70,18 @@ export default function App() {
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [customReviews, setCustomReviews] = useState<ReviewItem[]>([]);
+
+  const handleAddReview = (newReview: Omit<ReviewItem, 'id' | 'approved' | 'date'>) => {
+    const item: ReviewItem = {
+      ...newReview,
+      id: `rev_${Date.now()}`,
+      date: new Date().toISOString().split('T')[0],
+      approved: true, // Auto-approve for demo
+    };
+    setCustomReviews((prev) => [item, ...prev]);
+  };
 
   const fetchGlobalStats = async () => {
     try {
@@ -463,6 +478,23 @@ export default function App() {
           </div>
         )}
 
+        {/* TAB 11: CLIENT REVIEWS WALL */}
+        {activeTab === 'reviews' && (
+          <div className="space-y-6">
+            <TestimonialsWall
+              onOpenReviewModal={() => setIsReviewModalOpen(true)}
+              customReviews={customReviews}
+            />
+          </div>
+        )}
+
+        {/* TAB 12: SEO KNOWLEDGE HUB & BLOG */}
+        {activeTab === 'blog' && (
+          <div className="space-y-6">
+            <BlogHubView onOpenExpressFix={() => setIsExpressFixOpen(true)} />
+          </div>
+        )}
+
       </main>
 
       {/* Modern High-End Comprehensive Footer with Contact Info & Copyright */}
@@ -503,6 +535,13 @@ export default function App() {
       <AuthModal
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
+      />
+
+      {/* Review Submission Modal */}
+      <ReviewSubmissionModal
+        isOpen={isReviewModalOpen}
+        onClose={() => setIsReviewModalOpen(false)}
+        onSubmitReview={handleAddReview}
       />
 
       {/* Shareable Public Report Modal */}

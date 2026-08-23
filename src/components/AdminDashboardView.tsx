@@ -101,6 +101,24 @@ export const AdminDashboardView: React.FC = () => {
           </div>
         </div>
 
+        {/* Pending Client Reviews Moderation Feed */}
+        <div className="space-y-3 pt-4 border-t border-slate-800">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-amber-400" />
+            Submitted Reviews Moderation Queue (Founder Approval)
+          </h3>
+
+          <div className="rounded-2xl border border-amber-500/30 bg-slate-950 p-4 space-y-3">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-300 font-semibold">User Review Moderation:</span>
+              <span className="text-emerald-400 font-bold text-[11px]">1-Click Approval Enabled</span>
+            </div>
+            <p className="text-xs text-slate-400">
+              User-submitted testimonials are held in moderation until approved by founder Mohit Sikarwar to prevent spam.
+            </p>
+          </div>
+        </div>
+
       </div>
 
     </div>

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { Shield, TrendingDown, Layers, Radio, Zap, ChevronDown, Swords, MessageCircle, ShoppingCart, Crosshair, Phone, Globe, User, LogIn, LogOut, Wrench, Settings, CreditCard, ShieldCheck, Sun, Moon, Monitor } from 'lucide-react';
+import { Shield, TrendingDown, Layers, Radio, Zap, ChevronDown, Swords, MessageCircle, ShoppingCart, Crosshair, Phone, Globe, User, LogIn, LogOut, Wrench, Settings, CreditCard, ShieldCheck, Sun, Moon, Monitor, Star } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, ThemeMode } from '../context/ThemeContext';
 import { AuthModal } from './AuthModal';
 
-export type AppTab = 'scanner' | 'dashboard' | 'schedules' | 'sabotage-radar' | 'zero-intent' | 'cart-death' | 'hunter' | 'funnel' | 'agency' | 'watchdog' | 'pricing' | 'billing' | 'settings' | 'admin' | 'developer' | 'workspace';
+export type AppTab = 'scanner' | 'dashboard' | 'schedules' | 'sabotage-radar' | 'zero-intent' | 'cart-death' | 'hunter' | 'funnel' | 'agency' | 'watchdog' | 'pricing' | 'billing' | 'settings' | 'admin' | 'developer' | 'workspace' | 'reviews' | 'blog';
 
 interface NavbarProps {
   activeTab: AppTab;
@@ -37,6 +37,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'scanner', label: t('nav.liveAudit', 'Live Audit'), icon: Shield },
     { id: 'watchdog', label: t('nav.watchdog', '24/7 Watchdog'), icon: Radio },
     { id: 'pricing', label: t('nav.pricing', 'Plans & Pricing'), icon: Zap },
+    { id: 'blog', label: 'Knowledge Hub', icon: Wrench },
+    { id: 'reviews', label: 'Client Reviews', icon: Star },
   ];
 
   const secondaryTools = [
