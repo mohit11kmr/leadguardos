@@ -22,12 +22,15 @@ export interface QueueJobPayload {
   finishedAt?: string;
   error?: string;
   result?: any;
+  deadLetter?: boolean;
 }
 
 export class JobQueueManager {
   private static instance: JobQueueManager | null = null;
   private queue: QueueJobPayload[] = [];
   private jobMap = new Map<string, QueueJobPayload>();
+  private activeConcurrency = 0;
+  private readonly maxConcurrency = 10;
 
   public static getInstance(): JobQueueManager {
     if (!JobQueueManager.instance) {
@@ -59,7 +62,16 @@ export class JobQueueManager {
   }
 
   public getNextJob(): QueueJobPayload | undefined {
-    return this.queue.shift();
+    if (this.activeConcurrency >= this.maxConcurrency) {
+      return undefined;
+    }
+    const job = this.queue.shift();
+    if (job) {
+      this.activeConcurrency++;
+      job.status = 'RUNNING';
+      job.startedAt = new Date().toISOString();
+    }
+    return job;
   }
 
   public getQueueDepth(): number {
@@ -69,13 +81,28 @@ export class JobQueueManager {
   public updateJobStatus(id: string, updates: Partial<QueueJobPayload>): void {
     const job = this.jobMap.get(id);
     if (job) {
+      if (job.status === 'RUNNING' && (updates.status === 'COMPLETED' || updates.status === 'FAILED' || updates.status === 'TIMED_OUT')) {
+        if (this.activeConcurrency > 0) this.activeConcurrency--;
+      }
       Object.assign(job, updates);
+    }
+  }
+
+  public markDeadLetter(id: string, errorReason: string): void {
+    const job = this.jobMap.get(id);
+    if (job) {
+      job.status = 'FAILED';
+      job.deadLetter = true;
+      job.error = errorReason;
+      job.finishedAt = new Date().toISOString();
+      if (this.activeConcurrency > 0) this.activeConcurrency--;
     }
   }
 
   public clear(): void {
     this.queue = [];
     this.jobMap.clear();
+    this.activeConcurrency = 0;
   }
 }
 

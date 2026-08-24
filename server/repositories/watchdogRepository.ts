@@ -358,18 +358,26 @@ export class WatchdogRepository implements IWatchdogRepository {
 
   /**
    * Release the distributed execution lease after probe completion.
+   * Ensures only the owning worker can release its active lease.
    */
   async releaseTargetLease(targetId: string, workerId: string): Promise<void> {
     if (isFirebaseConfigured()) {
       try {
         const db = getAdminDb();
         const docRef = db.collection('watchdogTargets').doc(targetId);
-        await docRef.update({
-          leaseOwner: FieldValue.delete(),
-          leaseExpiresAt: FieldValue.delete(),
+        await db.runTransaction(async (transaction) => {
+          const snap = await transaction.get(docRef);
+          if (!snap.exists) return;
+          const data = snap.data() as WatchdogTargetDocument;
+          if (data.leaseOwner === workerId) {
+            transaction.update(docRef, {
+              leaseOwner: FieldValue.delete(),
+              leaseExpiresAt: FieldValue.delete(),
+            });
+          }
         });
       } catch {
-        // Non-critical cleanup
+        // Non-critical cleanup fallback
       }
     }
 

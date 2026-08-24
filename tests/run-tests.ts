@@ -250,7 +250,7 @@ async function runTestSuite() {
 
   const { calculateTierPrice, verifyPaymentSignature, generateRazorpaySignature, verifyWebhookSignature, isPaymentBoundToOrder } = await import('../server/services/paymentService');
   const tierPrice = calculateTierPrice('tier-express-fix');
-  assert(tierPrice.priceINR === 4999, 'Payment service calculates server-side price for Express Fix = ₹4999');
+  assert(tierPrice.priceINR === 2999, 'Payment service calculates server-side price for Express Fix = ₹2999');
 
   const expectedSig = generateRazorpaySignature('ord_123', 'pay_456', 'test_secret');
   const validSig = verifyPaymentSignature('ord_123', 'pay_456', expectedSig, 'test_secret');

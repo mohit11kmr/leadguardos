@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { calculateTierPrice as calculateServerTierPrice, CENTRALIZED_PRICING_CATALOG } from '../config/pricing';
 
 export interface Order {
   orderId: string;
@@ -11,25 +12,30 @@ export interface Order {
   customerPhone?: string;
   customerEmail?: string;
   domain?: string;
-  status: 'CREATED' | 'PAYMENT_PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
+  status: 'CREATED' | 'PAYMENT_PENDING' | 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED' | 'CANCELLED';
   providerOrderId?: string;
   providerPaymentId?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export const TIER_PRICING: Record<string, { tierName: string; priceINR: number }> = {
-  'tier-express-fix': { tierName: 'Express 15-Min Lead Leak Fix', priceINR: 4999 },
-  'tier-agency-pro': { tierName: 'Agency Pro Radar & White Label', priceINR: 14999 },
-  'tier-watchdog-annual': { tierName: '24/7 Watchdog Annual Shield', priceINR: 9999 },
-};
+// In-memory idempotency key cache for payment webhooks
+const processedPaymentEvents = new Set<string>();
+
+export function isEventIdempotent(eventId: string): boolean {
+  if (processedPaymentEvents.has(eventId)) {
+    return false; // Event already processed
+  }
+  processedPaymentEvents.add(eventId);
+  return true;
+}
 
 export function calculateTierPrice(tierId: string): { tierName: string; priceINR: number } {
-  const item = TIER_PRICING[tierId];
-  if (!item) {
-    return { tierName: 'Custom Audit Shield', priceINR: 4999 };
-  }
-  return item;
+  const result = calculateServerTierPrice(tierId);
+  return {
+    tierName: result.config.name,
+    priceINR: result.amountINR,
+  };
 }
 
 export function generateRazorpaySignature(orderId: string, paymentId: string, secret: string): string {
@@ -58,20 +64,22 @@ export function isPaymentBoundToOrder(orderId: string, providerOrderId: string, 
   return Boolean(orderId && providerOrderId && providerOrderId === (storedProviderOrderId || orderId));
 }
 
-export function verifyWebhookSignature(
-  rawPayload: string | Buffer,
+export function verifyRazorpayWebhookSignature(
+  rawBody: string | Buffer,
   signature: string,
-  secret: string
+  webhookSecret: string
 ): boolean {
-  if (!rawPayload || !signature || !secret) return false;
-  const expectedSig = crypto
-    .createHmac('sha256', secret)
-    .update(rawPayload)
-    .digest('hex');
-
+  if (!rawBody || !signature || !webhookSecret) return false;
   try {
+    const payloadStr = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
+    const expectedSig = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(payloadStr)
+      .digest('hex');
     return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig));
   } catch {
     return false;
   }
 }
+
+export const verifyWebhookSignature = verifyRazorpayWebhookSignature;
