@@ -110,9 +110,7 @@ export class WatchdogRepository implements IWatchdogRepository {
         }
       } catch (err: any) {
         if (err?.message?.includes('Unauthorized')) throw err;
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
+        markFirestorePermissionDenied();
       }
     }
 
@@ -135,14 +133,13 @@ export class WatchdogRepository implements IWatchdogRepository {
           q = q.where('organizationId', '==', organizationId);
         }
 
-        const snap = await q.get();
-        if (!snap.empty) {
-          return snap.docs.map(d => d.data() as WatchdogTargetDocument);
-        }
+        const snapshot = await q.get();
+        const targets = snapshot.docs.map((doc) => doc.data() as WatchdogTargetDocument);
+
+        targets.forEach((t) => this.localTargets.set(t.id, t));
+        return targets;
       } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
+        markFirestorePermissionDenied();
       }
     }
 

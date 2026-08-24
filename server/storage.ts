@@ -105,7 +105,7 @@ export interface OrderRecord {
   customerPhone?: string;
   customerEmail?: string;
   domain?: string;
-  status: 'CREATED' | 'PAYMENT_PENDING' | 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
+  status: 'CREATED' | 'PAYMENT_PENDING' | 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED' | 'CANCELLED';
   providerOrderId?: string;
   providerPaymentId?: string;
   createdAt: string;

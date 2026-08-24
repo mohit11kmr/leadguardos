@@ -3,7 +3,8 @@ import { userRepository } from './repositories/userRepository';
 import { auditRepository } from './repositories/auditRepository';
 
 export interface AuthUserContext {
-  uid: string;
+  id?: string;
+  uid?: string;
   email?: string;
   role: 'USER' | 'AGENCY' | 'ADMIN';
   organizationId?: string;

@@ -39,10 +39,14 @@ export function initializeFirebaseAdmin(): { app: App; db: Firestore; auth: Auth
           }),
           projectId,
         });
-      } else {
+      } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE) {
         adminApp = initializeApp({
           projectId,
         });
+      } else {
+        // No GCP credentials present: Use fast local storage fallback
+        isFirestoreAvailable = false;
+        return null;
       }
     } else {
       adminApp = existingApps[0];
@@ -82,10 +86,11 @@ initializeFirebaseAdmin();
 export function markFirestorePermissionDenied(): void {
   isPermissionDenied = true;
   isFirestoreAvailable = false;
+  firestoreDb = null;
 }
 
 export function getAdminDb(): Firestore {
-  if (!firestoreDb) {
+  if (!firestoreDb || isPermissionDenied) {
     const res = initializeFirebaseAdmin();
     if (!res || !res.db) {
       throw new Error(`FIRESTORE_UNAVAILABLE: ${initError || 'Failed to initialize Firebase Admin Firestore instance'}`);
@@ -95,7 +100,7 @@ export function getAdminDb(): Firestore {
 }
 
 export function getAdminAuth(): Auth {
-  if (!adminAuth) {
+  if (!adminAuth || isPermissionDenied) {
     const res = initializeFirebaseAdmin();
     if (!res || !res.auth) {
       throw new Error(`FIREBASE_AUTH_UNAVAILABLE: ${initError || 'Failed to initialize Firebase Admin Auth instance'}`);

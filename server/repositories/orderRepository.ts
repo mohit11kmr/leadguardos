@@ -23,6 +23,7 @@ export interface OrderDocument extends OrderRecord {
 
 export interface IOrderRepository {
   createPendingOrder(orderData: Partial<OrderDocument>, userId?: string, userEmail?: string): Promise<OrderDocument>;
+  createOrder(orderData: Partial<OrderDocument>): Promise<OrderDocument>;
   getOrderById(orderId: string, userId?: string, isAdmin?: boolean): Promise<OrderDocument | undefined>;
   getOrders(userId?: string, organizationId?: string, isAdmin?: boolean): Promise<OrderDocument[]>;
   verifyAndMarkPaid(orderId: string, verification: PaymentVerificationInput | string, userId?: string): Promise<OrderDocument>;
@@ -31,6 +32,10 @@ export interface IOrderRepository {
 
 export class OrderRepository implements IOrderRepository {
   private localOrders: Map<string, OrderDocument> = new Map();
+
+  async createOrder(orderData: Partial<OrderDocument>): Promise<OrderDocument> {
+    return this.createPendingOrder(orderData);
+  }
 
   async createPendingOrder(
     orderData: Partial<OrderDocument>,
