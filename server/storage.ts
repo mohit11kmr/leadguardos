@@ -483,4 +483,8 @@ class StorageEngine {
   }
 }
 
+if (process.env.NODE_ENV === 'production' && process.env.STORAGE_MODE === 'local') {
+  throw new Error('FATAL_CONFIGURATION_ERROR: STORAGE_MODE=local is prohibited in production. Production must use Firestore or database source of truth.');
+}
+
 export const storage = new StorageEngine();

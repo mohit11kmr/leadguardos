@@ -350,6 +350,22 @@ Provide a sharp, 2-sentence executive summary in Hinglish (Hindi + English) expl
   }
 });
 
+// Public Shareable Audit Report endpoint (Token Scoped ONLY - No scanId fallback)
+app.get("/api/report/:token", (req: Request, res: Response) => {
+  const { token } = req.params;
+  const snapshotRes = reportManager.getSnapshot(token);
+  if (snapshotRes.error || !snapshotRes.snapshot) {
+    // Attempt lookup by publicToken in storage
+    const allScans = storage.getScansHistory(100);
+    const found = allScans.find(s => s.publicToken === token);
+    if (found) {
+      return res.json(toPublicAuditReport(found as any));
+    }
+    return sendError(res, 404, "NOT_FOUND", snapshotRes.error || "Public report snapshot not found or link expired.", req);
+  }
+  res.json(snapshotRes.snapshot);
+});
+
 // Retrieve cached scan report by ID (IDOR & Ownership Scoped)
 app.get("/api/scan/:id", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;

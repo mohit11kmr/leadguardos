@@ -18,7 +18,7 @@ export interface PublicAuditReport {
 export function toPublicAuditReport(report: AuditResult): PublicAuditReport {
   return {
     scanId: report.scanId,
-    publicToken: report.publicToken || report.scanId,
+    publicToken: report.publicToken,
     targetUrl: report.targetUrl,
     domain: report.domain,
     businessName: report.businessName,
