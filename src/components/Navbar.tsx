@@ -36,20 +36,20 @@ export const Navbar: React.FC<NavbarProps> = ({
   const primaryTabs = [
     { id: 'scanner', label: t('nav.liveAudit', 'Live Audit'), icon: Shield },
     { id: 'watchdog', label: t('nav.watchdog', '24/7 Watchdog'), icon: Radio },
+    { id: 'schedules', label: 'Automated Schedules', icon: Radio },
+    { id: 'cart-death', label: 'Cart Leakage', icon: ShoppingCart },
     { id: 'pricing', label: t('nav.pricing', 'Plans & Pricing'), icon: Zap },
-    { id: 'blog', label: 'Knowledge Hub', icon: Wrench },
     { id: 'reviews', label: 'Client Reviews', icon: Star },
   ];
 
   const secondaryTools = [
+    { id: 'blog', label: 'Knowledge Hub & Articles', description: 'B2B guides on fixing WhatsApp links & Meta Pixels', icon: Wrench },
     { id: 'dashboard', label: 'Executive Intelligence', description: 'Vulnerability trends & 7-day risk analysis', icon: TrendingDown },
-    { id: 'schedules', label: 'Automated Schedules', description: 'Configure 24/7 background audit timers', icon: Radio },
     { id: 'funnel', label: 'Funnel Simulator', description: 'Simulate ad spend dropoffs & conversion leaks', icon: TrendingDown },
     { id: 'workspace', label: 'Agency Workspace', description: 'Client management & white-label reports', icon: Layers },
     { id: 'developer', label: 'Developer Portal', description: 'REST API keys, webhooks & OpenAPI spec', icon: Wrench },
     { id: 'sabotage-radar', label: 'Competitive Monitor', description: 'Audit competitor landing pages & leaks', icon: Swords },
     { id: 'zero-intent', label: 'CTA & WhatsApp Analyzer', description: 'Check mobile chat links & drop-offs', icon: MessageCircle },
-    { id: 'cart-death', label: 'Cart Leakage Detector', description: 'Identify e-commerce checkout barriers', icon: ShoppingCart },
     { id: 'hunter', label: 'Prospect Hunter', description: 'Find & audit lead opportunities', icon: Crosshair },
   ];
 
@@ -84,8 +84,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Clean Structured Navigation Bar (3 Primary Tabs + Tools Dropdown) */}
-        <nav className="hidden lg:flex items-center gap-1.5 rounded-xl bg-slate-900/90 p-1 border border-slate-800 shadow-inner">
+        {/* Clean Structured Navigation Bar (Centered in Header) */}
+        <nav className="hidden lg:flex items-center justify-center gap-1.5 rounded-xl bg-slate-900/90 p-1 border border-slate-800 shadow-inner mx-auto">
           {primaryTabs.map((t) => {
             const Icon = t.icon;
             const isActive = activeTab === t.id;
