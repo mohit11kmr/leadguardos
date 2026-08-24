@@ -48,6 +48,7 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
 // ---------------------------------------------------------------------------
 // 1. Rate Limiting Middleware (IP-level bucket)
 // ---------------------------------------------------------------------------
+/** @classification CACHE-ONLY — acceptable for single-instance rate limiting. Multi-instance requires Redis/Firestore. */
 const ipRateBuckets = new Map<string, { count: number; resetAt: number }>();
 function rateLimiter(limitPerMin = 60) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -891,20 +892,9 @@ app.post("/api/scan-batch", requireAuth, rateLimiter(20), async (req: Request, r
           } catch (err: any) {
             const fallbackDomain = rawUrl.replace(/^https?:\/\//i, '').split('/')[0] || rawUrl;
             return {
-              scanId: `scan_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
               targetUrl: rawUrl,
               domain: fallbackDomain,
-              businessName: fallbackDomain,
-              score: 35,
-              estimatedMonthlyLoss: 22000,
-              adSpendRisk: "HIGH" as const,
-              whatsappStatus: "BROKEN" as const,
-              metaPixelStatus: "MISSING" as const,
-              ecommerceStatus: "NONE" as const,
-              primaryLeak: err?.message || "Server connection failed or response timeout",
-              shareableReportUrl: `${req.protocol}://${req.get('host')}/report/sample`,
-              coldWhatsAppPitch: `Namaste! We noticed your website ${fallbackDomain} is dropping connections during mobile visits.`,
-              coldEmailPitch: `Hello, ${fallbackDomain} is experiencing server response drops on mobile.`,
+              error: err?.message || "Server connection failed or response timeout",
               scannedAt: new Date().toISOString(),
               status: "ERROR",
             };
@@ -1117,6 +1107,31 @@ app.post("/api/payments/webhook", async (req: RawBodyRequest, res: Response) => 
     const orderId = eventData?.payment?.entity?.order_id;
     AuditLogger.log({ action: "PAYMENT_WEBHOOK_CAPTURED", resource: orderId || "WEBHOOK" });
     ProductAnalytics.track("payment_completed", "anon", { orderId });
+
+    // Fulfillment idempotency: activate entitlement ONLY ONCE
+    if (orderId) {
+      try {
+        const { fulfillmentRepository } = await import("./server/repositories/fulfillmentRepository");
+        const { orderRepository } = await import("./server/repositories/orderRepository");
+        const order = await orderRepository.getOrderById(orderId, undefined, true);
+        if (order) {
+          const fulfillmentType = order.tierId?.includes('agency') ? 'AGENCY_LICENSE'
+            : order.tierId?.includes('watchdog') ? 'WATCHDOG_SUBSCRIPTION'
+            : order.tierId?.includes('express') ? 'EXPRESS_FIX'
+            : 'GENERIC';
+          const fulfillment = await fulfillmentRepository.claimFulfillment(
+            orderId, fulfillmentType as any, order.userId, order.tierId
+          );
+          if (fulfillment) {
+            AuditLogger.log({ action: "FULFILLMENT_ACTIVATED_VIA_WEBHOOK", resource: orderId, details: { fulfillmentType } });
+          } else {
+            AuditLogger.log({ action: "FULFILLMENT_ALREADY_ACTIVATED", resource: orderId });
+          }
+        }
+      } catch (fulfillErr: any) {
+        AuditLogger.log({ action: "FULFILLMENT_ERROR", resource: orderId, details: { error: fulfillErr?.message } });
+      }
+    }
   }
 
   res.json({ status: "PROCESSED", event });

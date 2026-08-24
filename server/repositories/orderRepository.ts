@@ -2,13 +2,19 @@ import crypto from 'crypto';
 import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 import { OrderRecord } from '../storage';
 import { auditRepository } from './auditRepository';
-import { calculateTierPrice } from '../config/pricing';
+import { calculateTierPrice, CENTRALIZED_PRICING_CATALOG } from '../config/pricing';
+import { validatePaymentTransition, verifyPaymentAmount, transitionPaymentState, PaymentOrderStatus } from '../services/paymentStateMachine';
 
 export interface PaymentVerificationInput {
   paymentReference: string;
   provider?: string;
   signature?: string;
   providerOrderId?: string;
+  providerPaymentId?: string;
+  /** Amount in smallest currency unit (paise for INR) from provider event */
+  providerAmount?: number;
+  /** Currency code from provider event */
+  providerCurrency?: string;
 }
 
 export interface OrderDocument extends OrderRecord {
@@ -256,10 +262,38 @@ export class OrderRepository implements IOrderRepository {
       throw new Error(`UNSUPPORTED_PAYMENT_PROVIDER: Provider ${provider} is not recognized.`);
     }
 
+    // ── Amount & Currency Verification ──────────────────────────────────────
+    // Verify provider-reported amount matches server-authoritative pricing
+    if (finalStatus === 'PAID' && provider !== 'SANDBOX') {
+      const expectedPricing = calculateTierPrice(existing.tierId);
+      const providerAmount = input.providerAmount ?? existing.amountINR;
+      const providerCurrency = input.providerCurrency ?? 'INR';
+
+      verifyPaymentAmount(
+        expectedPricing.amountINR,
+        providerAmount,
+        expectedPricing.currency,
+        providerCurrency,
+        orderId,
+      );
+    }
+
+    // ── State Machine Validation ────────────────────────────────────────────
+    if (finalStatus === 'PAID') {
+      const currentStatus = (existing.status || 'PENDING') as PaymentOrderStatus;
+      await transitionPaymentState(orderId, currentStatus, 'PAID', {
+        provider,
+        userId: existing.userId || userId,
+        reason: statusReason,
+      });
+    }
+
     const updates: Partial<OrderDocument> = {
       status: finalStatus,
       statusReason,
       paymentReference: input.paymentReference,
+      providerPaymentId: input.providerPaymentId || input.paymentReference,
+      providerOrderId: input.providerOrderId || existing.providerOrderId,
       paymentVerifiedAt: finalStatus === 'PAID' ? now : undefined,
       updatedAt: now,
     };
@@ -310,9 +344,12 @@ export class OrderRepository implements IOrderRepository {
     const existing = this.localOrders.get(orderId);
     const now = new Date().toISOString();
 
-    // Prevent unsafe state transition: FAILED -> PAID without explicit provider override
-    if (existing && existing.status === 'FAILED' && status === 'PAID' && !overrideFailedGuard) {
-      throw new Error('INVALID_STATE_TRANSITION: Cannot transition FAILED order to PAID without verified provider event.');
+    // Use payment state machine for transition validation
+    if (existing) {
+      const currentStatus = (existing.status || 'CREATED') as PaymentOrderStatus;
+      if (!overrideFailedGuard) {
+        validatePaymentTransition(currentStatus, status as PaymentOrderStatus, orderId);
+      }
     }
 
     if (existing) {

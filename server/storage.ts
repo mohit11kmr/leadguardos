@@ -136,11 +136,12 @@ class StorageEngine {
   private webhooks: Map<string, WebhookConfig> = new Map();
   private orders: OrderRecord[] = [];
   private users: Map<string, UserAccount> = new Map();
+  /** @classification DEV-ONLY — production uses Firestore via statsRepository */
   private stats: SystemStats = {
-    totalScannedSites: 14820,
-    problemsFound: 38490,
-    healthySites: 2940,
-    fixedByLeadGuard: 11260,
+    totalScannedSites: 0,
+    problemsFound: 0,
+    healthySites: 0,
+    fixedByLeadGuard: 0,
     lastUpdated: new Date().toISOString(),
   };
 

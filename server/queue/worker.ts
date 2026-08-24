@@ -1,8 +1,6 @@
 import { jobQueue, QueueJobPayload } from './jobQueue';
 import { RetryPolicy } from './retryPolicy';
-import { executeLiveWebsiteScan } from '../scannerEngine';
-import { storage } from '../storage';
-import { generateRemediation } from '../services/ai.service';
+import { executeJobByType } from './executors/index';
 
 export class BackgroundWorker {
   private timer: NodeJS.Timeout | null = null;
@@ -29,7 +27,7 @@ export class BackgroundWorker {
     this.isProcessing = true;
 
     try {
-      while (this.activeCount < this.MAX_CONCURRENCY && await jobQueue.getQueueDepth() > 0) {
+      while (this.activeCount < this.MAX_CONCURRENCY) {
         const job = await jobQueue.claimNext(`embedded-worker-${process.pid}`);
         if (!job) break;
 
@@ -43,73 +41,39 @@ export class BackgroundWorker {
     }
   }
 
+  /**
+   * Execute a claimed job through the central executor registry.
+   * On failure: persist nextAttemptAt for durable retry (no setTimeout).
+   * On terminal failure: dead-letter the job.
+   */
   public async executeJob(job: QueueJobPayload): Promise<void> {
-    if (job.status !== 'QUEUED') return;
-    jobQueue.updateJobStatus(job.id, {
-      status: 'RUNNING',
-      attempt: job.attempt + 1,
-      startedAt: new Date().toISOString(),
-    });
-
     try {
-      let result: any = null;
+      const result = await executeJobByType(job);
 
-      switch (job.type) {
-        case 'scanBatch':
-        case 'sendNotification':
-        case 'generatePdf':
-          throw new Error(`Job type ${job.type} has no registered executor`);
-        case 'scanWebsite':
-          result = await executeLiveWebsiteScan(job.data.url, job.data.options);
-          break;
-
-        case 'sendWebhook':
-          const { safeFetch } = await import('../security/safeFetch');
-          await safeFetch(job.data.url, {
-            method: 'POST',
-            body: JSON.stringify(job.data.payload),
-            headers: job.data.headers,
-          });
-          result = { delivered: true };
-          break;
-
-        case 'aiAnalysis': {
-          const scan = storage.getScan(job.data.scanId);
-          if (!scan || (scan.userId && scan.userId !== job.userId)) {
-            throw new Error('AI job is not authorized for this scan');
-          }
-          const remediation = await generateRemediation(job.data.findings);
-          storage.updateScan(job.data.scanId, {
-            aiRemediation: { ...remediation, updatedAt: new Date().toISOString() },
-          });
-          if (remediation.status === 'FAILED') throw new Error(remediation.error || 'AI remediation failed');
-          result = remediation;
-          break;
-        }
-
-        default:
-          result = { status: 'PROCESSED', data: job.data };
-          break;
-      }
-
-      jobQueue.updateJobStatus(job.id, {
+      await jobQueue.updateJobStatus(job.id, {
         status: 'COMPLETED',
         finishedAt: new Date().toISOString(),
         result,
       });
     } catch (err: any) {
-      const canRetry = RetryPolicy.shouldRetry(err, job.attempt + 1, job.maxAttempts);
+      const errorMessage = err?.message || 'Job execution failed';
+      const canRetry = RetryPolicy.shouldRetry(err, job.attempt, job.maxAttempts);
 
       if (canRetry) {
-        const delay = RetryPolicy.getBackoffDelayMs(job.attempt + 1);
-        console.warn(`[Worker] Job ${job.id} failed (${err.message}). Retrying in ${delay}ms...`);
-        setTimeout(() => void jobQueue.updateJobStatus(job.id, { status: 'QUEUED', error: err?.message || 'Job execution failed' }), delay);
-      } else {
-        jobQueue.updateJobStatus(job.id, {
-          status: 'FAILED',
-          finishedAt: new Date().toISOString(),
-          error: err?.message || 'Job execution failed',
+        // Durable retry: persist nextAttemptAt directly — no setTimeout
+        const delayMs = RetryPolicy.getBackoffDelayMs(job.attempt);
+        const nextAttemptAt = new Date(Date.now() + delayMs).toISOString();
+        console.warn(`[Worker] Job ${job.id} failed (${errorMessage}). Durable retry scheduled at ${nextAttemptAt}`);
+
+        await jobQueue.updateJobStatus(job.id, {
+          status: 'QUEUED',
+          lastError: errorMessage,
+          error: errorMessage,
+          nextAttemptAt,
         });
+      } else {
+        console.error(`[Worker] Job ${job.id} permanently failed. Dead-lettering.`);
+        await jobQueue.markDeadLetter(job.id, errorMessage);
       }
     }
   }

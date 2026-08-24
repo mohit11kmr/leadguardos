@@ -19,14 +19,17 @@ export interface Order {
   updatedAt: string;
 }
 
-// In-memory idempotency key cache for payment webhooks
-const processedPaymentEvents = new Set<string>();
-
-export function isEventIdempotent(eventId: string): boolean {
-  if (processedPaymentEvents.has(eventId)) {
-    return false; // Event already processed
-  }
-  processedPaymentEvents.add(eventId);
+/**
+ * Payment event idempotency is handled durably by paymentEventRepository.claim().
+ * The previous in-memory Set has been removed — it was lost on process restart.
+ *
+ * @see server/repositories/paymentEventRepository.ts
+ * @deprecated Use paymentEventRepository.claim() directly
+ */
+export function isEventIdempotent(_eventId: string): boolean {
+  // This function is retained for backward compatibility but is a NO-OP.
+  // All callers should use paymentEventRepository.claim() instead.
+  console.warn('[PaymentService] isEventIdempotent() is deprecated. Use paymentEventRepository.claim() for durable idempotency.');
   return true;
 }
 

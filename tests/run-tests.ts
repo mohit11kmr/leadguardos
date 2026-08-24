@@ -643,6 +643,188 @@ async function runTestSuite() {
   assert(dbStatus.status === 'OK' && typeof queueDepth === 'number', 'Health & Readiness probes report healthy database and queue depth');
 
   // -------------------------------------------------------------------------
+  // 23. Payment State Machine Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 23: Payment State Machine');
+  const { validatePaymentTransition, verifyPaymentAmount } = await import('../server/services/paymentStateMachine');
+
+  // Valid transitions
+  let stateOk = true;
+  try { validatePaymentTransition('CREATED', 'PAYMENT_PENDING', 'test_order'); } catch { stateOk = false; }
+  assert(stateOk, 'CREATED → PAYMENT_PENDING is allowed');
+
+  stateOk = true;
+  try { validatePaymentTransition('PAYMENT_PENDING', 'PAID', 'test_order'); } catch { stateOk = false; }
+  assert(stateOk, 'PAYMENT_PENDING → PAID is allowed');
+
+  stateOk = true;
+  try { validatePaymentTransition('PAID', 'REFUNDED', 'test_order'); } catch { stateOk = false; }
+  assert(stateOk, 'PAID → REFUNDED is allowed');
+
+  // Invalid transitions
+  stateOk = false;
+  try { validatePaymentTransition('PAID', 'PAYMENT_PENDING', 'test_order'); } catch { stateOk = true; }
+  assert(stateOk, 'PAID → PAYMENT_PENDING is rejected');
+
+  stateOk = false;
+  try { validatePaymentTransition('CANCELLED', 'PAID', 'test_order'); } catch { stateOk = true; }
+  assert(stateOk, 'CANCELLED → PAID is rejected');
+
+  stateOk = false;
+  try { validatePaymentTransition('REFUNDED', 'PAID', 'test_order'); } catch { stateOk = true; }
+  assert(stateOk, 'REFUNDED → PAID is rejected');
+
+  stateOk = false;
+  try { validatePaymentTransition('FAILED', 'PAID', 'test_order'); } catch { stateOk = true; }
+  assert(stateOk, 'FAILED → PAID is rejected (requires provider override)');
+
+  // Amount/currency verification
+  let amountOk = true;
+  try { verifyPaymentAmount(2999, 2999, 'INR', 'INR', 'test_order'); } catch { amountOk = false; }
+  assert(amountOk, 'Matching amount and currency passes verification');
+
+  amountOk = false;
+  try { verifyPaymentAmount(2999, 1999, 'INR', 'INR', 'test_order'); } catch { amountOk = true; }
+  assert(amountOk, 'Mismatched amount is rejected');
+
+  amountOk = false;
+  try { verifyPaymentAmount(2999, 2999, 'INR', 'USD', 'test_order'); } catch { amountOk = true; }
+  assert(amountOk, 'Mismatched currency is rejected');
+
+  // -------------------------------------------------------------------------
+  // 24. Pricing Catalog Integrity Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 24: Pricing Catalog Integrity');
+  const { CENTRALIZED_PRICING_CATALOG, calculateTierPrice: calcPrice } = await import('../server/config/pricing');
+
+  assert(CENTRALIZED_PRICING_CATALOG['tier-express-fix'].amountINR === 2999, 'Express Fix price is ₹2,999');
+  assert(CENTRALIZED_PRICING_CATALOG['tier-express-fix'].currency === 'INR', 'Express Fix currency is INR');
+  assert(CENTRALIZED_PRICING_CATALOG['tier-watchdog-monthly'].amountINR === 299, 'Watchdog price is ₹299');
+  assert(CENTRALIZED_PRICING_CATALOG['tier-agency-monthly'].amountINR === 4999, 'Agency price is ₹4,999');
+
+  const tierResult = calcPrice('tier-express-fix');
+  assert(tierResult.amountINR === 2999 && tierResult.currency === 'INR', 'calculateTierPrice returns server-authoritative amount');
+
+  // Unknown tier falls back to express-fix (safety)
+  const unknownTier = calcPrice('tier-unknown-xyz');
+  assert(unknownTier.amountINR === 2999, 'Unknown tier falls back to express-fix pricing');
+
+  // -------------------------------------------------------------------------
+  // 25. Queue Crash Recovery & Durable Retry Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 25: Queue Crash Recovery & Durable Retry');
+  const { JobQueueManager, DEFAULT_LEASE_MS } = await import('../server/queue/jobQueue');
+  const testQueue = new JobQueueManager();
+
+  // Test 1: Normal job claim
+  const normalJob = await testQueue.enqueue('scanWebsite', { url: 'https://example.com' });
+  assert(normalJob.status === 'QUEUED' && normalJob.nextAttemptAt !== undefined, 'Enqueued job has QUEUED status and nextAttemptAt');
+
+  const claimed = await testQueue.claimNext('worker-1');
+  assert(claimed !== undefined && claimed.status === 'RUNNING' && claimed.workerId === 'worker-1', 'ClaimNext returns RUNNING job with workerId');
+  assert(claimed!.leaseExpiresAt !== undefined, 'Claimed job has lease expiry');
+
+  // Test 2: Crash recovery (simulate expired lease)
+  const crashJob = await testQueue.enqueue('scanWebsite', { url: 'https://crash-test.com' });
+  const claimedCrash = await testQueue.claimNext('worker-crash');
+  assert(claimedCrash !== undefined, 'Crash test job was claimed');
+
+  // Simulate crash by setting lease to past
+  if (claimedCrash) {
+    await testQueue.updateJobStatus(claimedCrash.id, {
+      leaseExpiresAt: new Date(Date.now() - 60000).toISOString(),
+    });
+  }
+
+  // Another worker should recover it
+  const recovered = await testQueue.claimNext('worker-recovery');
+  assert(
+    recovered !== undefined &&
+    recovered.workerId === 'worker-recovery' &&
+    recovered.previousWorkerId === 'worker-crash' &&
+    (recovered.recoveryCount || 0) > 0,
+    'Expired RUNNING job is recovered with correct metadata'
+  );
+
+  // Test 3: Durable retry with nextAttemptAt
+  const retryJob = await testQueue.enqueue('sendWebhook', { url: 'https://retry.com' });
+  const claimedRetry = await testQueue.claimNext('worker-retry');
+  if (claimedRetry) {
+    const futureTime = new Date(Date.now() + 60000).toISOString();
+    await testQueue.updateJobStatus(claimedRetry.id, {
+      status: 'QUEUED',
+      nextAttemptAt: futureTime,
+      lastError: 'transient failure',
+    });
+
+    // Should NOT be claimable yet (nextAttemptAt is in the future)
+    const prematureClaim = await testQueue.claimNext('worker-premature');
+    // The queue may return other jobs, so check this specific job isn't returned
+    assert(
+      prematureClaim === undefined || prematureClaim.id !== claimedRetry.id,
+      'Job with future nextAttemptAt is not claimable before its time'
+    );
+  }
+
+  // Test 4: Dead letter
+  const dlJob = await testQueue.enqueue('scanWebsite', { url: 'https://deadletter.com' });
+  await testQueue.markDeadLetter(dlJob.id, 'permanent failure');
+  const dlCheck = await testQueue.getJob(dlJob.id);
+  assert(
+    dlCheck?.status === 'DEAD_LETTER' && dlCheck.deadLetter === true,
+    'Dead-lettered job has DEAD_LETTER status'
+  );
+
+  // -------------------------------------------------------------------------
+  // 26. Fulfillment Idempotency Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 26: Fulfillment Idempotency');
+  const { fulfillmentRepository } = await import('../server/repositories/fulfillmentRepository');
+
+  const ful1 = await fulfillmentRepository.claimFulfillment('ord_test_123', 'EXPRESS_FIX', 'user1', 'tier-express-fix');
+  assert(ful1 !== null && ful1.status === 'ACTIVATED', 'First fulfillment claim activates');
+
+  const ful2 = await fulfillmentRepository.claimFulfillment('ord_test_123', 'EXPRESS_FIX', 'user1', 'tier-express-fix');
+  assert(ful2 === null, 'Duplicate fulfillment claim returns null (idempotent)');
+
+  // -------------------------------------------------------------------------
+  // 27. Payment Event Idempotency Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 27: Payment Event Idempotency');
+  const { paymentEventRepository } = await import('../server/repositories/paymentEventRepository');
+
+  const evt1 = await paymentEventRepository.claim({
+    provider: 'razorpay',
+    providerEventId: 'evt_test_001',
+    orderId: 'ord_1',
+    eventType: 'payment.captured',
+    payloadHash: 'hash_abc',
+  });
+  assert(evt1 === true, 'First payment event claim succeeds');
+
+  const evt2 = await paymentEventRepository.claim({
+    provider: 'razorpay',
+    providerEventId: 'evt_test_001',
+    orderId: 'ord_1',
+    eventType: 'payment.captured',
+    payloadHash: 'hash_abc',
+  });
+  assert(evt2 === false, 'Duplicate payment event claim returns false');
+
+  // -------------------------------------------------------------------------
+  // 28. Statistics Counter Tests
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 28: Statistics Counters');
+  const { statsRepository: statsRepo28 } = await import('../server/repositories/statsRepository');
+  await statsRepo28.recordScanCompleted(true, false, 3, true);
+  await statsRepo28.recordScanCompleted(false, true, 0, true);
+  await statsRepo28.recordScanCompleted(true, false, 1, false); // DEMO — should be excluded
+
+  const stats28 = await statsRepo28.getSystemStats();
+  assert(stats28.mode === 'LIVE', 'Stats report LIVE mode');
+  assert(stats28.isRealDatabaseData === true, 'Stats are marked as real database data');
+
+  // -------------------------------------------------------------------------
   // Final Results
   // -------------------------------------------------------------------------
   console.log('\n======================================================');

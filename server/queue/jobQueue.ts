@@ -9,7 +9,7 @@ export type JobType =
   | 'generatePdf'
   | 'aiAnalysis';
 
-export type JobStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'TIMED_OUT' | 'CANCELLED';
+export type JobStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'TIMED_OUT' | 'CANCELLED' | 'DEAD_LETTER';
 
 export interface QueueJobPayload {
   id: string;
@@ -25,9 +25,21 @@ export interface QueueJobPayload {
   leaseExpiresAt?: string;
   workerId?: string;
   error?: string;
+  lastError?: string;
   result?: any;
   deadLetter?: boolean;
+  /** ISO timestamp — job not claimable before this time (durable backoff) */
+  nextAttemptAt?: string;
+  /** Number of times this job was recovered from an expired RUNNING lease */
+  recoveryCount?: number;
+  /** workerId that held the job before crash recovery */
+  previousWorkerId?: string;
+  /** ISO timestamp when crash recovery last occurred */
+  recoveredAt?: string;
 }
+
+/** Default lease duration: 5 minutes */
+export const DEFAULT_LEASE_MS = 5 * 60_000;
 
 export interface QueueAdapter {
   enqueue(type: JobType, data: Record<string, any>, userId?: string, maxAttempts?: number, attempt?: number): Promise<QueueJobPayload>;
@@ -39,9 +51,12 @@ export interface QueueAdapter {
   clear(): Promise<void>;
 }
 
+/**
+ * In-memory queue adapter for development and testing.
+ * @classification DEV-ONLY — NOT used when NODE_ENV=production.
+ */
 export class JobQueueManager implements QueueAdapter {
   private static instance: JobQueueManager | null = null;
-  private queue: QueueJobPayload[] = [];
   private jobMap = new Map<string, QueueJobPayload>();
   private activeConcurrency = 0;
   private readonly maxConcurrency = 10;
@@ -55,6 +70,7 @@ export class JobQueueManager implements QueueAdapter {
 
   public async enqueue(type: JobType, data: Record<string, any>, userId?: string, maxAttempts = 3, attempt = 0): Promise<QueueJobPayload> {
     const id = `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const now = new Date().toISOString();
     const job: QueueJobPayload = {
       id,
       type,
@@ -63,10 +79,11 @@ export class JobQueueManager implements QueueAdapter {
       status: 'QUEUED',
       attempt,
       maxAttempts,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
+      nextAttemptAt: now,
+      recoveryCount: 0,
     };
 
-    this.queue.push(job);
     this.jobMap.set(id, job);
     return job;
   }
@@ -79,25 +96,58 @@ export class JobQueueManager implements QueueAdapter {
     if (this.activeConcurrency >= this.maxConcurrency) {
       return undefined;
     }
-    const job = this.queue.shift();
-    if (job) {
-      this.activeConcurrency++;
-      job.status = 'RUNNING';
-      job.workerId = workerId;
-      job.attempt++;
-      job.startedAt = new Date().toISOString();
+    const now = Date.now();
+    const nowISO = new Date().toISOString();
+
+    // Priority 1: QUEUED jobs where nextAttemptAt <= now
+    for (const job of this.jobMap.values()) {
+      if (job.status === 'QUEUED') {
+        const nextAt = job.nextAttemptAt ? new Date(job.nextAttemptAt).getTime() : 0;
+        if (nextAt <= now) {
+          this.activeConcurrency++;
+          job.status = 'RUNNING';
+          job.workerId = workerId;
+          job.attempt = (job.attempt || 0) + 1;
+          job.startedAt = nowISO;
+          job.leaseExpiresAt = new Date(now + DEFAULT_LEASE_MS).toISOString();
+          return job;
+        }
+      }
     }
-    return job;
+
+    // Priority 2: RUNNING jobs with expired lease (crash recovery)
+    for (const job of this.jobMap.values()) {
+      if (job.status === 'RUNNING' && job.leaseExpiresAt) {
+        const leaseExp = new Date(job.leaseExpiresAt).getTime();
+        if (leaseExp < now) {
+          this.activeConcurrency++;
+          job.previousWorkerId = job.workerId;
+          job.workerId = workerId;
+          job.attempt = (job.attempt || 0) + 1;
+          job.startedAt = nowISO;
+          job.leaseExpiresAt = new Date(now + DEFAULT_LEASE_MS).toISOString();
+          job.recoveryCount = (job.recoveryCount || 0) + 1;
+          job.recoveredAt = nowISO;
+          return job;
+        }
+      }
+    }
+
+    return undefined;
   }
 
   public async getQueueDepth(): Promise<number> {
-    return this.queue.length;
+    let count = 0;
+    for (const job of this.jobMap.values()) {
+      if (job.status === 'QUEUED') count++;
+    }
+    return count;
   }
 
   public async updateJobStatus(id: string, updates: Partial<QueueJobPayload>): Promise<void> {
     const job = this.jobMap.get(id);
     if (job) {
-      if (job.status === 'RUNNING' && (updates.status === 'COMPLETED' || updates.status === 'FAILED' || updates.status === 'TIMED_OUT')) {
+      if (job.status === 'RUNNING' && (updates.status === 'COMPLETED' || updates.status === 'FAILED' || updates.status === 'TIMED_OUT' || updates.status === 'DEAD_LETTER')) {
         if (this.activeConcurrency > 0) this.activeConcurrency--;
       }
       Object.assign(job, updates);
@@ -107,7 +157,7 @@ export class JobQueueManager implements QueueAdapter {
   public async markDeadLetter(id: string, errorReason: string): Promise<void> {
     const job = this.jobMap.get(id);
     if (job) {
-      job.status = 'FAILED';
+      job.status = 'DEAD_LETTER';
       job.deadLetter = true;
       job.error = errorReason;
       job.finishedAt = new Date().toISOString();
@@ -116,12 +166,15 @@ export class JobQueueManager implements QueueAdapter {
   }
 
   public async clear(): Promise<void> {
-    this.queue = [];
     this.jobMap.clear();
     this.activeConcurrency = 0;
   }
 }
 
+/**
+ * Firestore-backed durable queue adapter.
+ * Production authority for job state, retry scheduling, and crash recovery.
+ */
 class FirestoreQueueAdapter implements QueueAdapter {
   private readonly collection = 'jobExecutions';
 
@@ -132,8 +185,24 @@ class FirestoreQueueAdapter implements QueueAdapter {
   }
 
   async enqueue(type: JobType, data: Record<string, any>, userId?: string, maxAttempts = 3, attempt = 0) {
-    const job: QueueJobPayload = { id: `job_${crypto.randomUUID()}`, type, userId, data, status: 'QUEUED', attempt, maxAttempts, createdAt: new Date().toISOString() };
-    await this.getDb().collection(this.collection).doc(job.id).create({ ...job, deduplicationKey: job.id, deadLetter: false });
+    const now = new Date().toISOString();
+    const job: QueueJobPayload = {
+      id: `job_${crypto.randomUUID()}`,
+      type,
+      userId,
+      data,
+      status: 'QUEUED',
+      attempt,
+      maxAttempts,
+      createdAt: now,
+      nextAttemptAt: now,
+      recoveryCount: 0,
+    };
+    await this.getDb().collection(this.collection).doc(job.id).create({
+      ...job,
+      deduplicationKey: job.id,
+      deadLetter: false,
+    });
     return job;
   }
 
@@ -142,25 +211,105 @@ class FirestoreQueueAdapter implements QueueAdapter {
     return snapshot.exists ? snapshot.data() as QueueJobPayload : undefined;
   }
 
-  async claimNext(workerId: string) {
+  /**
+   * Claims the next available job, implementing two-phase lookup:
+   * 1. QUEUED jobs where nextAttemptAt <= now (normal + retry)
+   * 2. RUNNING jobs where leaseExpiresAt < now (crash recovery)
+   *
+   * Both operations are transactional to prevent double-claiming.
+   */
+  async claimNext(workerId: string): Promise<QueueJobPayload | undefined> {
     const db = this.getDb();
-    const snapshot = await db.collection(this.collection).where('status', '==', 'QUEUED').orderBy('createdAt').limit(1).get();
-    if (snapshot.empty) return undefined;
-    const ref = snapshot.docs[0].ref;
-    return db.runTransaction(async (transaction: any) => {
-      const current = await transaction.get(ref);
-      const data = current.data();
-      if (!current.exists || data?.status !== 'QUEUED') return undefined;
-      const claimed = { ...data, status: 'RUNNING', workerId, attempt: (data.attempt || 0) + 1, startedAt: new Date().toISOString(), leaseExpiresAt: new Date(Date.now() + 5 * 60_000).toISOString() };
-      transaction.update(ref, claimed);
-      return claimed as QueueJobPayload;
+    const nowISO = new Date().toISOString();
+    const leaseExpiresAt = new Date(Date.now() + DEFAULT_LEASE_MS).toISOString();
+
+    // Phase 1: Try to claim a QUEUED job that is ready (nextAttemptAt <= now)
+    const queuedSnap = await db.collection(this.collection)
+      .where('status', '==', 'QUEUED')
+      .where('nextAttemptAt', '<=', nowISO)
+      .orderBy('nextAttemptAt')
+      .limit(1)
+      .get();
+
+    if (!queuedSnap.empty) {
+      const ref = queuedSnap.docs[0].ref;
+      const claimed = await db.runTransaction(async (transaction: any) => {
+        const current = await transaction.get(ref);
+        const data = current.data();
+        if (!current.exists || data?.status !== 'QUEUED') return undefined;
+        // Re-check nextAttemptAt inside transaction
+        const nextAt = data.nextAttemptAt ? new Date(data.nextAttemptAt).getTime() : 0;
+        if (nextAt > Date.now()) return undefined;
+
+        const updates = {
+          status: 'RUNNING',
+          workerId,
+          attempt: (data.attempt || 0) + 1,
+          startedAt: nowISO,
+          leaseExpiresAt,
+        };
+        transaction.update(ref, updates);
+        return { ...data, ...updates } as QueueJobPayload;
+      });
+      if (claimed) return claimed;
+    }
+
+    // Phase 2: Try to recover an expired RUNNING job (crash recovery)
+    const expiredSnap = await db.collection(this.collection)
+      .where('status', '==', 'RUNNING')
+      .where('leaseExpiresAt', '<', nowISO)
+      .orderBy('leaseExpiresAt')
+      .limit(1)
+      .get();
+
+    if (!expiredSnap.empty) {
+      const ref = expiredSnap.docs[0].ref;
+      const recovered = await db.runTransaction(async (transaction: any) => {
+        const current = await transaction.get(ref);
+        const data = current.data();
+        if (!current.exists || data?.status !== 'RUNNING') return undefined;
+        // Re-check lease expiry inside transaction
+        const leaseExp = data.leaseExpiresAt ? new Date(data.leaseExpiresAt).getTime() : Infinity;
+        if (leaseExp >= Date.now()) return undefined;
+
+        const updates = {
+          workerId,
+          previousWorkerId: data.workerId,
+          attempt: (data.attempt || 0) + 1,
+          startedAt: nowISO,
+          leaseExpiresAt,
+          recoveryCount: (data.recoveryCount || 0) + 1,
+          recoveredAt: nowISO,
+        };
+        transaction.update(ref, updates);
+        return { ...data, ...updates } as QueueJobPayload;
+      });
+      if (recovered) return recovered;
+    }
+
+    return undefined;
+  }
+
+  async updateJobStatus(id: string, updates: Partial<QueueJobPayload>) {
+    await this.getDb().collection(this.collection).doc(id).set(updates, { merge: true });
+  }
+
+  async markDeadLetter(id: string, errorReason: string) {
+    await this.updateJobStatus(id, {
+      status: 'DEAD_LETTER',
+      deadLetter: true,
+      error: errorReason,
+      finishedAt: new Date().toISOString(),
     });
   }
 
-  async updateJobStatus(id: string, updates: Partial<QueueJobPayload>) { await this.getDb().collection(this.collection).doc(id).set(updates, { merge: true }); }
-  async markDeadLetter(id: string, errorReason: string) { await this.updateJobStatus(id, { status: 'FAILED', deadLetter: true, error: errorReason, finishedAt: new Date().toISOString() }); }
-  async getQueueDepth() { return (await this.getDb().collection(this.collection).where('status', '==', 'QUEUED').count().get()).data().count; }
-  async clear() { throw new Error('DURABLE_QUEUE_CLEAR_DISABLED'); }
+  async getQueueDepth() {
+    return (await this.getDb().collection(this.collection).where('status', '==', 'QUEUED').count().get()).data().count;
+  }
+
+  async clear() {
+    throw new Error('DURABLE_QUEUE_CLEAR_DISABLED');
+  }
 }
 
 export const jobQueue: QueueAdapter = process.env.NODE_ENV === 'production' ? new FirestoreQueueAdapter() : JobQueueManager.getInstance();

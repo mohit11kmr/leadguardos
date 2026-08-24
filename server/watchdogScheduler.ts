@@ -3,6 +3,7 @@ import { storage, WatchdogTarget } from './storage';
 import { executeLiveWebsiteScan } from './scannerEngine';
 import { safeFetch } from './security/safeFetch';
 import { jobQueue } from './queue/jobQueue';
+import { watchdogRepository } from './repositories/watchdogRepository';
 
 export interface WatchdogJob {
   jobId: string;
@@ -20,6 +21,7 @@ export interface WatchdogJob {
 export class WatchdogScheduler {
   private timer: NodeJS.Timeout | null = null;
   private isRunningCheck = false;
+  /** @classification CACHE-ONLY — actual probe dedup uses Firestore-backed acquireTargetLease() */
   private activeJobs = new Map<string, WatchdogJob>();
 
   public start(intervalMs = 60000) {
@@ -48,9 +50,20 @@ export class WatchdogScheduler {
 
     try {
       await this.enqueueDueSchedules();
-      const targets = storage.getWatchdogTargets().filter(
-        t => t.status === 'ACTIVE_TRIAL' || t.status === 'ACTIVE_SUBSCRIPTION'
-      );
+
+      // Use repository layer for production-safe target listing
+      let targets: WatchdogTarget[];
+      try {
+        const repoTargets = await watchdogRepository.getTargets(undefined, undefined, true);
+        targets = repoTargets.filter(
+          (t: any) => (t.status === 'ACTIVE_TRIAL' || t.status === 'ACTIVE_SUBSCRIPTION') && t.mode !== 'DEMO'
+        ) as WatchdogTarget[];
+      } catch {
+        // Fallback to local storage for development
+        targets = storage.getWatchdogTargets().filter(
+          t => t.status === 'ACTIVE_TRIAL' || t.status === 'ACTIVE_SUBSCRIPTION'
+        );
+      }
 
       if (targets.length === 0) {
         this.isRunningCheck = false;

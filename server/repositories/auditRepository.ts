@@ -22,6 +22,8 @@ export interface AuditLogEntry {
     | 'AUTH_LOGIN'
     | 'AUTH_FAILURE'
     | 'ADMIN_ACTION'
+    | 'PAYMENT_STATE_TRANSITION'
+    | 'FULFILLMENT_ACTIVATED'
     | 'SSRF_BLOCKED';
   userId?: string;
   userEmail?: string;

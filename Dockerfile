@@ -36,4 +36,13 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
 
-CMD ["node", "dist/server.cjs"]
+# Support API and WORKER modes via LEADGUARD_MODE env var.
+# Default: api (serves HTTP API + embedded worker)
+# Set LEADGUARD_MODE=worker to run standalone worker process
+ENV LEADGUARD_MODE=api
+
+CMD if [ "$LEADGUARD_MODE" = "worker" ]; then \
+      echo "Starting LeadGuard OS Worker..." && node dist/worker.cjs; \
+    else \
+      echo "Starting LeadGuard OS API..." && node dist/server.cjs; \
+    fi
