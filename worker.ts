@@ -13,8 +13,8 @@ async function processJob(job: QueueJobPayload): Promise<void> {
   try {
     switch (job.type) {
       case 'scanWebsite': {
-        const { domain, options } = job.data;
-        const result = await executeLiveWebsiteScan(domain, options);
+        const { domain, url, options } = job.data;
+        const result = await executeLiveWebsiteScan(domain || url, options);
         jobQueue.updateJobStatus(job.id, {
           status: 'COMPLETED',
           result,
@@ -41,40 +41,34 @@ async function processJob(job: QueueJobPayload): Promise<void> {
             }),
           });
         }
-        jobQueue.updateJobStatus(job.id, {
-          status: 'COMPLETED',
-          finishedAt: new Date().toISOString(),
-        });
+          await jobQueue.updateJobStatus(job.id, { status: 'COMPLETED', finishedAt: new Date().toISOString() });
         break;
       }
 
-      default: {
-        jobQueue.updateJobStatus(job.id, {
-          status: 'COMPLETED',
-          finishedAt: new Date().toISOString(),
-        });
-        break;
-      }
+      case 'scanBatch':
+      case 'sendWebhook':
+      case 'sendNotification':
+      case 'generatePdf':
+      case 'aiAnalysis':
+        throw new Error(`Job type ${job.type} is not registered in standalone worker`);
+      default:
+        throw new Error(`Unknown job type: ${String(job.type)}`);
     }
   } catch (err: any) {
     const errorMsg = err?.message || String(err);
     if (job.attempt < job.maxAttempts) {
       console.warn(`[Worker] Job ${job.id} failed attempt ${job.attempt + 1}. Retrying...`);
-      jobQueue.updateJobStatus(job.id, {
-        status: 'QUEUED',
-        attempt: job.attempt + 1,
-        error: errorMsg,
-      });
+        await jobQueue.updateJobStatus(job.id, { status: 'QUEUED', attempt: job.attempt + 1, error: errorMsg });
     } else {
       console.error(`[Worker] Job ${job.id} failed permanently. Sending to dead-letter queue.`);
-      jobQueue.markDeadLetter(job.id, errorMsg);
+        await jobQueue.markDeadLetter(job.id, errorMsg);
     }
   }
 }
 
 async function workerLoop(): Promise<void> {
   while (isRunning) {
-    const job = jobQueue.getNextJob();
+    const job = await jobQueue.claimNext(`worker-${process.pid}`);
     if (job) {
       await processJob(job);
     } else {

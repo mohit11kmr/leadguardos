@@ -18,6 +18,7 @@ import { calculateTierPrice, isPaymentBoundToOrder, verifyPaymentSignature, veri
 import { validateEnvironment } from "./server/config/envValidator";
 import { toPublicAuditReport } from "./server/reports/publicReport";
 import { shouldRecordGlobalStats } from "./server/observability/statsPolicy";
+import { reportRepository } from "./server/repositories/reportRepository";
 
 dotenv.config();
 validateEnvironment();
@@ -28,7 +29,6 @@ interface RawBodyRequest extends Request {
 
 const app = express();
 const PORT = 3000;
-const processedPaymentWebhookIds = new Set<string>();
 const WATCHDOG_CHANNELS = new Set(["TELEGRAM", "WHATSAPP", "EMAIL"]);
 const WATCHDOG_FREQUENCIES = new Set(["DAILY", "HOURLY", "WEEKLY", "15MIN"]);
 
@@ -351,19 +351,11 @@ Provide a sharp, 2-sentence executive summary in Hinglish (Hindi + English) expl
 });
 
 // Public Shareable Audit Report endpoint (Token Scoped ONLY - No scanId fallback)
-app.get("/api/report/:token", (req: Request, res: Response) => {
+app.get("/api/report/:token", async (req: Request, res: Response) => {
   const { token } = req.params;
-  const snapshotRes = reportManager.getSnapshot(token);
-  if (snapshotRes.error || !snapshotRes.snapshot) {
-    // Attempt lookup by publicToken in storage
-    const allScans = storage.getScansHistory(100);
-    const found = allScans.find(s => s.publicToken === token);
-    if (found) {
-      return res.json(toPublicAuditReport(found as any));
-    }
-    return sendError(res, 404, "NOT_FOUND", snapshotRes.error || "Public report snapshot not found or link expired.", req);
-  }
-  res.json(snapshotRes.snapshot);
+  const report = await reportRepository.getPublicReportByToken(token);
+  if (!report) return sendError(res, 404, "NOT_FOUND", "Public report not found.", req);
+  res.json(report);
 });
 
 // Retrieve cached scan report by ID (IDOR & Ownership Scoped)
@@ -964,7 +956,7 @@ app.get("/api/health", (_req: Request, res: Response) => {
 app.get("/api/ready", async (_req: Request, res: Response) => {
   try {
     const dbHealth = await db.checkHealth();
-    const queueDepth = jobQueue.getQueueDepth();
+    const queueDepth = await jobQueue.getQueueDepth();
     const memoryUsage = process.memoryUsage();
 
     res.json({
@@ -1019,8 +1011,8 @@ app.post("/api/queue/enqueue", requireAuth, async (req: AuthenticatedRequest, re
   res.json({ jobId: job.id, status: job.status, createdAt: job.createdAt });
 });
 
-app.get("/api/queue/job/:id", requireAuth, (req: Request, res: Response) => {
-  const job = jobQueue.getJob(req.params.id);
+app.get("/api/queue/job/:id", requireAuth, async (req: Request, res: Response) => {
+  const job = await jobQueue.getJob(req.params.id);
   if (!job) return res.status(404).json({ error: "Job not found" });
   const user = (req as AuthenticatedRequest).user;
   if (job.userId && user?.id !== job.userId && user?.role !== "ADMIN") {
@@ -1097,7 +1089,7 @@ app.get("/api/admin/overview", requireAuth, requireRole("ADMIN"), (req: Authenti
 });
 
 // 5. Authoritative Razorpay Payment Webhook
-app.post("/api/payments/webhook", (req: RawBodyRequest, res: Response) => {
+app.post("/api/payments/webhook", async (req: RawBodyRequest, res: Response) => {
   const signature = req.headers["x-razorpay-signature"] as string;
   const payload = req.rawBody || Buffer.from(JSON.stringify(req.body));
 
@@ -1114,14 +1106,11 @@ app.post("/api/payments/webhook", (req: RawBodyRequest, res: Response) => {
 
   const { event, payload: eventData } = req.body;
   const eventId = typeof req.body?.id === "string" ? req.body.id : undefined;
+  if (!eventId && process.env.NODE_ENV === "production") return res.status(400).json({ error: "Missing provider event id" });
   if (eventId) {
-    if (processedPaymentWebhookIds.has(eventId)) {
-      return res.json({ status: "DUPLICATE_IGNORED", event });
-    }
-    processedPaymentWebhookIds.add(eventId);
-    if (processedPaymentWebhookIds.size > 1000) {
-      processedPaymentWebhookIds.clear();
-    }
+    const { paymentEventRepository } = await import("./server/repositories/paymentEventRepository");
+    const claimed = await paymentEventRepository.claim({ provider: "razorpay", providerEventId: eventId, orderId: eventData?.payment?.entity?.order_id, eventType: event || "unknown", payloadHash: crypto.createHash("sha256").update(payload).digest("hex") });
+    if (!claimed) return res.json({ status: "DUPLICATE_IGNORED", event });
   }
 
   if (event === "payment.captured") {

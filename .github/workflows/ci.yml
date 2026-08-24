@@ -29,3 +29,9 @@ jobs:
 
       - name: Production Build Verification
         run: npm run build
+
+      - name: Dependency Audit
+        run: npm audit --audit-level=high
+
+      - name: Docker Build Verification
+        run: docker build --tag leadguardos:ci .

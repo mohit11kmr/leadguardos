@@ -29,8 +29,8 @@ export class BackgroundWorker {
     this.isProcessing = true;
 
     try {
-      while (this.activeCount < this.MAX_CONCURRENCY && jobQueue.getQueueDepth() > 0) {
-        const job = jobQueue.getNextJob();
+      while (this.activeCount < this.MAX_CONCURRENCY && await jobQueue.getQueueDepth() > 0) {
+        const job = await jobQueue.claimNext(`embedded-worker-${process.pid}`);
         if (!job) break;
 
         this.activeCount++;
@@ -55,6 +55,10 @@ export class BackgroundWorker {
       let result: any = null;
 
       switch (job.type) {
+        case 'scanBatch':
+        case 'sendNotification':
+        case 'generatePdf':
+          throw new Error(`Job type ${job.type} has no registered executor`);
         case 'scanWebsite':
           result = await executeLiveWebsiteScan(job.data.url, job.data.options);
           break;
@@ -99,9 +103,7 @@ export class BackgroundWorker {
       if (canRetry) {
         const delay = RetryPolicy.getBackoffDelayMs(job.attempt + 1);
         console.warn(`[Worker] Job ${job.id} failed (${err.message}). Retrying in ${delay}ms...`);
-        setTimeout(() => {
-          jobQueue.enqueue(job.type, job.data, job.userId, job.maxAttempts, job.attempt);
-        }, delay);
+        setTimeout(() => void jobQueue.updateJobStatus(job.id, { status: 'QUEUED', error: err?.message || 'Job execution failed' }), delay);
       } else {
         jobQueue.updateJobStatus(job.id, {
           status: 'FAILED',

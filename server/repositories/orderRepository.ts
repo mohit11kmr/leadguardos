@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 import { OrderRecord } from '../storage';
 import { auditRepository } from './auditRepository';
+import { calculateTierPrice } from '../config/pricing';
 
 export interface PaymentVerificationInput {
   paymentReference: string;
@@ -44,13 +45,15 @@ export class OrderRepository implements IOrderRepository {
   ): Promise<OrderDocument> {
     const orderId = orderData.orderId || `ord_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const now = new Date().toISOString();
+    const tierId = orderData.tierId || 'tier-express-fix';
+    const tier = calculateTierPrice(tierId);
 
     // Security rule: Newly submitted orders MUST ALWAYS start as PENDING
     const docData: OrderDocument = {
       orderId,
-      tierId: orderData.tierId || 'tier-express-fix',
-      tierName: orderData.tierName || 'Express Fix',
-      amountINR: orderData.amountINR || 4999,
+      tierId,
+      tierName: tier.config.name,
+      amountINR: tier.amountINR,
       paymentMethod: orderData.paymentMethod || 'UPI',
       customerName: orderData.customerName,
       customerPhone: orderData.customerPhone,

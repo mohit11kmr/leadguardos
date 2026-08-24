@@ -93,7 +93,7 @@ export class WatchdogScheduler {
         continue;
       }
       if (nextRunMs > now) continue;
-      const existingJob = schedule.jobId ? jobQueue.getJob(schedule.jobId) : undefined;
+      const existingJob = schedule.jobId ? await jobQueue.getJob(schedule.jobId) : undefined;
       if (existingJob?.status === 'QUEUED' || existingJob?.status === 'RUNNING') continue;
       const job = await jobQueue.enqueue('scanWebsite', { url: schedule.targetUrl, options: { forceLive: true } }, schedule.userId);
       const nextRunAt = new Date(now + (schedule.frequency === 'DAILY' ? 86400000 : 7 * 86400000)).toISOString();

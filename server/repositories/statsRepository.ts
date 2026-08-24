@@ -92,6 +92,7 @@ export class StatsRepository {
       if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
         markFirestorePermissionDenied();
       }
+      if (process.env.NODE_ENV === 'production') throw new Error('STATS_SOURCE_UNAVAILABLE');
       return {
         ...this.localStats,
         lastUpdated: new Date().toISOString(),

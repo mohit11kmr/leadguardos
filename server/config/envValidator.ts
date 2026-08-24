@@ -16,6 +16,7 @@ export function validateEnvironment(): EnvValidationResult {
   const jwtSecret = process.env.JWT_SECRET;
   const razorpaySecret = process.env.RAZORPAY_KEY_SECRET;
   const databaseUrl = process.env.DATABASE_URL;
+  const storageMode = process.env.STORAGE_MODE || 'local';
 
   // 1. JWT Secret Validation
   if (!jwtSecret) {
@@ -42,9 +43,8 @@ export function validateEnvironment(): EnvValidationResult {
   }
 
   // 3. Database URL Validation
-  if (isProd && !databaseUrl) {
-    warnings.push('DATABASE_URL not set in production; falling back to SQLite file storage');
-  }
+  if (isProd && storageMode === 'local') errors.push('STORAGE_MODE=local is forbidden in production');
+  if (isProd && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.FIREBASE_PRIVATE_KEY && process.env.K_SERVICE !== 'true') errors.push('Firestore credentials are required in production');
 
   const result: EnvValidationResult = {
     valid: errors.length === 0,

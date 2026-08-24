@@ -17,12 +17,16 @@ export interface IPublicReportSummary {
 }
 
 export class ReportRepository {
-  async getPublicReport(idOrToken: string): Promise<IPublicReportSummary | null> {
-    const scan = (await scanRepository.getScanById(idOrToken)) || (await scanRepository.getScanByToken(idOrToken));
+  async getPublicReportByToken(token: string): Promise<IPublicReportSummary | null> {
+    const scan = await scanRepository.getScanByToken(token);
     if (!scan) return null;
 
     // Sanitize any internal secrets before sending
     return toPublicAuditReport(scan as any);
+  }
+
+  async getPublicReport(idOrToken: string): Promise<IPublicReportSummary | null> {
+    return this.getPublicReportByToken(idOrToken);
   }
 }
 

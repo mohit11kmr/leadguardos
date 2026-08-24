@@ -210,7 +210,7 @@ async function runTestSuite() {
     status: 'PAID',
     createdAt: new Date().toISOString(),
   });
-  assert(testOrder.amountINR === 4999, 'Order repository creates and records order');
+  assert(testOrder.amountINR === 2999, 'Order repository ignores client price and uses catalog price');
 
   // -------------------------------------------------------------------------
   // 7. Webhook HMAC Cryptographic Signature Tests
@@ -436,7 +436,7 @@ async function runTestSuite() {
   const { RetryPolicy } = await import('../server/queue/retryPolicy');
   const enqueuedJob = await jobQueue.enqueue('scanWebsite', { url: 'drsharmadental.in' }, 'usr_test_1');
   assert(enqueuedJob.id.startsWith('job_') && enqueuedJob.status === 'QUEUED', 'JobQueue enqueues async scanWebsite job cleanly');
-  assert(jobQueue.getJob(enqueuedJob.id)?.type === 'scanWebsite', 'JobQueue retrieves enqueued job by ID');
+  assert((await jobQueue.getJob(enqueuedJob.id))?.type === 'scanWebsite', 'JobQueue retrieves enqueued job by ID');
 
   const shouldRetryTimeout = RetryPolicy.shouldRetry(new Error('ETIMEDOUT'), 1, 3);
   assert(shouldRetryTimeout, 'RetryPolicy retries transient network timeouts');
@@ -639,7 +639,7 @@ async function runTestSuite() {
   const { db: dbManager } = await import('../server/db/database');
   const { jobQueue: jobQueueManager } = await import('../server/queue/jobQueue');
   const dbStatus = await dbManager.checkHealth();
-  const queueDepth = jobQueueManager.getQueueDepth();
+  const queueDepth = await jobQueueManager.getQueueDepth();
   assert(dbStatus.status === 'OK' && typeof queueDepth === 'number', 'Health & Readiness probes report healthy database and queue depth');
 
   // -------------------------------------------------------------------------

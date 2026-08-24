@@ -145,6 +145,9 @@ class StorageEngine {
   };
 
   constructor() {
+    if (process.env.NODE_ENV === 'production' && (process.env.STORAGE_MODE || 'local') === 'local') {
+      throw new Error('PRODUCTION_STORAGE_REJECTED: local JSON storage is disabled in production');
+    }
     const dataDir = process.env.LEADGUARD_DATA_DIR || path.join(process.cwd(), 'data');
     if (!fs.existsSync(dataDir)) {
       try {
