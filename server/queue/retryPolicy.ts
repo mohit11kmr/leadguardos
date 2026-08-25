@@ -1,18 +1,33 @@
 export class RetryPolicy {
+  /** Error substrings that are permanent — retrying cannot fix them. */
+  private static readonly NON_RETRYABLE = [
+    'ssrf guard',
+    'invalid url',
+    'unauthorized',
+    'forbidden',
+    'bad request',
+    // Provider/config conditions: no amount of retries adds credentials
+    'provider_not_configured',
+    'unsupported_notification_provider',
+    'invalid_notification_payload',
+    // Watchdog contract violations: target misconfiguration is permanent
+    'watchdog_target_invalid',
+    'watchdog_target_not_found',
+    // AI safety rejections: invalid model output will not improve on retry
+    'ai_output_unsupported_claim',
+    'ai_output_fabricated_revenue_estimate',
+    'ai_output_empty',
+    'ai_output_invalid',
+  ];
+
   public static shouldRetry(error: any, currentAttempt: number, maxAttempts: number): boolean {
     if (currentAttempt >= maxAttempts) return false;
 
     const errMsg = (error?.message || '').toLowerCase();
 
     // Do NOT retry non-transient errors
-    if (
-      errMsg.includes('ssrf guard') ||
-      errMsg.includes('invalid url') ||
-      errMsg.includes('unauthorized') ||
-      errMsg.includes('forbidden') ||
-      errMsg.includes('bad request')
-    ) {
-      return false;
+    for (const marker of RetryPolicy.NON_RETRYABLE) {
+      if (errMsg.includes(marker)) return false;
     }
 
     // Retry transient network/timeout/503 errors

@@ -8,6 +8,8 @@ export interface WatchdogTargetDocument extends WatchdogTarget {
   organizationId?: string;
   mode: 'LIVE' | 'DEMO';
   nextCheckAt?: string;
+  /** Durable queue job currently responsible for this target's next probe */
+  pendingRunJobId?: string;
   updatedAt?: string;
   leaseOwner?: string;
   leaseExpiresAt?: string;

@@ -113,26 +113,37 @@ v1Router.post('/watchdog', async (req: Request, res: Response) => {
 
   const userId = (req as any).user.id;
   const domain = new URL(validation.normalized).hostname;
-  const target = {
+
+  // Dual-write: production repository (Firestore) + local cache so the
+  // durable watchdog scheduler and executor always see the exact target.
+  const { watchdogRepository } = await import('../repositories/watchdogRepository');
+  const target = await watchdogRepository.addTarget({
     id: `wd_v1_${Date.now()}`,
-    userId,
     targetUrl: validation.normalized,
     domain,
     contact: typeof contact === 'string' && contact.length <= 255 ? contact : 'API User',
     channel: normalizedChannel,
     frequency: normalizedFrequency,
-    status: 'ACTIVE_TRIAL' as const,
-    createdAt: new Date().toISOString(),
-    trialExpiresAt: new Date(Date.now() + 14 * 24 * 3600 * 1000).toISOString(),
-  };
+    status: 'ACTIVE_TRIAL',
+    mode: 'LIVE',
+    userId,
+    nextCheckAt: new Date(Date.now() + 60000).toISOString(),
+  }, userId);
 
-  storage.addWatchdogTarget(target);
+  storage.addWatchdogTarget(target as any);
   res.status(201).json(target);
 });
 
 // 6. Get Watchdog Status (GET /api/v1/watchdog/:id)
-v1Router.get('/watchdog/:id', (req: Request, res: Response) => {
-  const target = storage.getWatchdogTarget(req.params.id);
+v1Router.get('/watchdog/:id', async (req: Request, res: Response) => {
+  const { watchdogRepository } = await import('../repositories/watchdogRepository');
+  let target: any;
+  try {
+    target = await watchdogRepository.getTargetById(req.params.id, (req as any).user.id, (req as any).user.role === 'ADMIN');
+  } catch {
+    return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You do not have access to this watchdog target.' } });
+  }
+  if (!target) target = storage.getWatchdogTarget(req.params.id);
   if (!target) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Watchdog target not found' } });
   if (!canAccessOwnedResource(req, target.userId)) {
     return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You do not have access to this watchdog target.' } });

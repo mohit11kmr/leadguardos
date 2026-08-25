@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Zap, Shield, Check, Star, ArrowRight, Sparkles, Building2, UserCheck, Wrench, ShieldAlert, CreditCard, QrCode, Download, CheckCircle2, Lock, MessageCircle } from 'lucide-react';
+import { Zap, Shield, Check, Star, ArrowRight, Sparkles, Building2, UserCheck, Wrench, ShieldAlert, CreditCard, QrCode, Download, CheckCircle2, Lock, MessageCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { openRazorpayCheckout } from '../utils/razorpayCheckout';
 
 interface MonetizationVaultProps {
   onOpenWatchdog: () => void;
@@ -24,6 +25,9 @@ export const MonetizationVault: React.FC<MonetizationVaultProps> = ({
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerDomain, setCustomerDomain] = useState('');
+  const [isPaymentLoading, setIsPaymentLoading] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentId, setPaymentId] = useState<string | null>(null);
 
   const handleSelectPlan = (plan: {
     tier: string;
@@ -36,18 +40,44 @@ export const MonetizationVault: React.FC<MonetizationVaultProps> = ({
     setCheckoutStep('DETAILS');
   };
 
-  const handleProceedPayment = (e: React.FormEvent) => {
+  const handleProceedPayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    setCheckoutStep('PAYMENT');
+    if (!selectedPlanModal) return;
+    setIsPaymentLoading(true);
+    setPaymentError(null);
+
+    try {
+      const result = await openRazorpayCheckout({
+        tierId: selectedPlanModal.tier,
+        customerName,
+        customerEmail,
+        customerPhone,
+        domain: customerDomain,
+      });
+
+      if (result.success) {
+        setPaymentId(result.paymentId || null);
+        setCheckoutStep('SUCCESS');
+        confetti({ particleCount: 80, spread: 80, origin: { y: 0.6 } });
+      } else if (result.error === 'Payment cancelled by user') {
+        // User dismissed — stay on details step
+        setPaymentError(null);
+      } else if (result.error?.includes('not configured')) {
+        // Razorpay not configured — fall back to manual payment step
+        setCheckoutStep('PAYMENT');
+      } else {
+        setPaymentError(result.error || 'Payment failed');
+      }
+    } catch (err: any) {
+      setPaymentError(err?.message || 'Payment error');
+    } finally {
+      setIsPaymentLoading(false);
+    }
   };
 
   const handleCompleteOrder = () => {
     setCheckoutStep('SUCCESS');
-    confetti({
-      particleCount: 80,
-      spread: 80,
-      origin: { y: 0.6 },
-    });
+    confetti({ particleCount: 80, spread: 80, origin: { y: 0.6 } });
   };
 
   return (
@@ -431,10 +461,22 @@ export const MonetizationVault: React.FC<MonetizationVaultProps> = ({
 
                 <button
                   type="submit"
-                  className="w-full rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold py-3 text-xs transition-all shadow-md active:scale-95"
+                  disabled={isPaymentLoading}
+                  className="w-full rounded-xl bg-rose-600 hover:bg-rose-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-extrabold py-3 text-xs transition-all shadow-md active:scale-95 flex items-center justify-center gap-2"
                 >
-                  Proceed to Payment ({selectedPlanModal.price})
+                  {isPaymentLoading ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</>
+                  ) : (
+                    <>Pay with Razorpay ({selectedPlanModal.price})  <CreditCard className="h-4 w-4" /></>
+                  )}
                 </button>
+
+                {paymentError && (
+                  <div className="flex items-start gap-2 rounded-xl bg-rose-500/10 border border-rose-500/30 p-3 text-xs text-rose-300">
+                    <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                    <span>{paymentError}</span>
+                  </div>
+                )}
               </form>
             )}
 
@@ -445,8 +487,8 @@ export const MonetizationVault: React.FC<MonetizationVaultProps> = ({
                     <QrCode className="h-6 w-6 text-emerald-400" />
                   </div>
                   <div>
-                    <h4 className="text-base font-bold text-white">Instant UPI & WhatsApp Checkout</h4>
-                    <p className="text-xs text-slate-400 mt-1">Pay via Google Pay, PhonePe, Paytm, or GPay UPI</p>
+                    <h4 className="text-base font-bold text-white">Manual Payment Option</h4>
+                    <p className="text-xs text-slate-400 mt-1">Razorpay checkout unavailable — pay via UPI or WhatsApp</p>
                   </div>
                   <div className="text-3xl font-black text-emerald-400">{selectedPlanModal.price}</div>
                   
@@ -473,10 +515,10 @@ export const MonetizationVault: React.FC<MonetizationVaultProps> = ({
                   </button>
 
                   <button
-                    onClick={handleCompleteOrder}
+                    onClick={() => { setCheckoutStep('DETAILS'); setPaymentError(null); }}
                     className="w-full rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white font-semibold py-2.5 text-xs transition-colors border border-slate-800"
                   >
-                    Simulate Test Payment
+                    ← Try Razorpay Again
                   </button>
                 </div>
               </div>
@@ -486,9 +528,10 @@ export const MonetizationVault: React.FC<MonetizationVaultProps> = ({
               <div className="space-y-6 text-center">
                 <div className="rounded-2xl bg-emerald-500/10 p-6 border border-emerald-500/30 space-y-3">
                   <CheckCircle2 className="h-12 w-12 text-emerald-400 mx-auto" />
-                  <h4 className="text-lg font-bold text-emerald-300">Order Placed & Dispatched!</h4>
+                  <h4 className="text-lg font-bold text-emerald-300">Payment Verified & Activated!</h4>
                   <p className="text-xs text-slate-300">
-                    Thank you {customerName || 'Partner'}! Your {selectedPlanModal.name} order for <span className="font-mono text-white">{customerDomain || 'your site'}</span> is received. Mohit Sikarwar (+91 83070 70605) will confirm payment and activate your service on WhatsApp.
+                    Thank you {customerName || 'Partner'}! Your {selectedPlanModal.name} for <span className="font-mono text-white">{customerDomain || 'your site'}</span> has been activated.
+                    {paymentId && <><br /><span className="text-emerald-400 font-mono text-[10px]">Payment ID: {paymentId}</span></>}
                   </p>
                 </div>
 

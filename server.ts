@@ -421,23 +421,27 @@ app.post("/api/watchdog/subscribe", requireAuth, async (req: AuthenticatedReques
 
     const domain = new URL(validation.normalized).hostname;
     const userId = req.user!.id;
-    const target = {
+
+    // Persist through watchdogRepository so production scheduling (Firestore)
+    // and the durable runWatchdog executor see the exact target.
+    const { watchdogRepository } = await import("./server/repositories/watchdogRepository");
+    const target = await watchdogRepository.addTarget({
       id: `wd_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      userId,
       targetUrl: validation.normalized,
       domain,
       contact,
       channel,
       frequency,
-      createdAt: new Date().toISOString(),
-      trialExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      status: "ACTIVE_TRIAL" as const,
+      status: "ACTIVE_TRIAL",
+      mode: "LIVE",
+      userId,
       lastCheckedAt: new Date().toISOString(),
       lastStatus: "PASS (Active Monitoring)",
       lastScore: 100,
-    };
+      nextCheckAt: new Date(Date.now() + 60000).toISOString(), // first probe within a minute
+    }, userId, req.user?.email);
 
-    storage.addWatchdogTarget(target);
+    storage.addWatchdogTarget(target as any);
     storage.addWatchdogCheckLog({
       id: `chk_${Date.now()}`,
       userId,
@@ -473,7 +477,7 @@ app.get("/api/watchdog/list", requireAuth, (req: AuthenticatedRequest, res: Resp
   });
 });
 
-app.delete("/api/watchdog/:id", requireAuth, (req: AuthenticatedRequest, res: Response) => {
+app.delete("/api/watchdog/:id", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
   const target = storage.getWatchdogTarget(id);
   if (!target) {
@@ -484,7 +488,16 @@ app.delete("/api/watchdog/:id", requireAuth, (req: AuthenticatedRequest, res: Re
     return sendError(res, 403, "FORBIDDEN", "You do not have permission to delete this target.", req);
   }
 
+  // Delete from both local cache and production repository (Firestore)
   const deleted = storage.deleteWatchdogTarget(id);
+  try {
+    const { watchdogRepository } = await import("./server/repositories/watchdogRepository");
+    await watchdogRepository.deleteTarget(id, req.user?.id, req.user?.role === "ADMIN");
+  } catch (err: any) {
+    if (String(err?.message).includes("Unauthorized")) {
+      return sendError(res, 403, "FORBIDDEN", "You do not have permission to delete this target.", req);
+    }
+  }
   res.json({ success: deleted });
 });
 
@@ -644,66 +657,162 @@ app.post("/api/webhooks/test", requireAuth, rateLimiter(20), async (req: Authent
 });
 
 // Monetization Orders API - Server Calculated Price & Immutable Payment State
-app.post("/api/monetization/order", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+// Creates a Razorpay order via their Orders API and returns the order_id for frontend checkout.
+app.post("/api/monetization/order", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { tierId = "tier-express-fix", paymentMethod = "UPI", customerName, customerPhone, customerEmail, domain } = req.body;
-    
+
     // Server calculates product price - NEVER trust amountINR or status from client
     const tier = calculateTierPrice(tierId);
+    const amountINR = tier.priceINR; // Server computed — authoritative
 
-    const order = {
-      orderId: `ord_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    // Persist through the repository layer so production (Firestore) and
+    // payment verification share one source of truth.
+    const { orderRepository } = await import("./server/repositories/orderRepository");
+    const order = await orderRepository.createPendingOrder({
       tierId,
       tierName: tier.tierName,
-      userId: req.user?.id,
-      amountINR: tier.priceINR, // Server computed
+      amountINR, // Server computed
       paymentMethod,
       customerName,
       customerPhone,
       customerEmail,
       domain,
-      status: "PAYMENT_PENDING" as const, // Never allow status = "PAID" from client!
-      createdAt: new Date().toISOString(),
-    };
+    }, req.user?.id, req.user?.email);
 
-    storage.addOrder(order);
-    res.json({ success: true, order, checkoutNote: "Order created in PAYMENT_PENDING state. Submit server webhook or payment verification signature to complete." });
+    // Create Razorpay order via their Orders API
+    let razorpayOrder: any = null;
+    const razorpayKeyId = process.env.RAZORPAY_KEY_ID;
+    const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (razorpayKeyId && razorpayKeySecret) {
+      try {
+        const Razorpay = require("razorpay");
+        const rzp = new Razorpay({
+          key_id: razorpayKeyId,
+          key_secret: razorpayKeySecret,
+        });
+
+        razorpayOrder = await rzp.orders.create({
+          amount: amountINR * 100, // Razorpay expects paise (₹299 → 29900)
+          currency: "INR",
+          receipt: order.orderId,
+          notes: {
+            orderId: order.orderId,
+            tierId,
+            tierName: tier.tierName,
+            customerName: customerName || "",
+            domain: domain || "",
+          },
+        });
+
+        // Bind provider order ID to internal order for verification later
+        await orderRepository.updateOrderStatus(order.orderId, "PENDING", `Razorpay order created: ${razorpayOrder.id}`, true);
+        // Store providerOrderId on the order for binding verification
+        order.providerOrderId = razorpayOrder.id;
+      } catch (rzpErr: any) {
+        AuditLogger.log({ action: "RAZORPAY_ORDER_CREATION_FAILED", resource: order.orderId, details: { error: rzpErr?.message } });
+        // Don't fail the whole request — the order exists locally. Frontend can retry.
+      }
+    }
+
+    res.json({
+      success: true,
+      order: {
+        ...order,
+        providerOrderId: razorpayOrder?.id || null,
+      },
+      razorpay: razorpayOrder ? {
+        orderId: razorpayOrder.id,
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency,
+        keyId: razorpayKeyId, // Public key — safe to send to frontend
+      } : null,
+      checkoutNote: razorpayOrder
+        ? "Razorpay order created. Open checkout modal with the provided orderId."
+        : "Order created in PAYMENT_PENDING state. Razorpay not configured — use manual verification.",
+    });
   } catch (err: any) {
     res.status(500).json({ error: { code: "ORDER_ERROR", message: err?.message || "Failed to record order." } });
   }
 });
 
 // Payment Verification Endpoint (Server-verified HMAC signature)
-app.post("/api/monetization/verify-payment", optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+// Hardened: routes through orderRepository (state machine + amount guard +
+// Firestore persistence) and claims fulfillment exactly-once.
+app.post("/api/monetization/verify-payment", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { orderId, razorpayPaymentId, razorpayOrderId, razorpaySignature } = req.body;
-    if (!orderId || !razorpaySignature) {
-      return res.status(400).json({ error: { code: "INVALID_PAYMENT", message: "Order ID and payment signature required." } });
+    if (!orderId || !razorpaySignature || !razorpayOrderId || !razorpayPaymentId) {
+      return res.status(400).json({ error: { code: "INVALID_PAYMENT", message: "orderId, razorpayOrderId, razorpayPaymentId, and razorpaySignature are required." } });
     }
 
-    const secret = process.env.RAZORPAY_KEY_SECRET || "leadguard_test_razorpay_secret";
-    const isValid = verifyPaymentSignature(razorpayOrderId || orderId, razorpayPaymentId || "pay_mock", razorpaySignature, secret);
+    const secret = process.env.RAZORPAY_KEY_SECRET;
+    if (!secret) {
+      return res.status(503).json({ error: { code: "PAYMENT_PROVIDER_UNCONFIGURED", message: "RAZORPAY_KEY_SECRET is not configured. Payment verification unavailable." } });
+    }
 
+    // Cryptographic signature check FIRST — proves the tuple (order|payment)
+    // was produced by Razorpay. Forgery is rejected before any state change.
+    const isValid = verifyPaymentSignature(razorpayOrderId, razorpayPaymentId, razorpaySignature, secret);
     if (!isValid) {
+      AuditLogger.log({ action: "PAYMENT_FORGERY_REJECTED", resource: orderId, details: { provider: "razorpay", channel: "checkout-callback" }, userId: req.user?.id });
       return res.status(400).json({ error: { code: "FORGED_PAYMENT", message: "Invalid payment cryptographic signature." } });
     }
 
-    const orders = storage.getOrders();
-    const targetOrder = orders.find(o => o.orderId === orderId);
-    if (!targetOrder) return res.status(404).json({ error: { code: "ORDER_NOT_FOUND", message: "Order not found." } });
-    if (targetOrder.userId && targetOrder.userId !== req.user?.id) {
-      return res.status(403).json({ error: { code: "FORBIDDEN", message: "You do not have permission to verify this order." } });
+    const { orderRepository } = await import("./server/repositories/orderRepository");
+    const existing = await orderRepository.getOrderById(orderId, req.user?.id, req.user?.role === "ADMIN");
+    if (!existing) {
+      return res.status(404).json({ error: { code: "ORDER_NOT_FOUND", message: "Order not found." } });
     }
-    if (!isPaymentBoundToOrder(targetOrder.orderId, razorpayOrderId || orderId, (targetOrder as any).providerOrderId)) {
+
+    // Provider-order binding: the presented Razorpay order id must be the one
+    // bound to this internal order (or the internal id itself for legacy rows).
+    if (!isPaymentBoundToOrder(orderId, razorpayOrderId, (existing as any).providerOrderId)) {
       return res.status(400).json({ error: { code: "ORDER_MISMATCH", message: "Payment does not match the requested order." } });
     }
-    targetOrder.status = "PAID";
-    (targetOrder as any).providerOrderId = razorpayOrderId || orderId;
-    (targetOrder as any).providerPaymentId = razorpayPaymentId || "pay_mock";
-    storage.saveToDisk();
 
-    res.json({ success: true, message: "Payment verified successfully", order: targetOrder });
+    // State-machine-validated transition (rejects FAILED/CANCELLED/REFUNDED → PAID),
+    // persisted fail-closed to Firestore in production.
+    const updatedOrder = await orderRepository.verifyAndMarkPaid(
+      orderId,
+      {
+        paymentReference: razorpayPaymentId,
+        provider: "RAZORPAY",
+        signature: razorpaySignature,
+        providerOrderId: razorpayOrderId,
+        providerPaymentId: razorpayPaymentId,
+      },
+      req.user?.id
+    );
+
+    // Exactly-once fulfillment activation.
+    try {
+      const { fulfillmentRepository } = await import("./server/repositories/fulfillmentRepository");
+      const tierId = String(updatedOrder.tierId || "");
+      const fulfillmentType = tierId.includes("agency") ? "AGENCY_LICENSE"
+        : tierId.includes("watchdog") ? "WATCHDOG_SUBSCRIPTION"
+        : "EXPRESS_FIX";
+      const claimed = await fulfillmentRepository.claimFulfillment(orderId, fulfillmentType as any, updatedOrder.userId, updatedOrder.tierId);
+      if (claimed) {
+        AuditLogger.log({ action: "FULFILLMENT_ACTIVATED_VIA_CHECKOUT", resource: orderId, details: { fulfillmentType } });
+      }
+    } catch (fulfillErr: any) {
+      AuditLogger.log({ action: "FULFILLMENT_ERROR", resource: orderId, details: { error: fulfillErr?.message } });
+    }
+
+    res.json({ success: true, message: "Payment verified successfully", order: updatedOrder });
   } catch (err: any) {
+    const code = err?.message || "";
+    if (code.includes("INVALID_PAYMENT_STATE_TRANSITION")) {
+      return res.status(409).json({ error: { code: "ILLEGAL_PAYMENT_STATE", message: code } });
+    }
+    if (code.includes("ORDER_NOT_FOUND")) {
+      return res.status(404).json({ error: { code: "ORDER_NOT_FOUND", message: "Order not found." } });
+    }
+    if (code.includes("UNAUTHORIZED_ORDER_ACCESS")) {
+      return res.status(403).json({ error: { code: "FORBIDDEN", message: "You do not have permission to verify this order." } });
+    }
     res.status(500).json({ error: { code: "PAYMENT_VERIFICATION_ERROR", message: err?.message || "Failed to verify payment." } });
   }
 });
@@ -1115,6 +1224,49 @@ app.post("/api/payments/webhook", async (req: RawBodyRequest, res: Response) => 
         const { orderRepository } = await import("./server/repositories/orderRepository");
         const order = await orderRepository.getOrderById(orderId, undefined, true);
         if (order) {
+          // ── Provider-reported amount & currency verification ──────────────
+          // Razorpay reports amounts in the smallest currency unit (paise).
+          // A captured payment whose amount/currency does not match the
+          // server-authoritative catalog price must NEVER be fulfilled.
+          const entity = eventData?.payment?.entity || {};
+          const providerAmountINR = typeof entity.amount === "number" ? entity.amount / 100 : undefined;
+          const providerCurrency = typeof entity.currency === "string" ? entity.currency : undefined;
+          try {
+            const { verifyPaymentAmount } = await import("./server/services/paymentStateMachine");
+            const expected = calculateTierPrice(order.tierId);
+            verifyPaymentAmount(
+              expected.priceINR,
+              providerAmountINR ?? expected.priceINR,
+              "INR",
+              providerCurrency ?? "INR",
+              orderId
+            );
+          } catch (amountErr: any) {
+            AuditLogger.log({ action: "FULFILLMENT_ERROR", resource: orderId, details: { error: amountErr?.message, providerAmountINR, providerCurrency } });
+            return res.json({ status: "REJECTED_AMOUNT_MISMATCH", event });
+          }
+
+          // State-machine validated transition to PAID (idempotent for
+          // already-PAID orders via duplicate-event claim above).
+          if (order.status !== "PAID" && order.status !== "REFUNDED") {
+            try {
+              await orderRepository.verifyAndMarkPaid(
+                orderId,
+                {
+                  paymentReference: String(entity.id || eventId || "webhook-capture"),
+                  provider: "RAZORPAY",
+                  providerOrderId: String(entity.order_id || orderId),
+                  providerPaymentId: String(entity.id || ""),
+                },
+                order.userId
+              );
+            } catch (transitionErr: any) {
+              // Illegal transition (e.g. FAILED/CANCELLED → PAID) is rejected.
+              AuditLogger.log({ action: "FULFILLMENT_ERROR", resource: orderId, details: { error: transitionErr?.message } });
+              return res.json({ status: "REJECTED_ILLEGAL_TRANSITION", event });
+            }
+          }
+
           const fulfillmentType = order.tierId?.includes('agency') ? 'AGENCY_LICENSE'
             : order.tierId?.includes('watchdog') ? 'WATCHDOG_SUBSCRIPTION'
             : order.tierId?.includes('express') ? 'EXPRESS_FIX'
@@ -1162,6 +1314,59 @@ app.get("/report/share/:token", (req: Request, res: Response) => {
   }
 
   res.json({ snapshot: result.snapshot, sharedAt: new Date().toISOString() });
+});
+
+// 3b. Secure PDF Report Download (Owner / Admin / explicit public-share)
+// Enforces: authenticated owner or ADMIN, OR a valid public share token bound
+// to the same scanId. Storage paths are never exposed — bytes are streamed
+// server-side from durable object storage after integrity verification.
+app.get("/api/pdf/:pdfId", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { pdfReportRepository } = await import("./server/repositories/pdfReportRepository");
+    const meta = await pdfReportRepository.getById(String(req.params.pdfId));
+    if (!meta) {
+      return sendError(res, 404, "NOT_FOUND", "PDF report not found.", req);
+    }
+
+    // Basic metadata sanity before any storage access
+    if (meta.contentType !== "application/pdf" || !meta.storagePath || meta.sizeBytes <= 0 || meta.sizeBytes > 25 * 1024 * 1024) {
+      return sendError(res, 400, "INVALID_PDF_METADATA", "PDF metadata failed validation.", req);
+    }
+
+    // Authorization: owner, admin, or valid public share token for this scan
+    const user = req.user;
+    const isOwner = !!user?.id && !!meta.userId && user.id === meta.userId;
+    const isAdmin = user?.role === "ADMIN";
+    const shareToken = (req.query.shareToken as string) || "";
+    let isPublicShare = false;
+    if (shareToken && /^[a-f0-9]{64}$/.test(shareToken)) {
+      const shared = reportManager.getSnapshot(shareToken, req.query.password as string | undefined);
+      isPublicShare = !shared.error && (shared.snapshot as any)?.scanId === meta.scanId;
+    }
+
+    if (!isOwner && !isAdmin && !isPublicShare) {
+      AuditLogger.log({ action: "PDF_ACCESS_DENIED", resource: meta.pdfId, userId: user?.id });
+      return sendError(res, 403, "FORBIDDEN", "You do not have permission to download this report.", req);
+    }
+
+    const bytes = await pdfReportRepository.readBytes(meta);
+    if (!pdfReportRepository.verifyIntegrity(bytes, meta)) {
+      AuditLogger.log({ action: "PDF_INTEGRITY_FAILED", resource: meta.pdfId });
+      return sendError(res, 500, "PDF_INTEGRITY_FAILED", "Stored report failed integrity verification.", req);
+    }
+
+    AuditLogger.log({ action: "PDF_DOWNLOADED", resource: meta.pdfId, userId: user?.id });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Length", String(bytes.length));
+    res.setHeader("Content-Disposition", `attachment; filename="leadguard-report-${meta.scanId}.pdf"`);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    return res.send(bytes);
+  } catch (err: any) {
+    if (String(err?.message).includes("NOT_FOUND")) {
+      return sendError(res, 404, "NOT_FOUND", "PDF object missing from storage.", req);
+    }
+    return sendError(res, 500, "PDF_DOWNLOAD_ERROR", err?.message || "Failed to download PDF.", req);
+  }
 });
 
 // 4. User Feedback Endpoint

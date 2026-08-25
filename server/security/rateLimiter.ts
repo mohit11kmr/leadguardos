@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
 
 /**
  * Production-grade rate limiter.
@@ -54,7 +55,6 @@ setInterval(() => {
 // ─── Firestore Rate Limiter (Production) ───────────────────────────────────────
 
 async function checkFirestoreRateLimit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; remaining: number }> {
-  const { getAdminDb, FieldValue } = require('../firebaseAdmin');
   const db = getAdminDb();
 
   const windowId = `${key}:${Math.floor(Date.now() / windowMs)}`;
@@ -90,17 +90,38 @@ async function checkFirestoreRateLimit(key: string, limit: number, windowMs: num
 
 // ─── Unified Rate Limit Check ──────────────────────────────────────────────────
 
+/**
+ * Failure semantics for the SHARED production limiter:
+ * - 'fail-closed' (default in production): if the shared counter cannot be
+ *   reached, requests are REJECTED. This guarantees abuse protection never
+ *   silently degrades to process-local memory across multiple instances.
+ * - 'fail-open': requests are allowed but loudly logged (operator opt-in for
+ *   availability-critical deployments).
+ */
+export function rateLimitFailureMode(): 'fail-closed' | 'fail-open' {
+  const configured = (process.env.RATE_LIMIT_FAILURE_MODE || '').toLowerCase();
+  if (configured === 'fail-open' || configured === 'open') return 'fail-open';
+  if (configured === 'fail-closed' || configured === 'closed') return 'fail-closed';
+  return process.env.NODE_ENV === 'production' ? 'fail-closed' : 'fail-open';
+}
+
 async function checkRateLimit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; remaining: number; resetAt?: number }> {
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (isProduction) {
+    if (!isFirebaseConfigured()) {
+      // Shared enforcement is REQUIRED in production — refuse to degrade.
+      throw new Error('RATE_LIMIT_SHARED_STORE_UNAVAILABLE: Firestore not configured for shared rate limiting');
+    }
     try {
-      const { isFirebaseConfigured } = require('../firebaseAdmin');
-      if (isFirebaseConfigured()) {
-        return await checkFirestoreRateLimit(key, limit, windowMs);
+      return await checkFirestoreRateLimit(key, limit, windowMs);
+    } catch (err) {
+      const mode = rateLimitFailureMode();
+      console.error(`[RateLimiter] Shared limiter error (${mode}):`, err instanceof Error ? err.message : err);
+      if (mode === 'fail-closed') {
+        throw new Error('RATE_LIMIT_SHARED_STORE_UNAVAILABLE: shared counter unreachable');
       }
-    } catch {
-      // Fallback to memory if Firestore is unavailable
+      return { allowed: true, remaining: limit };
     }
   }
 
@@ -164,8 +185,17 @@ export function productionRateLimiter(config: RateLimitConfig) {
       }
 
       next();
-    } catch {
-      // If rate limiting fails, allow the request (availability > rate limiting)
+    } catch (err) {
+      // Shared limiter unavailable with fail-closed semantics (production default):
+      // reject rather than silently bypassing abuse protection.
+      const isSharedStoreError = String((err as Error)?.message || '').includes('RATE_LIMIT_SHARED_STORE_UNAVAILABLE');
+      if (isSharedStoreError && process.env.NODE_ENV === 'production') {
+        return res.status(503).json({
+          error: 'Rate limiting service temporarily unavailable. Request rejected for protection.',
+          retryAfterMs: windowMs,
+        });
+      }
+      // Dev/unexpected errors: availability first
       next();
     }
   };

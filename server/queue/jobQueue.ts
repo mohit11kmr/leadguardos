@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { getAdminDb, isFirebaseConfigured } from '../firebaseAdmin';
 
 export type JobType =
   | 'scanWebsite'
@@ -115,12 +116,13 @@ export class JobQueueManager implements QueueAdapter {
       }
     }
 
-    // Priority 2: RUNNING jobs with expired lease (crash recovery)
+    // Priority 2: RUNNING jobs with expired lease (crash recovery).
+    // Concurrency note: the crashed worker's slot is implicitly reclaimed here
+    // (no increment) — otherwise every crash would permanently leak a slot.
     for (const job of this.jobMap.values()) {
       if (job.status === 'RUNNING' && job.leaseExpiresAt) {
         const leaseExp = new Date(job.leaseExpiresAt).getTime();
         if (leaseExp < now) {
-          this.activeConcurrency++;
           job.previousWorkerId = job.workerId;
           job.workerId = workerId;
           job.attempt = (job.attempt || 0) + 1;
@@ -147,9 +149,11 @@ export class JobQueueManager implements QueueAdapter {
   public async updateJobStatus(id: string, updates: Partial<QueueJobPayload>): Promise<void> {
     const job = this.jobMap.get(id);
     if (job) {
-      if (job.status === 'RUNNING' && (updates.status === 'COMPLETED' || updates.status === 'FAILED' || updates.status === 'TIMED_OUT' || updates.status === 'DEAD_LETTER')) {
-        if (this.activeConcurrency > 0) this.activeConcurrency--;
-      }
+      // Release the concurrency slot whenever the job LEAVES RUNNING
+      // (terminal state OR back to QUEUED for durable retry).
+      const leavingRunning = job.status === 'RUNNING'
+        && ['COMPLETED', 'FAILED', 'TIMED_OUT', 'DEAD_LETTER', 'QUEUED'].includes(updates.status as string);
+      if (leavingRunning && this.activeConcurrency > 0) this.activeConcurrency--;
       Object.assign(job, updates);
     }
   }
@@ -179,7 +183,6 @@ class FirestoreQueueAdapter implements QueueAdapter {
   private readonly collection = 'jobExecutions';
 
   private getDb() {
-    const { getAdminDb, isFirebaseConfigured } = require('../firebaseAdmin');
     if (!isFirebaseConfigured()) throw new Error('DURABLE_QUEUE_UNAVAILABLE: Firestore is not configured');
     return getAdminDb();
   }
