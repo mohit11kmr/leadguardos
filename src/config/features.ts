@@ -381,7 +381,7 @@ export const FEATURE_REGISTRY: FeatureRecord[] = [
     category: 'MONETIZATION',
     component: 'MonetizationVault / FreeFixAndLockedPaywall',
     routeOrTab: 'pricing',
-    backendEndpoint: 'POST /api/monetization/order, POST /api/monetization/orders/verify',
+    backendEndpoint: 'POST /api/monetization/order, POST /api/monetization/verify-payment',
     status: 'PRODUCTION_READY',
     modeSupport: 'BOTH',
     storage: 'FIRESTORE',

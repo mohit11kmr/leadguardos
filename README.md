@@ -133,6 +133,26 @@ Content-Type: application/json
 }
 ```
 
+### 5. Razorpay Standard Checkout (Live Flow)
+The frontend (`src/utils/razorpayCheckout.ts`) drives the full checkout:
+
+1. `POST /api/monetization/order` — server computes the price from the
+   authoritative catalog (Express Fix ₹2,999 / Watchdog ₹299/mo / Agency
+   ₹4,999/mo), creates a PENDING order, and calls the Razorpay Orders API.
+   The internal order is durably bound to the provider `order_id`.
+2. The Razorpay modal opens with the returned `order_id` (public KEY_ID only —
+   KEY_SECRET never leaves the server).
+3. On success, the handler posts `razorpay_payment_id`, `razorpay_order_id`,
+   and `razorpay_signature` back to `/api/monetization/verify-payment`.
+4. The server verifies HMAC-SHA256(order|payment), then **additionally fetches
+   the payment from Razorpay's API** to confirm amount, currency, and capture
+   status before marking PAID (fail-closed: unconfirmable payments are never
+   fulfilled).
+5. Fulfillment is exactly-once via a durable transactional claim.
+
+Environment: set `RAZORPAY_KEY_ID` + `RAZORPAY_KEY_SECRET` in `.env`
+(gitignored). Test cards work in test mode via the standard modal.
+
 ---
 
 ## 🚀 Local Setup & Testing

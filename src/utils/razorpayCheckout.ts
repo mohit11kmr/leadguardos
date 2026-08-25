@@ -33,6 +33,25 @@ export interface CheckoutResult {
   error?: string;
 }
 
+/** Loads the Razorpay checkout script on demand (idempotent). */
+function ensureCheckoutScript(): Promise<void> {
+  if (window.Razorpay) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>('script[src*="checkout.razorpay.com"]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener('error', () => reject(new Error('Razorpay checkout script failed to load')), { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Razorpay checkout script failed to load'));
+    document.head.appendChild(script);
+  });
+}
+
 /**
  * Opens Razorpay Standard Checkout modal for a given plan.
  *
@@ -63,9 +82,17 @@ export async function openRazorpayCheckout(options: RazorpayCheckoutOptions): Pr
   if (!orderData.razorpay?.orderId) {
     return {
       success: false,
-      orderId: orderData.order?.id,
+      orderId: orderData.order?.orderId,
       error: 'Razorpay order not created. Payment provider may not be configured.',
     };
+  }
+
+  // Ensure the checkout SDK is available even if the index.html script
+  // has not finished loading (loaded async there as well).
+  try {
+    await ensureCheckoutScript();
+  } catch (err: any) {
+    return { success: false, orderId: orderData.order?.orderId, error: err?.message || 'Checkout unavailable' };
   }
 
   // Step 2: Open Razorpay checkout modal
@@ -107,7 +134,7 @@ export async function openRazorpayCheckout(options: RazorpayCheckoutOptions): Pr
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              orderId: orderData.order.id,
+              orderId: orderData.order.orderId,
               razorpayPaymentId: response.razorpay_payment_id,
               razorpayOrderId: response.razorpay_order_id,
               razorpaySignature: response.razorpay_signature,
@@ -117,21 +144,21 @@ export async function openRazorpayCheckout(options: RazorpayCheckoutOptions): Pr
           if (verifyResponse.ok) {
             resolve({
               success: true,
-              orderId: orderData.order.id,
+              orderId: orderData.order.orderId,
               paymentId: response.razorpay_payment_id,
             });
           } else {
             const verifyErr = await verifyResponse.json().catch(() => ({}));
             resolve({
               success: false,
-              orderId: orderData.order.id,
+              orderId: orderData.order.orderId,
               error: verifyErr?.error?.message || 'Payment verification failed',
             });
           }
         } catch (verifyErr: any) {
           resolve({
             success: false,
-            orderId: orderData.order.id,
+            orderId: orderData.order.orderId,
             error: verifyErr?.message || 'Network error during verification',
           });
         }
@@ -142,7 +169,7 @@ export async function openRazorpayCheckout(options: RazorpayCheckoutOptions): Pr
         ondismiss: () => {
           resolve({
             success: false,
-            orderId: orderData.order?.id,
+            orderId: orderData.order?.orderId,
             error: 'Payment cancelled by user',
           });
         },
@@ -155,7 +182,7 @@ export async function openRazorpayCheckout(options: RazorpayCheckoutOptions): Pr
     rzp.on('payment.failed', (response: any) => {
       resolve({
         success: false,
-        orderId: orderData.order?.id,
+        orderId: orderData.order?.orderId,
         error: response?.error?.description || 'Payment failed',
       });
     });

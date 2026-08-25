@@ -658,13 +658,19 @@ app.post("/api/webhooks/test", requireAuth, rateLimiter(20), async (req: Authent
 
 // Monetization Orders API - Server Calculated Price & Immutable Payment State
 // Creates a Razorpay order via their Orders API and returns the order_id for frontend checkout.
-app.post("/api/monetization/order", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+app.post("/api/monetization/order", optionalAuth, rateLimiter(20), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { tierId = "tier-express-fix", paymentMethod = "UPI", customerName, customerPhone, customerEmail, domain } = req.body;
 
     // Server calculates product price - NEVER trust amountINR or status from client
     const tier = calculateTierPrice(tierId);
     const amountINR = tier.priceINR; // Server computed — authoritative
+    const amountPaise = Math.round(amountINR * 100);
+
+    // Razorpay minimum order amount is 100 paise (₹1)
+    if (!Number.isFinite(amountPaise) || amountPaise < 100) {
+      return res.status(400).json({ error: { code: "INVALID_AMOUNT", message: "Order amount must be at least ₹1 (100 paise)." } });
+    }
 
     // Persist through the repository layer so production (Firestore) and
     // payment verification share one source of truth.
@@ -687,14 +693,16 @@ app.post("/api/monetization/order", optionalAuth, async (req: AuthenticatedReque
 
     if (razorpayKeyId && razorpayKeySecret) {
       try {
-        const Razorpay = require("razorpay");
+        // Dynamic import: ESM-safe under tsx runtime and esbuild bundling.
+        const razorpayModule = await import("razorpay");
+        const Razorpay = (razorpayModule as any).default ?? razorpayModule;
         const rzp = new Razorpay({
           key_id: razorpayKeyId,
           key_secret: razorpayKeySecret,
         });
 
         razorpayOrder = await rzp.orders.create({
-          amount: amountINR * 100, // Razorpay expects paise (₹299 → 29900)
+          amount: amountPaise,
           currency: "INR",
           receipt: order.orderId,
           notes: {
@@ -706,13 +714,17 @@ app.post("/api/monetization/order", optionalAuth, async (req: AuthenticatedReque
           },
         });
 
-        // Bind provider order ID to internal order for verification later
-        await orderRepository.updateOrderStatus(order.orderId, "PENDING", `Razorpay order created: ${razorpayOrder.id}`, true);
-        // Store providerOrderId on the order for binding verification
+        // Durably bind provider order ID to internal order for verification
+        await orderRepository.bindProviderOrder(order.orderId, razorpayOrder.id, "RAZORPAY");
         order.providerOrderId = razorpayOrder.id;
       } catch (rzpErr: any) {
-        AuditLogger.log({ action: "RAZORPAY_ORDER_CREATION_FAILED", resource: order.orderId, details: { error: rzpErr?.message } });
-        // Don't fail the whole request — the order exists locally. Frontend can retry.
+        AuditLogger.log({ action: "RAZORPAY_ORDER_CREATION_FAILED", resource: order.orderId, details: { error: rzpErr?.message, statusCode: rzpErr?.statusCode } });
+        // Provider auth failure vs generic API failure (spec: 401 / 500).
+        // Without a provider order id, standard checkout cannot proceed — fail loudly.
+        if (rzpErr?.statusCode === 401 || String(rzpErr?.message || "").toLowerCase().includes("authentication")) {
+          return res.status(401).json({ error: { code: "PROVIDER_AUTH_FAILED", message: "Razorpay rejected the configured API credentials." } });
+        }
+        return res.status(500).json({ error: { code: "RAZORPAY_ORDER_FAILED", message: rzpErr?.message || "Razorpay order creation failed." } });
       }
     }
 
@@ -740,7 +752,7 @@ app.post("/api/monetization/order", optionalAuth, async (req: AuthenticatedReque
 // Payment Verification Endpoint (Server-verified HMAC signature)
 // Hardened: routes through orderRepository (state machine + amount guard +
 // Firestore persistence) and claims fulfillment exactly-once.
-app.post("/api/monetization/verify-payment", optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+app.post("/api/monetization/verify-payment", optionalAuth, rateLimiter(30), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { orderId, razorpayPaymentId, razorpayOrderId, razorpaySignature } = req.body;
     if (!orderId || !razorpaySignature || !razorpayOrderId || !razorpayPaymentId) {
@@ -770,6 +782,38 @@ app.post("/api/monetization/verify-payment", optionalAuth, async (req: Authentic
     // bound to this internal order (or the internal id itself for legacy rows).
     if (!isPaymentBoundToOrder(orderId, razorpayOrderId, (existing as any).providerOrderId)) {
       return res.status(400).json({ error: { code: "ORDER_MISMATCH", message: "Payment does not match the requested order." } });
+    }
+
+    // ── Provider-side confirmation (defense-in-depth) ──────────────────────
+    // The HMAC signature proves authenticity; fetching the payment from the
+    // Razorpay API additionally confirms the AUTHORITATIVE amount, currency,
+    // and capture status before any entitlement is granted.
+    const razorpayKeyId = process.env.RAZORPAY_KEY_ID;
+    try {
+      const razorpayModule = await import("razorpay");
+      const Razorpay = (razorpayModule as any).default ?? razorpayModule;
+      const rzp = new Razorpay({ key_id: razorpayKeyId, key_secret: secret });
+      const payment: any = await rzp.payments.fetch(razorpayPaymentId);
+
+      if (payment?.order_id && payment.order_id !== razorpayOrderId) {
+        AuditLogger.log({ action: "PAYMENT_FORGERY_REJECTED", resource: orderId, details: { reason: "provider order_id mismatch" } });
+        return res.status(400).json({ error: { code: "ORDER_MISMATCH", message: "Provider payment belongs to a different order." } });
+      }
+      if (payment?.status !== "captured" && payment?.status !== "authorized") {
+        return res.status(409).json({ error: { code: "PAYMENT_NOT_CAPTURED", message: `Provider reports payment status "${payment?.status}". Not fulfilling.` } });
+      }
+      const expectedPaise = Math.round(calculateTierPrice(existing.tierId).priceINR * 100);
+      if (typeof payment.amount === "number" && payment.amount !== expectedPaise) {
+        AuditLogger.log({ action: "FULFILLMENT_ERROR", resource: orderId, details: { error: `AMOUNT_MISMATCH provider=${payment.amount} expected=${expectedPaise}` } });
+        return res.status(400).json({ error: { code: "AMOUNT_MISMATCH", message: "Provider payment amount does not match server-authoritative price." } });
+      }
+      if (payment?.currency && payment.currency !== "INR") {
+        return res.status(400).json({ error: { code: "CURRENCY_MISMATCH", message: "Only INR payments are accepted." } });
+      }
+    } catch (fetchErr: any) {
+      // Fail-closed: if the provider cannot confirm the payment, do not fulfill.
+      AuditLogger.log({ action: "PAYMENT_PROVIDER_CONFIRM_FAILED", resource: orderId, details: { error: fetchErr?.message } });
+      return res.status(503).json({ error: { code: "PROVIDER_CONFIRM_FAILED", message: "Could not confirm payment with Razorpay. Fulfillment withheld." } });
     }
 
     // State-machine-validated transition (rejects FAILED/CANCELLED/REFUNDED → PAID),

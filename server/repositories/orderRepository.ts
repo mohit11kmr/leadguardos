@@ -335,6 +335,45 @@ export class OrderRepository implements IOrderRepository {
     return updated;
   }
 
+  /**
+   * Durably bind a provider order id to an internal order.
+   * MUST be called immediately after provider order creation so that
+   * checkout-callback verification can enforce order binding.
+   */
+  async bindProviderOrder(orderId: string, providerOrderId: string, provider = 'RAZORPAY'): Promise<void> {
+    if (!orderId || !providerOrderId) {
+      throw new Error('INVALID_PROVIDER_BINDING: orderId and providerOrderId are required');
+    }
+    const existing = await this.getOrderById(orderId, undefined, true);
+    const now = new Date().toISOString();
+
+    // Reject rebinding to a DIFFERENT provider order (binding is immutable once set)
+    if (existing?.providerOrderId && existing.providerOrderId !== providerOrderId) {
+      throw new Error(`PROVIDER_ORDER_REBIND_REJECTED: Order ${orderId} is already bound to ${existing.providerOrderId}`);
+    }
+
+    if (existing) {
+      this.localOrders.set(orderId, { ...existing, providerOrderId, updatedAt: now });
+    }
+
+    if (isFirebaseConfigured()) {
+      const db = getAdminDb();
+      await db.collection('orders').doc(orderId).set(
+        { providerOrderId, provider, updatedAt: now },
+        { merge: true },
+      );
+    } else if (process.env.NODE_ENV === 'production') {
+      throw new Error(`DATABASE_UNAVAILABLE: Firestore required in production to bind provider order for ${orderId}`);
+    }
+
+    await auditRepository.logEvent({
+      action: 'ORDER_UPDATED',
+      userId: existing?.userId,
+      details: { orderId, providerOrderId, provider, reason: 'PROVIDER_ORDER_BOUND' },
+      timestamp: now,
+    });
+  }
+
   async updateOrderStatus(
     orderId: string,
     status: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED' | 'CANCELLED',
