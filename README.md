@@ -162,6 +162,17 @@ Environment: set `RAZORPAY_KEY_ID` + `RAZORPAY_KEY_SECRET` in `.env`
 bun install  # or npm install
 ```
 
+### Post-Deployment Verification Checklist
+Run these after deploying to real GCP infrastructure (Cloud Run/GKE + Firestore + Storage):
+
+1. **Durable queue under real latency**: `npx tsx tests/load-test.ts --jobs=1000 --workers=10` against a staging deployment with `NODE_ENV=production` — re-measure P50/P95/P99 with live Firestore round-trips and document results.
+2. **Worker crash recovery**: terminate a worker pod mid-load; verify lease expiry recovery (`jobExecutions.recoveryCount`) and zero lost jobs.
+3. **Shared rate limiting**: hit an endpoint from 2+ instances with one IP; confirm counters are shared (`rateLimits` collection) and 429s coordinate globally.
+4. **Payment webhook end-to-end**: register `https://<domain>/api/payments/webhook` in Razorpay dashboard, make one test-mode capture, verify exactly-once fulfillment in the `fulfillments` collection.
+5. **PDF durability**: generate a report, restart the API pod, download via `/api/pdf/:pdfId` — bytes must come from Firebase Storage.
+6. **Notification fail-closed**: remove SMTP env from one instance; enqueue notification; verify job dead-letters as `PROVIDER_NOT_CONFIGURED`, never SENT.
+7. **Share-link durability**: create a public share link, restart all API pods, resolve `/report/share/:token` — must load from `reportShares` collection.
+
 ### 2. Run Automated Test Suite
 ```bash
 npx tsx tests/run-tests.ts

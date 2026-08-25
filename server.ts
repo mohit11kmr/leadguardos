@@ -1349,9 +1349,14 @@ app.get("/api/v1/openapi.json", (_req: Request, res: Response) => {
 });
 
 // 3. Serve High-Entropy Immutable Shareable Report Snapshot
-app.get("/report/share/:token", (req: Request, res: Response) => {
+// Durable lookup: resolves from Firestore-backed registry (cache first),
+// so links survive restarts and work across horizontally scaled instances.
+app.get("/report/share/:token", async (req: Request, res: Response) => {
   const password = req.query.password as string;
-  const result = reportManager.getSnapshot(req.params.token, password);
+  if (!/^[a-f0-9]{64}$/.test(String(req.params.token))) {
+    return res.status(404).json({ error: "Report link expired or invalid." });
+  }
+  const result = await reportManager.getSnapshotAsync(req.params.token, password);
 
   if (result.error) {
     return res.status(404).json({ error: result.error });
@@ -1384,7 +1389,7 @@ app.get("/api/pdf/:pdfId", optionalAuth, async (req: AuthenticatedRequest, res: 
     const shareToken = (req.query.shareToken as string) || "";
     let isPublicShare = false;
     if (shareToken && /^[a-f0-9]{64}$/.test(shareToken)) {
-      const shared = reportManager.getSnapshot(shareToken, req.query.password as string | undefined);
+      const shared = await reportManager.getSnapshotAsync(shareToken, req.query.password as string | undefined);
       isPublicShare = !shared.error && (shared.snapshot as any)?.scanId === meta.scanId;
     }
 

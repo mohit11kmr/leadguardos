@@ -43,14 +43,16 @@ function checkMemoryRateLimit(key: string, limit: number, windowMs: number): { a
   };
 }
 
-// Periodic cleanup to prevent unbounded memory growth
-setInterval(() => {
+// Periodic cleanup to prevent unbounded memory growth.
+// .unref() ensures this janitor timer never keeps the process alive on its own.
+const memoryBucketCleanup = setInterval(() => {
   const now = Date.now();
   const cutoff = now - 120_000; // 2 minutes
   for (const [key, bucket] of memoryBuckets) {
     if (bucket.windowStart < cutoff) memoryBuckets.delete(key);
   }
 }, 60_000);
+if (typeof memoryBucketCleanup.unref === 'function') memoryBucketCleanup.unref();
 
 // ─── Firestore Rate Limiter (Production) ───────────────────────────────────────
 
