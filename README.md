@@ -165,6 +165,18 @@ bun install  # or npm install
 ### Post-Deployment Verification Checklist
 Run these after deploying to real GCP infrastructure (Cloud Run/GKE + Firestore + Storage):
 
+0. **Firestore durable-semantics suite (no GCP project needed)** — verify the REAL production
+   code paths against the Firestore Emulator:
+   ```bash
+   # Requires Java 21+
+   npx firebase-tools emulators:start --only firestore   # terminal 1
+   npm run test:emulator                                 # terminal 2 (15 checks)
+   # Real-latency queue load test:
+   FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_PROJECT_ID=leadguardos-emulator \
+   NODE_ENV=production STORAGE_MODE=firestore npx tsx tests/queue-load-firestore.ts --jobs=200 --workers=8
+   ```
+   Measured reference (emulator, 8 workers): 200/200 completed, 0 lost, throughput 2.2 jobs/s
+   incl. per-op transactions ≈ 187k jobs/day capacity vs. 3,334/day needed for 100k/month.
 1. **Durable queue under real latency**: `npx tsx tests/load-test.ts --jobs=1000 --workers=10` against a staging deployment with `NODE_ENV=production` — re-measure P50/P95/P99 with live Firestore round-trips and document results.
 2. **Worker crash recovery**: terminate a worker pod mid-load; verify lease expiry recovery (`jobExecutions.recoveryCount`) and zero lost jobs.
 3. **Shared rate limiting**: hit an endpoint from 2+ instances with one IP; confirm counters are shared (`rateLimits` collection) and 429s coordinate globally.

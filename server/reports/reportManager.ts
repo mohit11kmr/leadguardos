@@ -43,7 +43,11 @@ export class ReportManager {
     return getAdminDb();
   }
 
-  public createShareableSnapshot(auditResult: AuditResult, password?: string, ttlDays = 30): ShareableSnapshot {
+  /**
+   * Durable create: AWAITS persistence so the link is guaranteed readable by
+   * any instance immediately after this call resolves.
+   */
+  public async createShareableSnapshotAsync(auditResult: AuditResult, password?: string, ttlDays = 30): Promise<ShareableSnapshot> {
     // Generate high-entropy 64-char random token
     const token = crypto.randomBytes(32).toString('hex');
     const passwordHash = password ? crypto.createHash('sha256').update(password).digest('hex') : undefined;
@@ -58,33 +62,48 @@ export class ReportManager {
       revoked: false,
     };
 
-    this.snapshotsMap.set(token, snapshot);
-
-    // Durable persistence — fail-closed in production.
+    // Durable persistence FIRST (fail-closed in production), cache second.
     const db = this.requireDb();
     if (db) {
-      void db.collection('reportShares').doc(token).set({
-        token,
-        scanId: snapshot.scanId,
-        snapshot: snapshot.snapshot,
-        passwordHash: snapshot.passwordHash ?? null,
-        createdAt: snapshot.createdAt,
-        expiresAt: snapshot.expiresAt,
-        revoked: false,
-        serverTimestamp: FieldValue.serverTimestamp(),
-      }).catch((err: any) => {
-        // Create-path failure must surface: without durability the link dies
-        // on restart. Re-throw asynchronously is unsafe in HTTP context, so
-        // log loudly and invalidate the local entry to prevent a fake-success
-        // response body claiming a durable link that was not persisted.
+      try {
+        await db.collection('reportShares').doc(token).set({
+          token,
+          scanId: snapshot.scanId,
+          snapshot: snapshot.snapshot,
+          passwordHash: snapshot.passwordHash ?? null,
+          createdAt: snapshot.createdAt,
+          expiresAt: snapshot.expiresAt,
+          revoked: false,
+          serverTimestamp: FieldValue.serverTimestamp(),
+        });
+      } catch (err: any) {
         console.error('[ReportManager] FAILED to persist share token:', err?.message || err);
-        this.snapshotsMap.delete(token);
-      });
+        throw new Error(`REPORT_SHARE_PERSIST_FAILED: ${err?.message || err}`);
+      }
     } else if (process.env.NODE_ENV === 'production') {
-      this.snapshotsMap.delete(token);
       throw new Error('REPORT_SHARE_STORE_UNAVAILABLE: Firestore required in production for durable share links');
     }
 
+    this.snapshotsMap.set(token, snapshot);
+    return snapshot;
+  }
+
+  /** @deprecated Use createShareableSnapshotAsync — this variant does not await persistence. */
+  public createShareableSnapshot(auditResult: AuditResult, password?: string, ttlDays = 30): ShareableSnapshot {
+    void this.createShareableSnapshotAsync(auditResult, password, ttlDays).catch(() => undefined);
+    // Best-effort local-only snapshot for legacy synchronous callers (dev).
+    const token = crypto.randomBytes(32).toString('hex');
+    const passwordHash = password ? crypto.createHash('sha256').update(password).digest('hex') : undefined;
+    const snapshot: ShareableSnapshot = {
+      token,
+      scanId: auditResult.scanId,
+      snapshot: JSON.parse(JSON.stringify(toPublicAuditReport(auditResult))),
+      passwordHash,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + ttlDays * 24 * 3600 * 1000).toISOString(),
+      revoked: false,
+    };
+    this.snapshotsMap.set(token, snapshot);
     return snapshot;
   }
 

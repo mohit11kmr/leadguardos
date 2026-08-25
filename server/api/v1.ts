@@ -152,7 +152,7 @@ v1Router.get('/watchdog/:id', async (req: Request, res: Response) => {
 });
 
 // 7. Get Shareable Report Token (POST /api/v1/reports/share)
-v1Router.post('/reports/share', (req: Request, res: Response) => {
+v1Router.post('/reports/share', async (req: Request, res: Response) => {
   const { scanId, password } = req.body;
   if (typeof scanId !== 'string' || scanId.length > 128 || (password !== undefined && (typeof password !== 'string' || password.length > 256))) {
     return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Invalid report sharing parameters.' } });
@@ -163,6 +163,12 @@ v1Router.post('/reports/share', (req: Request, res: Response) => {
     return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You do not have access to this scan.' } });
   }
 
-  const shareToken = reportManager.createShareableSnapshot(scan, password);
-  res.json({ shareUrl: `${req.protocol}://${req.get('host')}/report/share/${shareToken.token}`, token: shareToken.token, expiresAt: shareToken.expiresAt });
+  try {
+    // Awaited durable persistence — the link is readable by any instance
+    // the moment this response is sent.
+    const shareToken = await reportManager.createShareableSnapshotAsync(scan, password);
+    res.json({ shareUrl: `${req.protocol}://${req.get('host')}/report/share/${shareToken.token}`, token: shareToken.token, expiresAt: shareToken.expiresAt });
+  } catch (err: any) {
+    res.status(503).json({ error: { code: 'SHARE_PERSIST_FAILED', message: err?.message || 'Could not create durable share link.' } });
+  }
 });

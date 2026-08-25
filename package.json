@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx tests/run-tests.ts"
+    "test": "tsx tests/run-tests.ts",
+    "test:emulator": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_PROJECT_ID=leadguardos-emulator NODE_ENV=production STORAGE_MODE=firestore npx tsx tests/firestore-emulator-test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -43,6 +43,12 @@ export function initializeFirebaseAdmin(): { app: App; db: Firestore; auth: Auth
         adminApp = initializeApp({
           projectId,
         });
+      } else if (process.env.FIRESTORE_EMULATOR_HOST) {
+        // Firestore Emulator mode (dev/test ONLY — never set in production).
+        // The Admin SDK connects without credentials when the emulator host
+        // is configured. Enables real-transaction verification of durable
+        // semantics (queue, idempotency, rate counters) locally.
+        adminApp = initializeApp({ projectId });
       } else {
         // No GCP credentials present: Use fast local storage fallback
         isFirestoreAvailable = false;
