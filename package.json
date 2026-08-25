@@ -17,7 +17,9 @@
     "migrate:deploy": "npx prisma migrate deploy",
     "db:generate": "npx prisma generate",
     "migrate:firestore": "npx tsx scripts/migrate-firestore-to-postgres.ts --live",
-    "migrate:firestore:dry-run": "npx tsx scripts/migrate-firestore-to-postgres.ts --dry-run"
+    "migrate:firestore:dry-run": "npx tsx scripts/migrate-firestore-to-postgres.ts --dry-run",
+    "swarm:fix": "tsx scripts/swarm-auto-fixer.ts",
+    "swarm:all": "tsx scripts/swarm-full-project.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
