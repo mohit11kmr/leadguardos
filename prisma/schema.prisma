@@ -1,0 +1,455 @@
+// LeadGuard OS — PostgreSQL authoritative schema (Prisma)
+// PostgreSQL is the single source of truth. No JSON/Map production storage.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Identity & Access ──────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String?
+  displayName   String?
+  photoUrl      String?
+  role          String    @default("USER") // USER | AGENCY | ADMIN
+  isActive      Boolean   @default(true)
+  organizationId String?
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  refreshTokens RefreshToken[]
+  apiKeys       ApiKey[]
+  scans         Scan[]
+  watchdogs     Watchdog[]
+  orders        Order[]
+  webhooks      Webhook[]
+  entitlements  Entitlement[]
+  usageRecords  UsageRecord[]
+
+  @@index([role])
+  @@index([organizationId])
+}
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  userId      String
+  tokenHash   String    @unique // sha256 of token — plaintext NEVER stored
+  familyId    String    // rotation family — reuse detection revokes whole family
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  replacedById String?
+  userAgent   String?
+  ip          String?
+  createdAt   DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
+model ApiKey {
+  id           String    @id @default(uuid())
+  userId       String
+  name         String
+  keyPrefix    String    // first 8 chars for lookup/display
+  keyHash      String    @unique // sha256 — raw key never stored
+  scopes       String[]  @default(["scans:read", "scans:write", "watchdogs:manage"])
+  lastUsedAt   DateTime?
+  expiresAt    DateTime?
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([keyPrefix])
+}
+
+// ─── Scanning ───────────────────────────────────────────────────────────────────
+
+model Scan {
+  id            String    @id // application-generated scanId preserved
+  userId        String?
+  targetUrl     String
+  domain        String
+  businessName  String?
+  status        String    @default("PENDING") // PENDING | RUNNING | COMPLETED | FAILED
+  mode          String    @default("LIVE")    // LIVE | DEMO
+  score         Int?
+  pillarScores  Json?     // { lead, ad, seo, cyber }
+  findings      Json?     // approved scanner evidence (authoritative)
+  whatsappResults Json?
+  phoneResults  Json?
+  trackingResults Json?
+  seoResults    Json?
+  securityResults Json?
+  estimatedMonthlyLoss Float?
+  errorState    String?
+  scannedLive   Boolean   @default(false)
+  scannedAt     DateTime  @default(now())
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user     User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  aiReport AiReport?
+  pdfReports PdfReport[]
+
+  @@index([userId, scannedAt])
+  @@index([domain])
+  @@index([status])
+  @@index([mode])
+}
+
+model AiReport {
+  id            String   @id @default(uuid())
+  scanId        String   @unique
+  model         String
+  promptVersion String
+  inputHash     String
+  resultHash    String
+  confidence    Float    @default(0.8)
+  content       String
+  sourceEvidence Json?
+  assumptions   Json?
+  createdAt     DateTime @default(now())
+
+  scan Scan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+}
+
+model PdfReport {
+  id          String   @id // application pdfId preserved
+  scanId      String
+  userId      String?
+  storagePath String
+  contentType String   @default("application/pdf")
+  sizeBytes   Int
+  sha256      String
+  generatedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  scan Scan? @relation(fields: [scanId], references: [id], onDelete: SetNull)
+
+  @@index([scanId])
+  @@index([userId])
+}
+
+// ─── Watchdog ───────────────────────────────────────────────────────────────────
+
+model Watchdog {
+  id            String    @id // application wd_ id preserved
+  userId        String?
+  targetUrl     String    // EXACT monitored URL — never a domain fallback
+  domain        String
+  contact       String
+  channel       String    @default("EMAIL") // EMAIL | TELEGRAM | WHATSAPP
+  frequency     String    @default("DAILY") // 15MIN | HOURLY | DAILY | WEEKLY
+  status        String    @default("ACTIVE_TRIAL") // ACTIVE_TRIAL | ACTIVE_SUBSCRIPTION | PAUSED | CANCELLED
+  mode          String    @default("LIVE")
+  trialExpiresAt DateTime?
+  lastCheckedAt DateTime?
+  nextCheckAt   DateTime?
+  lastScore     Int?
+  lastStatus    String?
+  failureCount  Int       @default(0)
+  alertState    String    @default("OK") // OK | INCIDENT_OPEN | COOLDOWN
+  lastIncidentFingerprint String?
+  lastIncidentAt DateTime?
+  pendingRunJobId String?
+  leaseOwner    String?
+  leaseExpiresAt DateTime?
+  organizationId String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user    User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  checkLogs WatchdogCheckLog[]
+
+  @@index([userId])
+  @@index([nextCheckAt, status])
+  @@index([domain])
+}
+
+model WatchdogCheckLog {
+  id        String   @id @default(uuid())
+  watchdogId String
+  scanId    String?
+  check     String
+  status    String
+  score     Int      @default(100)
+  durationMs Int?
+  details   String?
+  mode      String   @default("LIVE")
+  timestamp DateTime @default(now())
+
+  watchdog Watchdog @relation(fields: [watchdogId], references: [id], onDelete: Cascade)
+
+  @@index([watchdogId, timestamp])
+}
+
+// ─── Billing ────────────────────────────────────────────────────────────────────
+
+model Order {
+  id            String    @id // internal orderId (ord_...) preserved
+  userId        String?
+  tierId        String
+  tierName      String
+  amountInr     Int       // server-authoritative paise/rupee amount
+  currency      String    @default("INR")
+  status        String    @default("PENDING") // CREATED|PAYMENT_PENDING|PENDING|PAID|FAILED|REFUNDED|CANCELLED
+  statusReason  String?
+  provider      String    @default("RAZORPAY") // RAZORPAY | STRIPE | CASHFREE | UPI_MANUAL | SANDBOX
+  providerOrderId String?  // bound provider order id (immutable once set)
+  providerPaymentId String?
+  paymentReference String?
+  paymentVerifiedAt DateTime?
+  customerName  String?
+  customerEmail String?
+  customerPhone String?
+  domain        String?
+  idempotencyKey String?  @unique
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user       User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  payments   Payment[]
+  fulfillments Fulfillment[]
+
+  @@unique([provider, providerOrderId])
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model Payment {
+  id              String   @id @default(uuid())
+  orderId         String
+  provider        String
+  providerPaymentId String
+  amountExpected  Int
+  amountReceived  Int?
+  currency        String   @default("INR")
+  status          String   @default("PENDING") // PENDING | CAPTURED | FAILED | REFUNDED
+  signatureValid  Boolean  @default(false)
+  providerMeta    Json?
+  createdAt       DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerPaymentId])
+  @@index([orderId])
+}
+
+model PaymentEvent {
+  id              String   @id // sha256(provider:eventId) — dedup key
+  provider        String
+  providerEventId String
+  eventType       String
+  payloadHash     String
+  status          String   @default("CLAIMED") // CLAIMED | PROCESSED | REJECTED
+  createdAt       DateTime @default(now())
+  processedAt     DateTime?
+
+  @@unique([provider, providerEventId])
+  @@index([status])
+}
+
+model Fulfillment {
+  id            String   @id // ful_<orderId> — exactly-once claim key
+  orderId       String   @unique
+  type          String   // EXPRESS_FIX | WATCHDOG_SUBSCRIPTION | AGENCY_LICENSE | GENERIC
+  status        String   @default("ACTIVATED") // PENDING | ACTIVATED | FAILED
+  userId        String?
+  tierId        String?
+  activatedAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Subscription {
+  id          String    @id @default(uuid())
+  userId      String
+  plan        String    // FREE | PRO | AGENCY
+  provider    String?
+  providerSubscriptionId String?
+  status      String    @default("ACTIVE") // ACTIVE | PAST_DUE | CANCELLED
+  currentPeriodStart DateTime @default(now())
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd Boolean @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId, status])
+}
+
+model Entitlement {
+  id        String   @id @default(uuid())
+  userId    String
+  feature   String   // e.g. express_fix, watchdog, agency_clients
+  source    String   @default("PURCHASE") // PURCHASE | SUBSCRIPTION | TRIAL | ADMIN_GRANT
+  granted   Boolean  @default(true)
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, feature])
+  @@index([userId])
+}
+
+model UsageRecord {
+  id        String   @id @default(uuid())
+  userId    String
+  feature   String   // scans, batch, ai, watchdogs ...
+  usedCount Int      @default(0)
+  windowStart DateTime @default(now())
+  windowEnd DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, feature, windowStart])
+  @@index([userId, feature])
+}
+
+// ─── Platform ───────────────────────────────────────────────────────────────────
+
+model Webhook {
+  id          String    @id // application webhook id preserved
+  userId      String?
+  name        String
+  url         String
+  secret      String    // signing secret (server-side only)
+  events      String[]
+  active      Boolean   @default(true)
+  failureCount Int      @default(0)
+  lastTriggeredAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  deliveries WebhookDelivery[]
+
+  @@index([userId])
+}
+
+model WebhookDelivery {
+  id         String   @id @default(uuid())
+  webhookId  String
+  event      String
+  statusCode Int?
+  success    Boolean  @default(false)
+  attempt    Int      @default(1)
+  error      String?
+  payloadHash String?
+  createdAt  DateTime @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  userId    String?
+  userEmail String?
+  ipAddress String?
+  resource  String?
+  details   Json?
+  timestamp DateTime @default(now())
+
+  @@index([action, timestamp])
+  @@index([userId])
+}
+
+model ReportShare {
+  token        String   @id // high-entropy 64-hex — stored as-is (lookup key), not a secret
+  scanId       String
+  snapshot     Json     // sanitized public report ONLY (no private fields)
+  passwordHash String?
+  revoked      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([scanId])
+  @@index([expiresAt])
+}
+
+// ─── Queue & Ops ────────────────────────────────────────────────────────────────
+
+model JobExecution {
+  id             String   @id // job_<uuid>
+  type           String
+  userId         String?
+  data           Json
+  status         String   @default("QUEUED") // QUEUED|RUNNING|COMPLETED|FAILED|TIMED_OUT|CANCELLED|DEAD_LETTER
+  attempt        Int      @default(0)
+  maxAttempts    Int      @default(3)
+  nextAttemptAt  DateTime @default(now())
+  leaseExpiresAt DateTime?
+  workerId       String?
+  previousWorkerId String?
+  recoveryCount  Int      @default(0)
+  recoveredAt    DateTime?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  error          String?
+  lastError      String?
+  result         Json?
+  deadLetter     Boolean  @default(false)
+  deduplicationKey String? @unique
+  createdAt      DateTime @default(now())
+
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseExpiresAt])
+}
+
+model NotificationDelivery {
+  id         String   @id @default(uuid())
+  deliveryKey String  @unique // sha256(event:recipient:provider) — send-once key
+  notificationId String @unique
+  provider   String
+  recipient  String
+  event      String
+  status     String   // SENT | FAILED | PROVIDER_NOT_CONFIGURED | ...
+  attempt    Int      @default(1)
+  providerMessageId String?
+  providerResponse String?
+  error      String?
+  createdAt  DateTime @default(now())
+  sentAt     DateTime?
+
+  @@index([status])
+}
+
+model RateLimitWindow {
+  id            String   @id // key:windowStart composite
+  bucketKey     String
+  count         Int      @default(1)
+  windowMs      Int
+  expiresAt     DateTime
+  lastRequestAt DateTime @default(now())
+
+  @@index([bucketKey])
+  @@index([expiresAt])
+}
+
+model SystemStats {
+  id               String   @id @default("global")
+  totalScannedSites Int     @default(0)
+  problemsFound    Int      @default(0)
+  healthySites     Int      @default(0)
+  fixedByLeadGuard Int      @default(0)
+  updatedAt        DateTime @updatedAt
+}

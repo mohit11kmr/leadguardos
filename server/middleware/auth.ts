@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { ApiKeyManager } from '../security/apiKeyManager';
 import { verifyFirebaseIdToken } from '../security/firebaseAuth';
+import { verifyAccessToken } from '../auth/authService';
 
 export interface AuthUser {
   id: string;
@@ -79,12 +80,22 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
 
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    const user = verifyToken(token);
-    if (user) {
-      req.user = user;
+
+    // 1. Primary: application-owned JWT (PostgreSQL identity)
+    const claims = verifyAccessToken(token);
+    if (claims) {
+      req.user = { id: claims.sub, email: claims.email || '', role: (claims.role as AuthUser['role']) || 'USER' };
       return next();
     }
 
+    // 2. Legacy hand-rolled token (pre-migration clients) — same secret family
+    const legacyUser = verifyToken(token);
+    if (legacyUser) {
+      req.user = legacyUser;
+      return next();
+    }
+
+    // 3. Transitional: Firebase ID tokens (deprecated — removal tracked in MIGRATION.md)
     const firebaseUser = await verifyFirebaseIdToken(token);
     if (firebaseUser) {
       req.user = {
@@ -102,7 +113,8 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
       req.user = { id: 'usr_admin', email: 'admin@leadguard.os', role: 'ADMIN' };
       return next();
     }
-    const keyRecord = ApiKeyManager.verifyApiKey(apiKeyHeader);
+    // Durable verification — PostgreSQL-backed, works across instances.
+    const keyRecord = await ApiKeyManager.verifyApiKeyAsync(apiKeyHeader);
     if (keyRecord) {
       req.user = { id: keyRecord.userId, email: 'api_user@leadguard.os', role: 'USER' };
       return next();
@@ -123,21 +135,26 @@ export async function optionalAuth(req: AuthenticatedRequest, res: Response, nex
 
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    const user = verifyToken(token);
-    if (user) {
-      req.user = user;
+    const claims = verifyAccessToken(token);
+    if (claims) {
+      req.user = { id: claims.sub, email: claims.email || '', role: (claims.role as AuthUser['role']) || 'USER' };
     } else {
-      const firebaseUser = await verifyFirebaseIdToken(token);
-      if (firebaseUser) {
-        req.user = {
-          id: firebaseUser.uid,
-          email: firebaseUser.email || `${firebaseUser.uid}@firebase.local`,
-          role: firebaseUser.role || 'USER',
-        };
+      const user = verifyToken(token);
+      if (user) {
+        req.user = user;
+      } else {
+        const firebaseUser = await verifyFirebaseIdToken(token);
+        if (firebaseUser) {
+          req.user = {
+            id: firebaseUser.uid,
+            email: firebaseUser.email || `${firebaseUser.uid}@firebase.local`,
+            role: firebaseUser.role || 'USER',
+          };
+        }
       }
     }
   } else if (apiKeyHeader) {
-    const keyRecord = ApiKeyManager.verifyApiKey(apiKeyHeader);
+    const keyRecord = await ApiKeyManager.verifyApiKeyAsync(apiKeyHeader);
     if (keyRecord) {
       req.user = { id: keyRecord.userId, email: 'api_user@leadguard.os', role: 'USER' };
     }

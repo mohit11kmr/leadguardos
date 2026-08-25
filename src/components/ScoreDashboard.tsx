@@ -276,7 +276,7 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
               <div className="rounded-xl bg-slate-950/80 p-3 border border-slate-800 space-y-1">
                 <span className="font-bold text-slate-200">🎯 Ad Tracking (Meta Pixel):</span>
                 <p className="text-slate-300">
-                  {result.metaPixel?.present
+                  {result.metaPixel?.exists
                     ? '✅ Active: Tracking conversions for Facebook/Instagram ads.'
                     : '⚠️ Missing: Ad money may be wasted without conversion data.'}
                 </p>
@@ -285,7 +285,7 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
               <div className="rounded-xl bg-slate-950/80 p-3 border border-slate-800 space-y-1">
                 <span className="font-bold text-slate-200">🔍 Google SEO Status:</span>
                 <p className="text-slate-300">
-                  {result.seoPenalty?.isIndexable !== false
+                  {result.seoPenalty?.hasNoIndex !== true
                     ? '✅ Indexable: Pages can appear in Google search results.'
                     : '⚠️ Warning: Hidden noindex tags or missing title detected.'}
                 </p>

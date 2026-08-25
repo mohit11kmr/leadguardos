@@ -45,6 +45,10 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// Security headers (CSP, HSTS, frame protection, etc.)
+import { securityHeaders } from "./server/security/securityHeaders";
+app.use(securityHeaders);
+
 // ---------------------------------------------------------------------------
 // 1. Rate Limiting Middleware (IP-level bucket)
 // ---------------------------------------------------------------------------
@@ -1119,20 +1123,20 @@ app.get("/api/metrics", requireAuth, requireRole("ADMIN"), (_req: Request, res: 
   res.json(metrics.getSnapshot());
 });
 
-// 4. API Key Creation & Revocation Endpoints
-app.post("/api/keys/create", requireAuth, (req: AuthenticatedRequest, res: Response) => {
+// 4. API Key Creation & Revocation Endpoints (durable — PostgreSQL)
+app.post("/api/keys/create", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const userId = req.user?.id || "anon";
-  const { apiKey, keyId, record } = ApiKeyManager.generateApiKey(userId);
+  const { apiKey, keyId, record } = await ApiKeyManager.generateApiKeyAsync(userId, String(req.body?.name || 'default').slice(0, 100));
   AuditLogger.log({ userId, action: "CREATE_API_KEY", resource: keyId, ipAddress: req.ip });
   res.json({ apiKey, keyId, prefix: record.keyPrefix, createdAt: record.createdAt });
 });
 
-app.post("/api/keys/revoke", requireAuth, (req: AuthenticatedRequest, res: Response) => {
+app.post("/api/keys/revoke", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const { keyId } = req.body;
   if (!keyId) return res.status(400).json({ error: "keyId is required" });
   const success = req.user?.role === "ADMIN"
-    ? ApiKeyManager.revokeApiKey(keyId)
-    : ApiKeyManager.revokeApiKeyForUser(keyId, req.user!.id);
+    ? await ApiKeyManager.revokeApiKeyAsync(keyId)
+    : await ApiKeyManager.revokeApiKeyForUserAsync(keyId, req.user!.id);
   if (success) {
     AuditLogger.log({ userId: req.user?.id, action: "REVOKE_API_KEY", resource: keyId, ipAddress: req.ip });
     res.json({ status: "REVOKED", keyId });
@@ -1337,10 +1341,14 @@ app.post("/api/payments/webhook", async (req: RawBodyRequest, res: Response) => 
 // Phase 6 Public API v1, OpenAPI Spec & Shareable Report Routes
 // ---------------------------------------------------------------------------
 import { v1Router } from "./server/api/v1";
+import { authRouter } from "./server/auth/authRoutes";
 import { generateOpenApiSpec } from "./server/api/openapi";
 import { reportManager } from "./server/reports/reportManager";
 
 // 1. Mount Public REST API v1
+// Application-owned authentication (PostgreSQL identity, JWT + rotating refresh tokens)
+app.use("/api/v1/auth", authRouter);
+
 app.use("/api/v1", v1Router);
 
 // 2. Serve OpenAPI 3.0 JSON Specification

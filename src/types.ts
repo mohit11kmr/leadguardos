@@ -157,6 +157,7 @@ export interface AuditIssue {
   recommendation?: string;
   fixSnippet: string;
   confidence?: number;
+  detectedBy?: string;
   isLocked: boolean;
 }
 
@@ -168,6 +169,11 @@ export interface AuditResult {
   businessName?: string;
   score: number;
   estimatedMonthlyLoss: number;
+  revenueImpactRange?: {
+    lowEstimateINR: number;
+    highEstimateINR: number;
+    basis: string;
+  };
   adSpendRisk: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
   
   // 4 Pillar Scores
