@@ -1,0 +1,192 @@
+import { Request, Response, NextFunction } from 'express';
+
+/**
+ * Production-grade rate limiter.
+ *
+ * Architecture:
+ * - Development: In-memory Map (single-instance, no external deps)
+ * - Production: Firestore-backed short-window counters (shared across instances)
+ *
+ * For high-scale production, consider:
+ * - Google Cloud Armor rate limiting (infrastructure-level)
+ * - Redis-backed sliding window (if Redis is available)
+ * - API Gateway rate limiting
+ *
+ * @classification PRODUCTION — Firestore-backed in production, in-memory for dev
+ */
+
+interface RateBucket {
+  count: number;
+  windowStart: number;
+}
+
+// ─── In-Memory Rate Limiter (Development) ──────────────────────────────────────
+
+const memoryBuckets = new Map<string, RateBucket>();
+
+function checkMemoryRateLimit(key: string, limit: number, windowMs: number): { allowed: boolean; remaining: number; resetAt: number } {
+  const now = Date.now();
+  let bucket = memoryBuckets.get(key);
+
+  if (!bucket || now > bucket.windowStart + windowMs) {
+    bucket = { count: 0, windowStart: now };
+    memoryBuckets.set(key, bucket);
+  }
+
+  bucket.count++;
+  const allowed = bucket.count <= limit;
+  return {
+    allowed,
+    remaining: Math.max(0, limit - bucket.count),
+    resetAt: bucket.windowStart + windowMs,
+  };
+}
+
+// Periodic cleanup to prevent unbounded memory growth
+setInterval(() => {
+  const now = Date.now();
+  const cutoff = now - 120_000; // 2 minutes
+  for (const [key, bucket] of memoryBuckets) {
+    if (bucket.windowStart < cutoff) memoryBuckets.delete(key);
+  }
+}, 60_000);
+
+// ─── Firestore Rate Limiter (Production) ───────────────────────────────────────
+
+async function checkFirestoreRateLimit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; remaining: number }> {
+  const { getAdminDb, FieldValue } = require('../firebaseAdmin');
+  const db = getAdminDb();
+
+  const windowId = `${key}:${Math.floor(Date.now() / windowMs)}`;
+  const ref = db.collection('rateLimits').doc(windowId);
+
+  const result = await db.runTransaction(async (transaction: any) => {
+    const snap = await transaction.get(ref);
+    const data = snap.data();
+    const currentCount = data?.count || 0;
+
+    if (currentCount >= limit) {
+      return { allowed: false, remaining: 0 };
+    }
+
+    if (snap.exists) {
+      transaction.update(ref, { count: FieldValue.increment(1), lastRequestAt: new Date().toISOString() });
+    } else {
+      transaction.create(ref, {
+        key,
+        count: 1,
+        windowStart: new Date().toISOString(),
+        lastRequestAt: new Date().toISOString(),
+        // TTL for automatic Firestore cleanup (requires TTL policy on collection)
+        expiresAt: new Date(Date.now() + windowMs + 60_000).toISOString(),
+      });
+    }
+
+    return { allowed: true, remaining: limit - currentCount - 1 };
+  });
+
+  return result;
+}
+
+// ─── Unified Rate Limit Check ──────────────────────────────────────────────────
+
+async function checkRateLimit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; remaining: number; resetAt?: number }> {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (isProduction) {
+    try {
+      const { isFirebaseConfigured } = require('../firebaseAdmin');
+      if (isFirebaseConfigured()) {
+        return await checkFirestoreRateLimit(key, limit, windowMs);
+      }
+    } catch {
+      // Fallback to memory if Firestore is unavailable
+    }
+  }
+
+  return checkMemoryRateLimit(key, limit, windowMs);
+}
+
+// ─── Express Middleware ────────────────────────────────────────────────────────
+
+export interface RateLimitConfig {
+  /** Requests allowed per window */
+  limit: number;
+  /** Window duration in milliseconds */
+  windowMs?: number;
+  /** Key extractor: 'ip', 'user', 'org', or custom function */
+  keyBy?: 'ip' | 'user' | 'org' | ((req: Request) => string);
+  /** Optional operation name for grouping */
+  operation?: string;
+}
+
+/**
+ * Creates a production-grade rate limiter middleware.
+ *
+ * Usage:
+ *   app.post('/api/scan', productionRateLimiter({ limit: 30, operation: 'scan' }), handler)
+ *   app.post('/api/scan-batch', productionRateLimiter({ limit: 10, operation: 'batch', keyBy: 'user' }), handler)
+ */
+export function productionRateLimiter(config: RateLimitConfig) {
+  const {
+    limit,
+    windowMs = 60_000,
+    keyBy = 'ip',
+    operation = 'default',
+  } = config;
+
+  return async (req: Request, res: Response, next: NextFunction) => {
+    let key: string;
+    if (typeof keyBy === 'function') {
+      key = keyBy(req);
+    } else if (keyBy === 'user') {
+      key = `user:${(req as any).user?.id || 'anon'}:${operation}`;
+    } else if (keyBy === 'org') {
+      key = `org:${(req as any).user?.orgId || 'none'}:${operation}`;
+    } else {
+      key = `ip:${req.ip || req.socket.remoteAddress || 'unknown'}:${operation}`;
+    }
+
+    try {
+      const result = await checkRateLimit(key, limit, windowMs);
+
+      res.setHeader('X-RateLimit-Limit', String(limit));
+      res.setHeader('X-RateLimit-Remaining', String(result.remaining));
+      if (result.resetAt) {
+        res.setHeader('X-RateLimit-Reset', String(Math.ceil(result.resetAt / 1000)));
+      }
+
+      if (!result.allowed) {
+        return res.status(429).json({
+          error: 'Rate limit exceeded. Please wait before retrying.',
+          retryAfterMs: windowMs,
+        });
+      }
+
+      next();
+    } catch {
+      // If rate limiting fails, allow the request (availability > rate limiting)
+      next();
+    }
+  };
+}
+
+/**
+ * Legacy in-memory rate limiter for backward compatibility.
+ * @classification CACHE-ONLY — single-instance only
+ * @deprecated Use productionRateLimiter() for new endpoints
+ */
+export function legacyRateLimiter(limitPerMin = 60) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown_ip';
+    const result = checkMemoryRateLimit(`legacy:${ip}`, limitPerMin, 60_000);
+
+    if (!result.allowed) {
+      return res.status(429).json({
+        error: 'Rate limit exceeded. Please wait a moment before sending more diagnostic requests.',
+      });
+    }
+
+    next();
+  };
+}
