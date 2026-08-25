@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
+import { isPgEnabled } from '../db/storageMode';
 
 /**
  * Production-grade rate limiter.
@@ -54,7 +55,42 @@ const memoryBucketCleanup = setInterval(() => {
 }, 60_000);
 if (typeof memoryBucketCleanup.unref === 'function') memoryBucketCleanup.unref();
 
-// ─── Firestore Rate Limiter (Production) ───────────────────────────────────────
+// ─── PostgreSQL Rate Limiter (Production) ──────────────────────────────────────
+
+async function checkPgRateLimit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; remaining: number }> {
+  const { prisma } = await import('../db/prisma');
+  const windowId = `${key}:${Math.floor(Date.now() / windowMs)}`;
+  const now = new Date();
+
+  try {
+    const created = await prisma.rateLimitWindow.create({
+      data: {
+        id: windowId,
+        bucketKey: key,
+        count: 1,
+        windowMs,
+        expiresAt: new Date(now.getTime() + windowMs + 60_000),
+        lastRequestAt: now,
+      },
+    });
+    return { allowed: created.count <= limit, remaining: Math.max(0, limit - created.count) };
+  } catch (err: any) {
+    if (err?.code !== 'P2002') throw err;
+    // Window exists → atomic increment with cap guard
+    const updated = await prisma.$queryRaw<{ count: number }[]>`
+      UPDATE "RateLimitWindow"
+      SET "count" = "count" + 1, "lastRequestAt" = (NOW() AT TIME ZONE 'utc')
+      WHERE "id" = ${windowId} AND "count" < ${limit}
+      RETURNING "count";
+    `;
+    if (updated.length > 0) {
+      return { allowed: true, remaining: Math.max(0, limit - updated[0].count) };
+    }
+    return { allowed: false, remaining: 0 };
+  }
+}
+
+// ─── Firestore Rate Limiter (legacy pre-migration) ─────────────────────────────
 
 async function checkFirestoreRateLimit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; remaining: number }> {
   const db = getAdminDb();
@@ -109,6 +145,20 @@ export function rateLimitFailureMode(): 'fail-closed' | 'fail-open' {
 
 async function checkRateLimit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; remaining: number; resetAt?: number }> {
   const isProduction = process.env.NODE_ENV === 'production';
+
+  // PostgreSQL shared counters — production authority (multi-instance safe)
+  if (isPgEnabled()) {
+    try {
+      return await checkPgRateLimit(key, limit, windowMs);
+    } catch (err) {
+      const mode = rateLimitFailureMode();
+      console.error(`[RateLimiter] Shared limiter error (${mode}):`, err instanceof Error ? err.message : err);
+      if (mode === 'fail-closed') {
+        throw new Error('RATE_LIMIT_SHARED_STORE_UNAVAILABLE: shared counter unreachable');
+      }
+      return { allowed: true, remaining: limit };
+    }
+  }
 
   if (isProduction) {
     if (!isFirebaseConfigured()) {

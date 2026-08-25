@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
+import { isPgEnabled } from '../db/storageMode';
 import { WebhookConfig } from '../storage';
 import { validateAndResolveSafeUrl } from '../ssrfGuard';
 import { auditRepository } from './auditRepository';
@@ -107,6 +108,23 @@ export class WebhookRepository implements IWebhookRepository {
   }
 
   async getWebhooks(userId?: string, isAdmin = false): Promise<WebhookDocument[]> {
+    if (isPgEnabled()) {
+      const rows = await (await import('../db/prisma')).prisma.webhook.findMany({
+        where: (!isAdmin && userId) ? { userId } : undefined,
+        orderBy: { createdAt: 'desc' },
+      });
+      return rows.map(r => ({
+        id: r.id,
+        userId: r.userId || undefined,
+        name: r.name,
+        url: r.url,
+        secret: r.secret,
+        events: r.events,
+        active: r.active,
+        failureCount: 0,
+        createdAt: r.createdAt.toISOString(),
+      })) as unknown as WebhookDocument[];
+    }
     if (isFirebaseConfigured()) {
       try {
         const db = getAdminDb();

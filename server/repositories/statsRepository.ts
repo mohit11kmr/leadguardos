@@ -1,3 +1,4 @@
+import { isPgEnabled } from '../db/storageMode';
 import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 import { scanRepository } from './scanRepository';
 import { watchdogRepository } from './watchdogRepository';
@@ -33,6 +34,18 @@ export class StatsRepository {
   };
 
   async getSystemStats(): Promise<RealSystemMetrics> {
+    if (isPgEnabled()) {
+      const row = await (await import('../db/prisma')).prisma.systemStats.findUnique({ where: { id: 'global' } });
+      const base = { ...this.localStats };
+      if (row) {
+        base.totalScannedSites = row.totalScannedSites;
+        base.totalLiveScans = row.totalScannedSites;
+        base.problemsFound = row.problemsFound;
+        base.healthySites = row.healthySites;
+        base.lastUpdated = row.updatedAt.toISOString();
+      }
+      return base as RealSystemMetrics;
+    }
     // Dynamic recalculation from in-memory repositories
     try {
       const recentScans = await scanRepository.getRecentScans(200, 'LIVE');
@@ -112,6 +125,30 @@ export class StatsRepository {
     if (isHealthy) this.localStats.healthySites += 1;
     this.localStats.lastUpdated = new Date().toISOString();
 
+    if (isPgEnabled()) {
+      void (async () => {
+        try {
+          const { prisma } = await import('../db/prisma');
+          await prisma.systemStats.upsert({
+            where: { id: 'global' },
+            create: {
+              totalScannedSites: 1,
+              problemsFound: hasIssues ? issuesCount : 0,
+              healthySites: isHealthy ? 1 : 0,
+            },
+            update: {
+              totalScannedSites: { increment: 1 },
+              problemsFound: { increment: hasIssues ? issuesCount : 0 },
+              healthySites: { increment: isHealthy ? 1 : 0 },
+            },
+          });
+        } catch (err: any) {
+          console.error('[StatsRepository] PG persist failed:', err?.message);
+        }
+      })();
+      return;
+    }
+
     if (!isFirebaseConfigured()) return;
 
     try {
@@ -139,6 +176,22 @@ export class StatsRepository {
     this.localStats.fixedByLeadGuard += 1;
     this.localStats.lastUpdated = new Date().toISOString();
 
+    if (isPgEnabled()) {
+      void (async () => {
+        try {
+          const { prisma } = await import('../db/prisma');
+          await prisma.systemStats.upsert({
+            where: { id: 'global' },
+            create: { fixedByLeadGuard: 1 },
+            update: { fixedByLeadGuard: { increment: 1 } },
+          });
+        } catch (err: any) {
+          console.error('[StatsRepository] PG persist failed:', err?.message);
+        }
+      })();
+      return;
+    }
+
     if (!isFirebaseConfigured()) return;
 
     try {
@@ -161,6 +214,16 @@ export class StatsRepository {
   async recordUserRegistered(): Promise<void> {
     this.localStats.totalUsers += 1;
     this.localStats.lastUpdated = new Date().toISOString();
+
+    if (isPgEnabled()) {
+      void (async () => {
+        try {
+          const { prisma } = await import('../db/prisma');
+          await prisma.user.count().then(() => undefined);
+        } catch { /* telemetry-only */ }
+      })();
+      return;
+    }
 
     if (!isFirebaseConfigured()) return;
     try {

@@ -23,6 +23,10 @@ import { reportRepository } from "./server/repositories/reportRepository";
 dotenv.config();
 validateEnvironment();
 
+// PostgreSQL is the single production source of truth — refuse to boot without it.
+import { requirePgInProduction } from "./server/db/storageMode";
+requirePgInProduction();
+
 interface RawBodyRequest extends Request {
   rawBody?: Buffer;
 }
@@ -1102,12 +1106,18 @@ app.get("/api/health", (_req: Request, res: Response) => {
 // 2. Readiness Probe (Verifies DB, Queue, Storage)
 app.get("/api/ready", async (_req: Request, res: Response) => {
   try {
-    const dbHealth = await db.checkHealth();
+    // PostgreSQL connectivity is the authoritative readiness signal
+    const { checkDatabaseHealth } = await import("./server/db/prisma");
+    const dbHealth = await checkDatabaseHealth();
+    if (dbHealth.status !== "OK") {
+      return res.status(503).json({ status: "UNREADY", database: dbHealth, timestamp: new Date().toISOString() });
+    }
     const queueDepth = await jobQueue.getQueueDepth();
     const memoryUsage = process.memoryUsage();
 
     res.json({
       status: "READY",
+      datastore: "postgresql",
       database: dbHealth,
       queue: { activeJobs: queueDepth },
       memory: { rssMB: Math.round(memoryUsage.rss / 1024 / 1024) },

@@ -1,4 +1,5 @@
 import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
+import { isPgEnabled } from '../db/storageMode';
 import { WatchdogTarget, WatchdogCheckLog } from '../storage';
 import { auditRepository } from './auditRepository';
 
@@ -16,6 +17,8 @@ export interface WatchdogTargetDocument extends WatchdogTarget {
   lastRunId?: string;
   lastIncidentFingerprint?: string;
   lastIncidentAt?: string;
+  failureCount?: number;
+  alertState?: 'OK' | 'INCIDENT_OPEN' | 'COOLDOWN';
   serverTimestamp?: any;
 }
 
@@ -40,6 +43,33 @@ export interface IWatchdogRepository {
 export class WatchdogRepository implements IWatchdogRepository {
   private localTargets: Map<string, WatchdogTargetDocument> = new Map();
   private localLogs: WatchdogCheckDocument[] = [];
+
+  private mapPgRow(row: any): WatchdogTargetDocument {
+    return {
+      id: row.id,
+      targetUrl: row.targetUrl,
+      domain: row.domain,
+      contact: row.contact,
+      channel: row.channel,
+      frequency: row.frequency,
+      status: row.status as WatchdogTargetDocument['status'],
+      mode: row.mode === 'DEMO' ? 'DEMO' : 'LIVE',
+      createdAt: row.createdAt?.toISOString?.() || new Date().toISOString(),
+      updatedAt: row.updatedAt?.toISOString?.(),
+      trialExpiresAt: row.trialExpiresAt?.toISOString?.(),
+      lastCheckedAt: row.lastCheckedAt?.toISOString?.(),
+      nextCheckAt: row.nextCheckAt?.toISOString?.(),
+      lastScore: row.lastScore ?? undefined,
+      lastStatus: row.lastStatus || undefined,
+      userId: row.userId || undefined,
+      organizationId: row.organizationId || undefined,
+      pendingRunJobId: row.pendingRunJobId || undefined,
+      leaseOwner: row.leaseOwner || undefined,
+      leaseExpiresAt: row.leaseExpiresAt?.toISOString?.(),
+      failureCount: row.failureCount ?? 0,
+      alertState: row.alertState || 'OK',
+    } as WatchdogTargetDocument;
+  }
 
   async addTarget(
     target: Partial<WatchdogTargetDocument>,
@@ -70,6 +100,36 @@ export class WatchdogRepository implements IWatchdogRepository {
       organizationId: target.organizationId,
     };
 
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      await prisma.watchdog.upsert({
+        where: { id },
+        create: {
+          id,
+          userId: docData.userId || null,
+          targetUrl: docData.targetUrl,
+          domain: docData.domain,
+          contact: docData.contact || '',
+          channel: docData.channel || 'EMAIL',
+          frequency: docData.frequency || 'DAILY',
+          status: docData.status || 'ACTIVE_TRIAL',
+          mode: docData.mode === 'DEMO' ? 'DEMO' : 'LIVE',
+          nextCheckAt: docData.nextCheckAt ? new Date(docData.nextCheckAt) : null,
+          trialExpiresAt: docData.trialExpiresAt ? new Date(docData.trialExpiresAt) : null,
+        },
+        update: {},
+      });
+      this.localTargets.set(id, docData);
+      await auditRepository.logEvent({
+        action: 'WATCHDOG_CREATED',
+        userId: docData.userId,
+        userEmail: docData.userEmail,
+        details: { targetId: id, domain: docData.domain, channel: docData.channel },
+        timestamp: now,
+      });
+      return docData;
+    }
+
     this.localTargets.set(id, docData);
 
     if (isFirebaseConfigured()) {
@@ -98,6 +158,16 @@ export class WatchdogRepository implements IWatchdogRepository {
   }
 
   async getTargetById(id: string, userId?: string, isAdmin = false): Promise<WatchdogTargetDocument | undefined> {
+    if (isPgEnabled()) {
+      const row = await (await import('../db/prisma')).prisma.watchdog.findUnique({ where: { id } });
+      if (!row) return undefined;
+      const target = this.mapPgRow(row);
+      if (!isAdmin && target.userId && userId && target.userId !== userId) {
+        throw new Error('Unauthorized: You do not own this watchdog monitor');
+      }
+      this.localTargets.set(id, target);
+      return target;
+    }
     if (isFirebaseConfigured()) {
       try {
         const db = getAdminDb();
@@ -170,6 +240,31 @@ export class WatchdogRepository implements IWatchdogRepository {
       updatedAt: new Date().toISOString(),
     };
 
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      try {
+        await prisma.watchdog.update({
+          where: { id },
+          data: {
+            status: updatedData.status,
+            lastCheckedAt: updatedData.lastCheckedAt ? new Date(updatedData.lastCheckedAt) : undefined,
+            nextCheckAt: updatedData.nextCheckAt ? new Date(updatedData.nextCheckAt) : undefined,
+            lastScore: updatedData.lastScore ?? undefined,
+            lastStatus: updatedData.lastStatus || undefined,
+            pendingRunJobId: updatedData.pendingRunJobId !== undefined ? (updatedData.pendingRunJobId || null) : undefined,
+            failureCount: updatedData.failureCount,
+            alertState: updatedData.alertState || undefined,
+            leaseOwner: updatedData.leaseOwner !== undefined ? (updatedData.leaseOwner || null) : undefined,
+            leaseExpiresAt: updatedData.leaseExpiresAt ? new Date(updatedData.leaseExpiresAt) : undefined,
+          },
+        });
+      } catch (err: any) {
+        if (err?.code !== 'P2025') throw err;
+      }
+      this.localTargets.set(id, updatedData);
+      return updatedData;
+    }
+
     this.localTargets.set(id, updatedData);
 
     if (isFirebaseConfigured()) {
@@ -202,6 +297,20 @@ export class WatchdogRepository implements IWatchdogRepository {
 
     if (!isAdmin && existing.userId && existing.userId !== userId) {
       throw new Error(`Unauthorized: You cannot delete watchdog target ${id}`);
+    }
+
+    if (isPgEnabled()) {
+      await (await import('../db/prisma')).prisma.watchdog.delete({ where: { id } }).catch((err: any) => {
+        if (err?.code !== 'P2025') throw err;
+      });
+      this.localTargets.delete(id);
+      await auditRepository.logEvent({
+        action: 'WATCHDOG_DELETED',
+        userId,
+        details: { targetId: id, domain: existing.domain },
+        timestamp: new Date().toISOString(),
+      });
+      return true;
     }
 
     this.localTargets.delete(id);
@@ -244,10 +353,32 @@ export class WatchdogRepository implements IWatchdogRepository {
       mode: log.mode || 'LIVE',
     };
 
+    if (isPgEnabled()) {
+      void (async () => {
+        const { prisma } = await import('../db/prisma');
+        try {
+          await prisma.watchdogCheckLog.create({
+            data: {
+              watchdogId: String(docData.targetId || ''),
+              scanId: docData.scanId || null,
+              check: docData.check || 'Watchdog Heartbeat Probe',
+              status: docData.status || 'PASS',
+              score: docData.score ?? 100,
+              durationMs: docData.durationMs ?? null,
+              details: docData.details || null,
+              mode: docData.mode === 'DEMO' ? 'DEMO' : 'LIVE',
+            },
+          });
+        } catch (err: any) {
+          console.error('[WatchdogRepository] check log persist failed:', err?.message);
+        }
+      })();
+    }
+
     this.localLogs.unshift(docData);
     if (this.localLogs.length > 500) this.localLogs.pop();
 
-    if (isFirebaseConfigured()) {
+    if (!isPgEnabled() && isFirebaseConfigured()) {
       try {
         const db = getAdminDb();
         await db.collection('watchdogChecks').doc(id).set({
@@ -294,6 +425,24 @@ export class WatchdogRepository implements IWatchdogRepository {
   async acquireTargetLease(targetId: string, workerId: string, leaseDurationMs = 180000): Promise<boolean> {
     const now = Date.now();
     const expiresAt = new Date(now + leaseDurationMs).toISOString();
+
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      const result = await prisma.$queryRaw<any[]>`
+        UPDATE "Watchdog"
+        SET "leaseOwner" = ${workerId},
+            "leaseExpiresAt" = NOW() + (${leaseDurationMs} || ' milliseconds')::interval,
+            "lastRunId" = ${`run_${now}_${Math.random().toString(36).substring(2, 6)}`}
+        WHERE "id" = ${targetId}
+          AND (
+            "leaseOwner" IS NULL
+            OR "leaseOwner" = ${workerId}
+            OR "leaseExpiresAt" < (NOW() AT TIME ZONE 'utc')
+          )
+        RETURNING "id";
+      `;
+      return result.length > 0;
+    }
 
     if (isFirebaseConfigured()) {
       try {

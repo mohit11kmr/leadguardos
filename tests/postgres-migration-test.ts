@@ -124,6 +124,128 @@ async function main() {
   assert(pay.verifyCashfreeWebhookSignature(body, cfSig, cashfreeSecret) === true, 'Cashfree valid signature accepted');
   assert(pay.verifyCashfreeWebhookSignature(tamperedBody, cfSig, cashfreeSecret) === false, 'Cashfree tampered payload rejected');
 
+  // ─── 4b. Repository fixtures for ownership/queue sections ────────────────────
+  const orderRepo = (await import('../server/repositories/orderRepository')).orderRepository;
+  const payOrderRow = await orderRepo.createPendingOrder({ tierId: 'tier-express-fix', orderId: `ord_pg_${Date.now()}` }, dbUser!.id, email);
+  await orderRepo.bindProviderOrder(payOrderRow.orderId, `order_pg_${Date.now()}`);
+
+  const wdRepo = (await import('../server/repositories/watchdogRepository')).watchdogRepository;
+  await wdRepo.addTarget({
+    id: 'wd_pg_owned',
+    targetUrl: 'https://pg-owned.example.com',
+    domain: 'pg-owned.example.com',
+    contact: 'owner@x.in', channel: 'EMAIL', frequency: 'DAILY',
+    status: 'ACTIVE_TRIAL' as const, mode: 'LIVE',
+    userId: dbUser!.id,
+    nextCheckAt: new Date(Date.now() + 60_000).toISOString(),
+  }, dbUser!.id);
+
+  // ─── 5. Durable Queue on PostgreSQL (SKIP LOCKED) ────────────────────────────
+  console.log('\n📌 Section 5: Prisma Queue Adapter — Claim / Recovery / Dead-letter');
+  const { pdfRepo } = { pdfRepo: (await import('../server/repositories/pdfReportRepository')).pdfReportRepository };
+  const { jobQueue } = await import('../server/queue/jobQueue');
+  const isPrismaQueue = !(jobQueue as any).jobMap;
+  assert(isPrismaQueue, 'DATABASE_URL set → Prisma-backed queue adapter selected');
+
+  const qj = await jobQueue.enqueue('sendWebhook', { url: 'https://pg-test/hook' }, dbUser!.id, 3);
+  const qFetched = await jobQueue.getJob(qj.id);
+  assert(qFetched?.status === 'QUEUED', 'Job persisted to jobExecutions table');
+
+  const claimA = await jobQueue.claimNext('pg-worker-A');
+  assert(claimA?.id === qj.id && claimA.status === 'RUNNING' && claimA.attempt === 1, 'Atomic claim via FOR UPDATE SKIP LOCKED');
+
+  // Simultaneous second worker must NOT get the same job
+  await jobQueue.enqueue('sendWebhook', { url: 'https://pg-test/second' }, undefined, 3);
+  const claimB = await jobQueue.claimNext('pg-worker-B');
+  assert(claimB !== undefined && claimB.id !== qj.id, 'Second worker claims a DIFFERENT job (no double-claim)');
+
+  // Crash recovery
+  await jobQueue.updateJobStatus(qj.id, { leaseExpiresAt: new Date(Date.now() - 60_000).toISOString() });
+  const recoveredQ = await jobQueue.claimNext('pg-worker-C');
+  assert(
+    recoveredQ?.id === qj.id && recoveredQ.previousWorkerId === 'pg-worker-A' &&
+    (recoveredQ.recoveryCount || 0) >= 1,
+    'Expired lease recovered with previousWorkerId + recoveryCount',
+  );
+
+  // Durable retry scheduling
+  await jobQueue.updateJobStatus(qj.id, {
+    status: 'QUEUED',
+    nextAttemptAt: new Date(Date.now() + 60_000).toISOString(),
+    lastError: 'transient',
+  });
+  const premature = await jobQueue.claimNext('pg-worker-D');
+  assert(premature?.id !== qj.id, 'Job with future nextAttemptAt NOT claimable early');
+
+  // Dead letter
+  await jobQueue.markDeadLetter(qj.id, 'pg-suite evidence');
+  const dlq = await jobQueue.getJob(qj.id);
+  assert(dlq?.status === 'DEAD_LETTER' && dlq.deadLetter === true, 'Dead-letter persisted');
+
+  // ─── 6. Ownership enforcement at repository level ─────────────────────────────
+  console.log('\n📌 Section 6: Ownership / Authorization');
+  let ownershipErr: any = null;
+  try {
+    await orderRepo.getOrderById(payOrderRow.orderId, 'usr_attacker_other', false);
+  } catch (e) { ownershipErr = e; }
+  assert(ownershipErr?.message === 'UNAUTHORIZED_ORDER_ACCESS', 'Order access denied for non-owner');
+
+  const wdOwnerErr: any = { message: null };
+  try {
+    await wdRepo.getTargetById('wd_pg_owned', 'different-user', false);
+  } catch (e: any) { wdOwnerErr.message = e?.message; }
+  assert(!!wdOwnerErr.message, 'Watchdog access denied for non-owner');
+
+  // ─── 6b. Order / PDF / Share durability ─────────────────────────────────────
+  console.log('\n📌 Section 6b: Order Binding, PDF Registry, Share Links');
+  await orderRepo.bindProviderOrder(payOrderRow.orderId, payOrderRow.orderId + '_rebind_probe').catch(() => undefined);
+  const reboundRow = await prisma.order.findUnique({ where: { id: payOrderRow.orderId } });
+  assert(!!reboundRow?.providerOrderId, 'Provider-order binding persists in orders table');
+
+  const cryptoMod = await import('crypto');
+  // Create the parent scan first — FK integrity requires it
+  const scanRepoPg = (await import('../server/repositories/scanRepository')).scanRepository;
+  await scanRepoPg.createScan({
+    scanId: 'scan_pg_meta', targetUrl: 'https://pg-meta.example.com',
+    domain: 'pg-meta.example.com', score: 88, overallScore: 88,
+    status: 'COMPLETED' as any, mode: 'LIVE', userId: dbUser!.id,
+  } as any);
+  await pdfRepo.save({
+    pdfId: `pdf_pg_${Date.now()}`, scanId: 'scan_pg_meta', userId: dbUser!.id,
+    storagePath: 'reports/pg/test.pdf', contentType: 'application/pdf',
+    sizeBytes: 2048, sha256: cryptoMod.createHash('sha256').update('pg').digest('hex'),
+    generatedAt: new Date().toISOString(),
+  });
+  assert(!!await pdfRepo.getById((await prisma.pdfReport.findFirst({ where: { scanId: 'scan_pg_meta' } }))!.id),
+    'PDF metadata persists in pdfReports table');
+
+  const rm = await import('../server/reports/reportManager');
+  const instanceA = new rm.ReportManager();
+  const snap = await instanceA.createShareableSnapshotAsync({
+    scanId: 'scan_share_emu', domain: 'share-test.in', score: 70, allIssues: [],
+  } as any);
+  const pgShare = await prisma.reportShare.findUnique({ where: { token: snap.token } });
+  assert(!!pgShare && pgShare.scanId === 'scan_share_emu', 'Share snapshot persisted in reportShares table');
+  const instanceB = new rm.ReportManager();
+  const resolvedB = await instanceB.getSnapshotAsync(snap.token);
+  assert(!resolvedB.error && (resolvedB.snapshot as any)?.scanId === 'scan_share_emu',
+    'Fresh instance resolves share link from PostgreSQL (not process memory)');
+  await instanceB.revokeTokenAsync(snap.token);
+  const revokedCheck = await instanceB.getSnapshotAsync(snap.token);
+  assert(!!revokedCheck.error, 'Revoked share link rejected');
+
+  // ─── 7. Transaction behavior — rollback on failure ────────────────────────────
+  console.log('\n📌 Section 7: Transaction Integrity');
+  const before = await prisma.user.count();
+  try {
+    await prisma.$transaction([
+      prisma.user.create({ data: { email: `tx_${Date.now()}@t.in`, passwordHash: 'x' } }),
+      prisma.user.create({ data: { email: dbUser!.email, passwordHash: 'dup' } }), // duplicate → fails
+    ]);
+  } catch { /* expected */ }
+  const after = await prisma.user.count();
+  assert(before === after, '$transaction rolls back fully on constraint violation');
+
   // ─── Summary ─────────────────────────────────────────────────────────────────
   console.log('\n═══════════════════════════════════════════════════════');
   console.log(`  RESULTS: ${passed} PASSED | ${failed} FAILED`);

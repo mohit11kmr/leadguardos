@@ -4,6 +4,7 @@ import { OrderRecord } from '../storage';
 import { auditRepository } from './auditRepository';
 import { calculateTierPrice, CENTRALIZED_PRICING_CATALOG } from '../config/pricing';
 import { validatePaymentTransition, verifyPaymentAmount, transitionPaymentState, PaymentOrderStatus } from '../services/paymentStateMachine';
+import { isPgEnabled } from '../db/storageMode';
 
 export interface PaymentVerificationInput {
   paymentReference: string;
@@ -40,6 +41,31 @@ export interface IOrderRepository {
 export class OrderRepository implements IOrderRepository {
   private localOrders: Map<string, OrderDocument> = new Map();
 
+  /** Map a Prisma Order row to the legacy OrderDocument shape. */
+  private mapPgRow(row: any): OrderDocument {
+    return {
+      orderId: row.id,
+      tierId: row.tierId,
+      tierName: row.tierName,
+      amountINR: row.amountInr,
+      paymentMethod: 'RAZORPAY',
+      customerName: row.customerName || undefined,
+      customerEmail: row.customerEmail || undefined,
+      customerPhone: row.customerPhone || undefined,
+      domain: row.domain || undefined,
+      status: row.status as OrderDocument['status'],
+      statusReason: row.statusReason || undefined,
+      providerOrderId: row.providerOrderId || undefined,
+      providerPaymentId: row.providerPaymentId || undefined,
+      paymentReference: row.paymentReference || undefined,
+      paymentVerifiedAt: row.paymentVerifiedAt?.toISOString?.(),
+      createdAt: row.createdAt?.toISOString?.() || new Date().toISOString(),
+      updatedAt: row.updatedAt?.toISOString?.(),
+      userId: row.userId || undefined,
+      userEmail: row.customerEmail || undefined,
+    } as OrderDocument;
+  }
+
   async createOrder(orderData: Partial<OrderDocument>): Promise<OrderDocument> {
     return this.createPendingOrder(orderData);
   }
@@ -73,9 +99,40 @@ export class OrderRepository implements IOrderRepository {
       organizationId: orderData.organizationId,
     };
 
+    if (isPgEnabled()) {
+      // PostgreSQL authority — awaited, fail-closed.
+      const { prisma } = await import('../db/prisma');
+      try {
+        await prisma.order.create({
+          data: {
+            id: orderId,
+            tierId: docData.tierId,
+            tierName: docData.tierName || '',
+            amountInr: Math.round(docData.amountINR || 0),
+            currency: 'INR',
+            status: docData.status || 'PENDING',
+            provider: 'RAZORPAY',
+            customerName: docData.customerName || null,
+            customerEmail: docData.customerEmail || null,
+            customerPhone: docData.customerPhone || null,
+            domain: docData.domain || null,
+            userId: docData.userId || null,
+          },
+        });
+      } catch (err: any) {
+        if (err?.code === 'P2002') {
+          // Idempotent re-create (duplicate orderId) is acceptable.
+        } else {
+          throw err;
+        }
+      }
+      this.localOrders.set(orderId, docData);
+      return docData;
+    }
+
     this.localOrders.set(orderId, docData);
 
-    if (isFirebaseConfigured()) {
+    if (!isPgEnabled() && isFirebaseConfigured()) {
       try {
         const db = getAdminDb();
         await db.collection('orders').doc(orderId).set({
@@ -101,6 +158,16 @@ export class OrderRepository implements IOrderRepository {
   }
 
   async getOrderById(orderId: string, userId?: string, isAdmin = false): Promise<OrderDocument | undefined> {
+    if (isPgEnabled()) {
+      const row = await (await import('../db/prisma')).prisma.order.findUnique({ where: { id: orderId } });
+      const order = row ? this.mapPgRow(row) : undefined;
+      if (!order) return undefined;
+      if (!isAdmin && order.userId && userId && order.userId !== userId) {
+        throw new Error('UNAUTHORIZED_ORDER_ACCESS');
+      }
+      this.localOrders.set(orderId, order);
+      return order;
+    }
     if (isFirebaseConfigured()) {
       try {
         const db = getAdminDb();
@@ -301,6 +368,29 @@ export class OrderRepository implements IOrderRepository {
     const updated = { ...existing, ...updates };
     this.localOrders.set(orderId, updated);
 
+    if (isPgEnabled()) {
+      try {
+        await (await import('../db/prisma')).prisma.order.update({
+          where: { id: orderId },
+          data: {
+            status: finalStatus,
+            statusReason: statusReason || null,
+            paymentReference: input.paymentReference,
+            providerPaymentId: (input.providerPaymentId || input.paymentReference) ?? null,
+            providerOrderId: input.providerOrderId || existing.providerOrderId || null,
+            paymentVerifiedAt: finalStatus === 'PAID' ? new Date(now) : null,
+            updatedAt: new Date(now),
+          },
+        });
+      } catch (err: any) {
+        if (err?.code === 'P2025') {
+          throw new Error(`ORDER_NOT_FOUND: ${orderId}`);
+        }
+        throw new Error(`PG_WRITE_FAILED: Failed to persist order ${orderId} status: ${err?.message || err}`);
+      }
+      return updated;
+    }
+
     if (isFirebaseConfigured()) {
       try {
         const db = getAdminDb();
@@ -315,7 +405,7 @@ export class OrderRepository implements IOrderRepository {
         }
       }
     } else if (isProduction || process.env.STORAGE_MODE === 'firestore') {
-      throw new Error(`DATABASE_UNAVAILABLE: Firestore is required in production but unavailable for order ${orderId}`);
+      throw new Error(`DATABASE_UNAVAILABLE: PostgreSQL is required in production but DATABASE_URL is unset for order ${orderId}`);
     }
 
     await auditRepository.logEvent({
@@ -356,6 +446,22 @@ export class OrderRepository implements IOrderRepository {
       this.localOrders.set(orderId, { ...existing, providerOrderId, updatedAt: now });
     }
 
+    if (isPgEnabled()) {
+      try {
+        await (await import('../db/prisma')).prisma.order.update({
+          where: { id: orderId },
+          data: { providerOrderId, provider, updatedAt: new Date(now) },
+        });
+      } catch (err: any) {
+        if (err?.code === 'P2025') {
+          throw new Error(`ORDER_NOT_FOUND: Cannot bind provider order for missing order ${orderId}`);
+        }
+        // Unique(provider,providerOrderId) violation → rebind attempt to a taken id
+        throw new Error(`PROVIDER_ORDER_ALREADY_BOUND: ${err?.message || err}`);
+      }
+      return;
+    }
+
     if (isFirebaseConfigured()) {
       const db = getAdminDb();
       await db.collection('orders').doc(orderId).set(
@@ -363,7 +469,7 @@ export class OrderRepository implements IOrderRepository {
         { merge: true },
       );
     } else if (process.env.NODE_ENV === 'production') {
-      throw new Error(`DATABASE_UNAVAILABLE: Firestore required in production to bind provider order for ${orderId}`);
+      throw new Error(`DATABASE_UNAVAILABLE: DATABASE_URL required in production to bind provider order for ${orderId}`);
     }
 
     await auditRepository.logEvent({
@@ -400,9 +506,20 @@ export class OrderRepository implements IOrderRepository {
       });
     }
 
+    if (isPgEnabled()) {
+      await (await import('../db/prisma')).prisma.order.update({
+        where: { id: orderId },
+        data: { status, statusReason: reason || null, updatedAt: new Date(now) },
+      }).catch((err: any) => {
+        if (err?.code === 'P2025') return undefined;
+        throw err;
+      });
+      return;
+    }
+
     if (!isFirebaseConfigured()) {
       if (process.env.NODE_ENV === 'production' || process.env.STORAGE_MODE === 'firestore') {
-        throw new Error(`DATABASE_UNAVAILABLE: Firestore is required in production to update order ${orderId}`);
+        throw new Error(`DATABASE_UNAVAILABLE: PostgreSQL is required in production to update order ${orderId}`);
       }
       return;
     }

@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { getAdminDb, isFirebaseConfigured } from '../firebaseAdmin';
+import { isPgEnabled } from '../db/storageMode';
 
 export type JobType =
   | 'scanWebsite'
@@ -179,16 +179,24 @@ export class JobQueueManager implements QueueAdapter {
  * Firestore-backed durable queue adapter.
  * Production authority for job state, retry scheduling, and crash recovery.
  */
-class FirestoreQueueAdapter implements QueueAdapter {
-  private readonly collection = 'jobExecutions';
-
-  private getDb() {
-    if (!isFirebaseConfigured()) throw new Error('DURABLE_QUEUE_UNAVAILABLE: Firestore is not configured');
-    return getAdminDb();
+/**
+ * PostgreSQL-backed durable queue adapter (production authority).
+ *
+ * Claiming uses `FOR UPDATE SKIP LOCKED` — the canonical Postgres pattern for
+ * multi-worker queues: atomic, contention-free, no double-claiming across
+ * instances. Implements the same two-phase lookup as before:
+ *   Phase 1: QUEUED jobs past nextAttemptAt (normal + durable retry)
+ *   Phase 2: RUNNING jobs past leaseExpiresAt (crash recovery)
+ */
+class PrismaQueueAdapter implements QueueAdapter {
+  private async db() {
+    const { prisma } = await import('../db/prisma');
+    return prisma;
   }
 
-  async enqueue(type: JobType, data: Record<string, any>, userId?: string, maxAttempts = 3, attempt = 0) {
-    const now = new Date().toISOString();
+  async enqueue(type: JobType, data: Record<string, any>, userId?: string, maxAttempts = 3, attempt = 0): Promise<QueueJobPayload> {
+    const prisma = await this.db();
+    const now = new Date();
     const job: QueueJobPayload = {
       id: `job_${crypto.randomUUID()}`,
       type,
@@ -197,122 +205,171 @@ class FirestoreQueueAdapter implements QueueAdapter {
       status: 'QUEUED',
       attempt,
       maxAttempts,
-      createdAt: now,
-      nextAttemptAt: now,
+      createdAt: now.toISOString(),
+      nextAttemptAt: now.toISOString(),
       recoveryCount: 0,
     };
-    await this.getDb().collection(this.collection).doc(job.id).create({
-      ...job,
-      deduplicationKey: job.id,
-      deadLetter: false,
+    await prisma.jobExecution.create({
+      data: {
+        id: job.id,
+        type: job.type,
+        userId: userId || null,
+        data: job.data as any,
+        status: 'QUEUED',
+        attempt: job.attempt,
+        maxAttempts: job.maxAttempts,
+        nextAttemptAt: now,
+        recoveryCount: 0,
+        deduplicationKey: job.id,
+        createdAt: now,
+      },
     });
     return job;
   }
 
-  async getJob(id: string) {
-    const snapshot = await this.getDb().collection(this.collection).doc(id).get();
-    return snapshot.exists ? snapshot.data() as QueueJobPayload : undefined;
+  async getJob(id: string): Promise<QueueJobPayload | undefined> {
+    const prisma = await this.db();
+    const row = await prisma.jobExecution.findUnique({ where: { id } });
+    return row ? this.toPayload(row) : undefined;
   }
 
-  /**
-   * Claims the next available job, implementing two-phase lookup:
-   * 1. QUEUED jobs where nextAttemptAt <= now (normal + retry)
-   * 2. RUNNING jobs where leaseExpiresAt < now (crash recovery)
-   *
-   * Both operations are transactional to prevent double-claiming.
-   */
+  private toPayload(row: any): QueueJobPayload {
+    return {
+      id: row.id,
+      type: row.type as JobType,
+      userId: row.userId || undefined,
+      data: (row.data || {}) as Record<string, any>,
+      status: row.status as QueueJobPayload['status'],
+      attempt: row.attempt,
+      maxAttempts: row.maxAttempts,
+      createdAt: row.createdAt?.toISOString?.() || String(row.createdAt),
+      startedAt: row.startedAt?.toISOString?.(),
+      finishedAt: row.finishedAt?.toISOString?.(),
+      leaseExpiresAt: row.leaseExpiresAt?.toISOString?.(),
+      workerId: row.workerId || undefined,
+      error: row.error || undefined,
+      lastError: row.lastError || undefined,
+      result: row.result ?? undefined,
+      deadLetter: row.deadLetter,
+      nextAttemptAt: row.nextAttemptAt?.toISOString?.(),
+      recoveryCount: row.recoveryCount,
+      previousWorkerId: row.previousWorkerId || undefined,
+      recoveredAt: row.recoveredAt?.toISOString?.(),
+    };
+  }
+
   async claimNext(workerId: string): Promise<QueueJobPayload | undefined> {
-    const db = this.getDb();
-    const nowISO = new Date().toISOString();
-    const leaseExpiresAt = new Date(Date.now() + DEFAULT_LEASE_MS).toISOString();
+    const prisma = await this.db();
 
-    // Phase 1: Try to claim a QUEUED job that is ready (nextAttemptAt <= now)
-    const queuedSnap = await db.collection(this.collection)
-      .where('status', '==', 'QUEUED')
-      .where('nextAttemptAt', '<=', nowISO)
-      .orderBy('nextAttemptAt')
-      .limit(1)
-      .get();
+    // Phase 1: claim a due QUEUED job atomically.
+    const claimed = await prisma.$queryRaw<any[]>`
+      UPDATE "JobExecution"
+      SET "status" = 'RUNNING',
+          "workerId" = ${workerId},
+          "attempt" = "attempt" + 1,
+          "startedAt" = (NOW() AT TIME ZONE 'utc'),
+          "leaseExpiresAt" = NOW() + (${DEFAULT_LEASE_MS} || ' milliseconds')::interval
+      WHERE "id" = (
+        SELECT "id" FROM "JobExecution"
+        WHERE "status" = 'QUEUED' AND "nextAttemptAt" <= (NOW() AT TIME ZONE 'utc')
+        ORDER BY "nextAttemptAt" ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING *;
+    `;
+    if (claimed.length > 0) return this.toPayload(claimed[0]);
 
-    if (!queuedSnap.empty) {
-      const ref = queuedSnap.docs[0].ref;
-      const claimed = await db.runTransaction(async (transaction: any) => {
-        const current = await transaction.get(ref);
-        const data = current.data();
-        if (!current.exists || data?.status !== 'QUEUED') return undefined;
-        // Re-check nextAttemptAt inside transaction
-        const nextAt = data.nextAttemptAt ? new Date(data.nextAttemptAt).getTime() : 0;
-        if (nextAt > Date.now()) return undefined;
-
-        const updates = {
-          status: 'RUNNING',
-          workerId,
-          attempt: (data.attempt || 0) + 1,
-          startedAt: nowISO,
-          leaseExpiresAt,
-        };
-        transaction.update(ref, updates);
-        return { ...data, ...updates } as QueueJobPayload;
-      });
-      if (claimed) return claimed;
-    }
-
-    // Phase 2: Try to recover an expired RUNNING job (crash recovery)
-    const expiredSnap = await db.collection(this.collection)
-      .where('status', '==', 'RUNNING')
-      .where('leaseExpiresAt', '<', nowISO)
-      .orderBy('leaseExpiresAt')
-      .limit(1)
-      .get();
-
-    if (!expiredSnap.empty) {
-      const ref = expiredSnap.docs[0].ref;
-      const recovered = await db.runTransaction(async (transaction: any) => {
-        const current = await transaction.get(ref);
-        const data = current.data();
-        if (!current.exists || data?.status !== 'RUNNING') return undefined;
-        // Re-check lease expiry inside transaction
-        const leaseExp = data.leaseExpiresAt ? new Date(data.leaseExpiresAt).getTime() : Infinity;
-        if (leaseExp >= Date.now()) return undefined;
-
-        const updates = {
-          workerId,
-          previousWorkerId: data.workerId,
-          attempt: (data.attempt || 0) + 1,
-          startedAt: nowISO,
-          leaseExpiresAt,
-          recoveryCount: (data.recoveryCount || 0) + 1,
-          recoveredAt: nowISO,
-        };
-        transaction.update(ref, updates);
-        return { ...data, ...updates } as QueueJobPayload;
-      });
-      if (recovered) return recovered;
-    }
+    // Phase 2: recover a crashed RUNNING job whose lease expired.
+    const recovered = await prisma.$queryRaw<any[]>`
+      UPDATE "JobExecution"
+      SET "status" = 'RUNNING',
+          "workerId" = ${workerId},
+          "previousWorkerId" = "workerId",
+          "attempt" = "attempt" + 1,
+          "startedAt" = (NOW() AT TIME ZONE 'utc'),
+          "leaseExpiresAt" = NOW() + (${DEFAULT_LEASE_MS} || ' milliseconds')::interval,
+          "recoveryCount" = "recoveryCount" + 1,
+          "recoveredAt" = (NOW() AT TIME ZONE 'utc')
+      WHERE "id" = (
+        SELECT "id" FROM "JobExecution"
+        WHERE "status" = 'RUNNING' AND "leaseExpiresAt" < (NOW() AT TIME ZONE 'utc')
+        ORDER BY "leaseExpiresAt" ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING *;
+    `;
+    if (recovered.length > 0) return this.toPayload(recovered[0]);
 
     return undefined;
   }
 
-  async updateJobStatus(id: string, updates: Partial<QueueJobPayload>) {
-    await this.getDb().collection(this.collection).doc(id).set(updates, { merge: true });
+  async updateJobStatus(id: string, updates: Partial<QueueJobPayload>): Promise<void> {
+    const prisma = await this.db();
+    const data: Record<string, unknown> = {};
+    if (updates.status !== undefined) data.status = updates.status;
+    if (updates.attempt !== undefined) data.attempt = updates.attempt;
+    if (updates.workerId !== undefined) data.workerId = updates.workerId;
+    if (updates.startedAt !== undefined) data.startedAt = new Date(updates.startedAt);
+    if (updates.finishedAt !== undefined) data.finishedAt = new Date(updates.finishedAt);
+    if (updates.leaseExpiresAt !== undefined) data.leaseExpiresAt = new Date(updates.leaseExpiresAt);
+    if (updates.nextAttemptAt !== undefined) data.nextAttemptAt = new Date(updates.nextAttemptAt);
+    if (updates.error !== undefined) data.error = updates.error;
+    if (updates.lastError !== undefined) data.lastError = updates.lastError;
+    if (updates.result !== undefined) data.result = updates.result as any;
+    if (updates.recoveryCount !== undefined) data.recoveryCount = updates.recoveryCount;
+    if (updates.previousWorkerId !== undefined) data.previousWorkerId = updates.previousWorkerId;
+    if (Object.keys(data).length === 0) return;
+    try {
+      await prisma.jobExecution.update({ where: { id }, data: data as any });
+    } catch (err: any) {
+      // Job may have been hard-deleted in test cleanup; surface real errors otherwise.
+      if (err?.code !== 'P2025') throw err;
+    }
   }
 
-  async markDeadLetter(id: string, errorReason: string) {
-    await this.updateJobStatus(id, {
-      status: 'DEAD_LETTER',
-      deadLetter: true,
-      error: errorReason,
-      finishedAt: new Date().toISOString(),
+  async markDeadLetter(id: string, errorReason: string): Promise<void> {
+    const prisma = await this.db();
+    await prisma.jobExecution.update({
+      where: { id },
+      data: {
+        status: 'DEAD_LETTER',
+        deadLetter: true,
+        error: errorReason,
+        finishedAt: new Date(),
+      },
     });
   }
 
-  async getQueueDepth() {
-    return (await this.getDb().collection(this.collection).where('status', '==', 'QUEUED').count().get()).data().count;
+  async getQueueDepth(): Promise<number> {
+    const prisma = await this.db();
+    return prisma.jobExecution.count({ where: { status: 'QUEUED' } });
   }
 
-  async clear() {
+  async clear(): Promise<void> {
     throw new Error('DURABLE_QUEUE_CLEAR_DISABLED');
   }
 }
 
-export const jobQueue: QueueAdapter = process.env.NODE_ENV === 'production' ? new FirestoreQueueAdapter() : JobQueueManager.getInstance();
+/** Fail-fast placeholder used ONLY when production boots without DATABASE_URL. */
+class UnavailableQueueAdapter implements QueueAdapter {
+  private reject(): never {
+    throw new Error('FATAL: DATABASE_URL is required for the durable queue in production.');
+  }
+  enqueue(): Promise<never> { return Promise.reject(this.reject()); }
+  getJob(): Promise<never> { return Promise.reject(this.reject()); }
+  claimNext(): Promise<never> { return Promise.reject(this.reject()); }
+  updateJobStatus(): Promise<void> { return Promise.reject(this.reject()); }
+  markDeadLetter(): Promise<void> { return Promise.reject(this.reject()); }
+  getQueueDepth(): Promise<number> { return Promise.reject(this.reject()); }
+  clear(): Promise<void> { return Promise.reject(this.reject()); }
+}
+
+function selectQueueAdapter(): QueueAdapter {
+  if (isPgEnabled()) return new PrismaQueueAdapter();
+  if (process.env.NODE_ENV === 'production') return new UnavailableQueueAdapter();
+  return JobQueueManager.getInstance(); // dev/test only
+}
+
+export const jobQueue: QueueAdapter = selectQueueAdapter();

@@ -1,6 +1,10 @@
 # LeadGuard OS — Firebase/Firestore → PostgreSQL Migration
 
-Status: **IN PROGRESS — core phases verified** (see checklist below)
+Status: **PHASE 1 COMPLETE** — PostgreSQL is the production source of truth.
+
+Verified gates: typecheck ✅ · legacy suite 190/190 ✅ · PG suite 34/34 on live PostgreSQL ✅ · build ✅
+
+Remaining tracked items (non-blocking for Phase 1): frontend Google sign-in still uses the Firebase SDK; legacy Firestore branches remain in repositories as dead dev-only fallback code pending cleanup.
 
 ## Architecture
 

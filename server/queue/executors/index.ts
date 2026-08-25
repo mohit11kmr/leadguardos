@@ -5,6 +5,7 @@ import { QueueJobPayload } from '../jobQueue';
 import { jobQueue } from '../jobQueue';
 import { executeLiveWebsiteScan } from '../../scannerEngine';
 import { generateRemediation, validateAiOutput } from '../../services/ai.service';
+import { isPgEnabled } from '../../db/storageMode';
 import { isFirebaseConfigured, getAdminDb, FieldValue } from '../../firebaseAdmin';
 import { scanRepository } from '../../repositories/scanRepository';
 import { watchdogRepository } from '../../repositories/watchdogRepository';
@@ -283,6 +284,12 @@ export function __localDeliveryKeysForTests() {
 async function checkDeliveryIdempotency(deliveryKey: string): Promise<boolean> {
   const local = localDeliveryKeys.get(deliveryKey);
   if (local?.status === 'SENT') return true;
+
+  if (isPgEnabled()) {
+    const { prisma } = await import('../../db/prisma');
+    const row = await prisma.notificationDelivery.findUnique({ where: { deliveryKey } });
+    return row?.status === 'SENT';
+  }
 
   try {
     if (isFirebaseConfigured()) {

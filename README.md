@@ -155,6 +155,24 @@ Environment: set `RAZORPAY_KEY_ID` + `RAZORPAY_KEY_SECRET` in `.env`
 
 ---
 
+## 🗄️ Data Layer — PostgreSQL (production source of truth)
+
+Production persistence runs exclusively on **PostgreSQL via Prisma**.
+`DATABASE_URL` is REQUIRED in production — the server refuses to boot without it
+(no JSON/Firestore fallback exists). The legacy local-JSON engine is a marked
+development/test adapter only.
+
+```bash
+npx prisma migrate dev        # apply schema (dev)
+npm run migrate:deploy        # production migrations
+npm run db:generate           # regenerate Prisma client after schema edits
+npm run test:pg               # 34-check migration suite against real DB
+npm run migrate:firestore:dry-run   # inspect legacy Firestore data
+npm run migrate:firestore           # idempotent import (never deletes source)
+```
+
+See `MIGRATION.md` for the full Firebase → PostgreSQL migration guide.
+
 ## 🚀 Local Setup & Testing
 
 ### 1. Install Dependencies

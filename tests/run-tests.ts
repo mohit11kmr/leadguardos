@@ -10,6 +10,11 @@ import { toPublicAuditReport } from '../server/reports/publicReport';
 
 process.env.LEADGUARD_DATA_DIR = path.join(os.tmpdir(), `leadguardos-tests-${process.pid}`);
 
+// This suite verifies the DEVELOPMENT/TEST adapters (in-memory + legacy).
+// PostgreSQL-backed production behavior is verified by tests/postgres-migration-test.ts
+// (`npm run test:pg`) against a real database.
+process.env.DATABASE_URL = '';
+
 let passed = 0;
 let failed = 0;
 

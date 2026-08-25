@@ -1,5 +1,6 @@
 import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
 import { auditRepository } from './auditRepository';
+import { isPgEnabled } from '../db/storageMode';
 
 export interface FulfillmentRecord {
   fulfillmentId: string;
@@ -13,20 +14,17 @@ export interface FulfillmentRecord {
 }
 
 /**
- * Durable fulfillment repository.
- * Ensures each paid order triggers fulfillment ONLY ONCE, even across
- * process restarts and duplicate webhook deliveries.
+ * Durable fulfillment repository — PostgreSQL is the production authority.
+ * Each paid order activates fulfillment EXACTLY ONCE via the unique
+ * constraint on Fulfillment.orderId (ful_<orderId> claim key).
  */
 class FulfillmentRepository {
-  /** @classification CACHE-ONLY — Firestore is the authority in production */
+  /** @classification DEV-ONLY fallback cache — unused when DATABASE_URL is set */
   private localFulfillments = new Map<string, FulfillmentRecord>();
 
   /**
-   * Attempt to claim fulfillment for an order.
-   * Returns the fulfillment record if this is the FIRST claim.
-   * Returns null if fulfillment was already activated (idempotent).
-   *
-   * Uses Firestore transactional create-if-not-exists in production.
+   * Claim fulfillment for an order.
+   * Returns record if FIRST claim; null if already activated (idempotent).
    */
   async claimFulfillment(
     orderId: string,
@@ -37,15 +35,47 @@ class FulfillmentRepository {
     const fulfillmentId = `ful_${orderId}`;
     const now = new Date().toISOString();
 
+    // ── PostgreSQL authority ────────────────────────────────────────────────
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      try {
+        await prisma.fulfillment.create({
+          data: {
+            id: fulfillmentId,
+            orderId,
+            type,
+            status: 'ACTIVATED',
+            userId: userId || null,
+            tierId: tierId || null,
+            activatedAt: new Date(now),
+          },
+        });
+      } catch (err: any) {
+        if (err?.code === 'P2002') return null; // already fulfilled
+        throw err;
+      }
+      const claimed: FulfillmentRecord = {
+        fulfillmentId, orderId, type, status: 'ACTIVATED',
+        activatedAt: now, createdAt: now, userId, tierId,
+      };
+      this.localFulfillments.set(fulfillmentId, claimed);
+      await auditRepository.logEvent({
+        action: 'FULFILLMENT_ACTIVATED',
+        userId,
+        details: { fulfillmentId, orderId, type, tierId },
+        timestamp: now,
+      });
+      return claimed;
+    }
+
+    // ── Legacy Firestore path (pre-migration only) ─────────────────────────
     if (isFirebaseConfigured()) {
       const db = getAdminDb();
       const ref = db.collection('fulfillments').doc(fulfillmentId);
 
       const claimed = await db.runTransaction(async (transaction: any) => {
         const existing = await transaction.get(ref);
-        if (existing.exists) {
-          return null; // Already fulfilled — idempotent success
-        }
+        if (existing.exists) return null;
 
         const record: FulfillmentRecord = {
           fulfillmentId,
@@ -79,13 +109,13 @@ class FulfillmentRepository {
       return claimed;
     }
 
-    // Development fallback
+    // ── Development cache-only fallback ─────────────────────────────────────
     if (process.env.NODE_ENV === 'production') {
-      throw new Error('FULFILLMENT_STORE_UNAVAILABLE: Firestore required in production');
+      throw new Error('FULFILLMENT_STORE_UNAVAILABLE: DATABASE_URL required in production');
     }
 
     if (this.localFulfillments.has(fulfillmentId)) {
-      return null; // Already fulfilled
+      return null;
     }
 
     const record: FulfillmentRecord = {
@@ -106,10 +136,28 @@ class FulfillmentRepository {
   async getFulfillment(orderId: string): Promise<FulfillmentRecord | undefined> {
     const fulfillmentId = `ful_${orderId}`;
 
+    if (isPgEnabled()) {
+      const row = await (await import('../db/prisma')).prisma.fulfillment.findUnique({
+        where: { orderId },
+      });
+      if (row) {
+        return {
+          fulfillmentId: row.id,
+          orderId: row.orderId,
+          type: row.type as FulfillmentRecord['type'],
+          status: row.status as FulfillmentRecord['status'],
+          activatedAt: row.activatedAt.toISOString(),
+          createdAt: row.createdAt.toISOString(),
+          userId: row.userId || undefined,
+          tierId: row.tierId || undefined,
+        };
+      }
+      return this.localFulfillments.get(fulfillmentId);
+    }
+
     if (isFirebaseConfigured()) {
       try {
-        const db = getAdminDb();
-        const snap = await db.collection('fulfillments').doc(fulfillmentId).get();
+        const snap = await getAdminDb().collection('fulfillments').doc(fulfillmentId).get();
         if (snap.exists) return snap.data() as FulfillmentRecord;
       } catch {
         // Fallback to local

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
+import { isPgEnabled } from '../db/storageMode';
 
 export interface PdfReportMetadata {
   pdfId: string;
@@ -28,6 +29,30 @@ class PdfReportRepository {
   private local = new Map<string, PdfReportMetadata>();
 
   async save(metadata: PdfReportMetadata): Promise<void> {
+    // PostgreSQL authority — fail-closed
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      await prisma.pdfReport.upsert({
+        where: { id: metadata.pdfId },
+        create: {
+          id: metadata.pdfId,
+          scanId: metadata.scanId,
+          userId: metadata.userId || null,
+          storagePath: metadata.storagePath,
+          contentType: metadata.contentType,
+          sizeBytes: metadata.sizeBytes,
+          sha256: metadata.sha256,
+          generatedAt: new Date(metadata.generatedAt),
+        },
+        update: {
+          storagePath: metadata.storagePath,
+          sha256: metadata.sha256,
+          sizeBytes: metadata.sizeBytes,
+        },
+      });
+      return;
+    }
+
     this.local.set(metadata.pdfId, metadata);
 
     if (isFirebaseConfigured()) {
@@ -46,6 +71,20 @@ class PdfReportRepository {
   }
 
   async getById(pdfId: string): Promise<PdfReportMetadata | undefined> {
+    if (isPgEnabled()) {
+      const row = await (await import('../db/prisma')).prisma.pdfReport.findUnique({ where: { id: pdfId } });
+      if (!row) return undefined;
+      return {
+        pdfId: row.id,
+        scanId: row.scanId,
+        userId: row.userId || undefined,
+        storagePath: row.storagePath,
+        contentType: row.contentType,
+        sizeBytes: row.sizeBytes,
+        sha256: row.sha256,
+        generatedAt: row.generatedAt.toISOString(),
+      };
+    }
     if (isFirebaseConfigured()) {
       try {
         const snap = await getAdminDb().collection('pdfReports').doc(pdfId).get();

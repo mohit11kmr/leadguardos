@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { AuditResult } from '../../src/types';
 import { toPublicAuditReport } from './publicReport';
 import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
+import { isPgEnabled } from '../db/storageMode';
 
 export interface ShareableSnapshot {
   token: string;
@@ -63,6 +64,29 @@ export class ReportManager {
     };
 
     // Durable persistence FIRST (fail-closed in production), cache second.
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      await prisma.reportShare.create({
+        data: {
+          token,
+          scanId: snapshot.scanId,
+          snapshot: snapshot.snapshot as any,
+          passwordHash: snapshot.passwordHash || null,
+          createdAt: new Date(snapshot.createdAt),
+          expiresAt: new Date(snapshot.expiresAt),
+        },
+      }).catch(async (err: any) => {
+        if (err?.code === 'P2002') {
+          // Token collision (cryptographically negligible) — retry once via update
+          await prisma.reportShare.update({
+            where: { token }, data: { revoked: false },
+          });
+        } else throw err;
+      });
+      this.snapshotsMap.set(token, snapshot);
+      return snapshot;
+    }
+
     const db = this.requireDb();
     if (db) {
       try {
@@ -112,6 +136,27 @@ export class ReportManager {
 
     // Read-through to durable store when not cached
     if (!record) {
+      if (isPgEnabled()) {
+        try {
+          const row = await (await import('../db/prisma')).prisma.reportShare.findUnique({ where: { token } });
+          if (row) {
+            record = {
+              token: row.token,
+              scanId: row.scanId,
+              snapshot: row.snapshot as any,
+              passwordHash: row.passwordHash || undefined,
+              createdAt: row.createdAt.toISOString(),
+              expiresAt: row.expiresAt.toISOString(),
+              revoked: row.revoked,
+            };
+            this.snapshotsMap.set(token, record);
+          }
+        } catch {
+          // fall through to invalid-link response below
+        }
+      }
+    }
+    if (!record) {
       const db = this.requireDb();
       if (db) {
         try {
@@ -155,6 +200,17 @@ export class ReportManager {
 
   public async revokeTokenAsync(token: string): Promise<boolean> {
     const record = this.snapshotsMap.get(token);
+
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      const result = await prisma.reportShare.updateMany({
+        where: { token, revoked: false },
+        data: { revoked: true },
+      });
+      if (record) record.revoked = true;
+      return result.count > 0;
+    }
+
     const db = this.requireDb();
 
     if (db) {

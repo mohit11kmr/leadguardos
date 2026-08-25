@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
+import { isPgEnabled } from '../db/storageMode';
 import { ScanRecord } from '../storage';
 import { auditRepository } from './auditRepository';
 
@@ -47,6 +48,82 @@ export interface IScanRepository {
 
 export class ScanRepository implements IScanRepository {
   private localCache: Map<string, ScanDocument> = new Map();
+
+  /** Persist a ScanDocument to PostgreSQL (upsert on scanId). */
+  private async pgUpsertScan(doc: ScanDocument): Promise<void> {
+    const { prisma } = await import('../db/prisma');
+    const data = {
+      id: doc.scanId,
+      userId: doc.userId || null,
+      targetUrl: doc.targetUrl || doc.normalizedUrl || '',
+      domain: doc.domain || '',
+      businessName: doc.businessName || null,
+      status: doc.status === 'COMPLETED' ? 'COMPLETED' : (doc.status === 'FAILED' ? 'FAILED' : 'RUNNING'),
+      mode: doc.mode === 'DEMO' ? 'DEMO' : 'LIVE',
+      score: typeof doc.score === 'number' ? Math.round(doc.score) : (typeof doc.overallScore === 'number' ? Math.round(doc.overallScore) : null),
+      pillarScores: (doc.pillarScores || {}) as any,
+      findings: Array.isArray(doc.allIssues) ? doc.allIssues : undefined,
+      whatsappResults: (doc.whatsappLinks || undefined) as any,
+      phoneResults: (doc.phoneLinks || undefined) as any,
+      trackingResults: (doc.metaPixel || doc.googleTag ? { metaPixel: doc.metaPixel, googleTag: doc.googleTag } : undefined) as any,
+      seoResults: (doc.seoPenalty || undefined) as any,
+      securityResults: (doc.cyberShield || undefined) as any,
+      estimatedMonthlyLoss: typeof doc.estimatedMonthlyLoss === 'number' ? doc.estimatedMonthlyLoss : null,
+      scannedLive: !!(doc as any).scannedLive,
+      scannedAt: doc.scannedAt ? new Date(doc.scannedAt) : new Date(),
+      completedAt: doc.completedAt ? new Date(doc.completedAt) : null,
+    };
+    await prisma.scan.upsert({ where: { id: data.id }, create: data as any, update: {
+      status: data.status, score: data.score, pillarScores: data.pillarScores,
+      findings: data.findings ?? undefined, estimatedMonthlyLoss: data.estimatedMonthlyLoss,
+      completedAt: data.completedAt,
+    } as any });
+  }
+
+  /** Fetch a scan row and rehydrate the legacy ScanDocument shape. */
+  private async pgGetScan(scanId: string): Promise<ScanDocument | undefined> {
+    const { prisma } = await import('../db/prisma');
+    const row = await prisma.scan.findUnique({ where: { id: scanId }, include: { aiReport: true } });
+    if (!row) return undefined;
+    return this.pgRowToDocument(row);
+  }
+
+  private pgRowToDocument(row: any): ScanDocument {
+    const tracking = row.trackingResults || {};
+    return {
+      scanId: row.id,
+      publicToken: undefined,
+      userId: row.userId || undefined,
+      targetUrl: row.targetUrl,
+      normalizedUrl: row.targetUrl,
+      domain: row.domain,
+      businessName: row.businessName || undefined,
+      status: row.status === 'RUNNING' ? 'IN_PROGRESS' : row.status,
+      mode: row.mode,
+      overallScore: row.score ?? 0,
+      score: row.score ?? 0,
+      pillarScores: row.pillarScores || {},
+      pillars: {},
+      allIssues: Array.isArray(row.findings) ? row.findings : [],
+      whatsappLinks: Array.isArray(row.whatsappResults) ? row.whatsappResults : [],
+      phoneLinks: Array.isArray(row.phoneResults) ? row.phoneResults : [],
+      metaPixel: tracking.metaPixel,
+      googleTag: tracking.googleTag,
+      seoPenalty: row.seoResults || undefined,
+      cyberShield: row.securityResults || undefined,
+      estimatedMonthlyLoss: row.estimatedMonthlyLoss ?? 0,
+      scannedLive: row.scannedLive,
+      scannedAt: row.scannedAt?.toISOString?.() || String(row.scannedAt),
+      completedAt: row.completedAt?.toISOString?.(),
+      lockedIssuesCount: 0,
+      aiRemediation: row.aiReport ? {
+        status: 'COMPLETED', content: row.aiReport.content,
+        model: row.aiReport.model, inputHash: row.aiReport.inputHash,
+        resultHash: row.aiReport.resultHash, updatedAt: row.aiReport.createdAt.toISOString(),
+      } : undefined,
+    } as unknown as ScanDocument;
+  }
+
   private tokenIndex: Map<string, string> = new Map();
 
   public generatePublicToken(): string {
@@ -107,6 +184,13 @@ export class ScanRepository implements IScanRepository {
       organizationId: scanData.organizationId,
       aiDiagnosticAdvice: scanData.aiDiagnosticAdvice,
     };
+
+    if (isPgEnabled()) {
+      await this.pgUpsertScan(docData);
+      this.localCache.set(scanId, docData);
+      this.tokenIndex.set(publicToken, scanId);
+      return docData;
+    }
 
     this.localCache.set(scanId, docData);
     this.tokenIndex.set(publicToken, scanId);
@@ -183,6 +267,14 @@ export class ScanRepository implements IScanRepository {
       organizationId,
     };
 
+    if (isPgEnabled()) {
+      const merged = { ...scan, status: 'COMPLETED', completedAt: now } as unknown as ScanDocument;
+      await this.pgUpsertScan(merged);
+      this.localCache.set(scan.scanId, merged);
+      this.tokenIndex.set(publicToken, scan.scanId);
+      return merged;
+    }
+
     this.localCache.set(scan.scanId, docData);
     this.tokenIndex.set(publicToken, scan.scanId);
 
@@ -223,6 +315,11 @@ export class ScanRepository implements IScanRepository {
   }
 
   async getScanById(scanId: string): Promise<ScanDocument | undefined> {
+    if (isPgEnabled()) {
+      const doc = await this.pgGetScan(scanId);
+      if (doc) this.localCache.set(scanId, doc);
+      return doc;
+    }
     if (isFirebaseConfigured()) {
       try {
         const db = getAdminDb();

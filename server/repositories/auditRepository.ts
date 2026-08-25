@@ -1,3 +1,4 @@
+import { isPgEnabled } from '../db/storageMode';
 import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 
 export interface AuditLogEntry {
@@ -43,6 +44,22 @@ export class AuditRepository {
     this.localLogs.unshift(record);
     if (this.localLogs.length > 500) this.localLogs.pop();
 
+    // ── PostgreSQL authority (security-sensitive events are durable) ─────────
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      await prisma.auditLog.create({
+        data: {
+          action: entry.action,
+          userId: entry.userId || null,
+          userEmail: entry.userEmail || null,
+          ipAddress: entry.ipAddress || null,
+          details: (entry.details || {}) as any,
+          timestamp: new Date(entry.timestamp || Date.now()),
+        },
+      });
+      return;
+    }
+
     try {
       if (!isFirebaseConfigured()) return;
       const db = getAdminDb();
@@ -61,6 +78,23 @@ export class AuditRepository {
   }
 
   async getRecentLogs(limit = 50, actionFilter?: string): Promise<AuditLogEntry[]> {
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      const rows = await prisma.auditLog.findMany({
+        where: actionFilter ? { action: actionFilter } : undefined,
+        orderBy: { timestamp: 'desc' },
+        take: limit,
+      });
+      return rows.map(r => ({
+        id: r.id,
+        action: r.action as AuditLogEntry['action'],
+        userId: r.userId || undefined,
+        userEmail: r.userEmail || undefined,
+        ipAddress: r.ipAddress || undefined,
+        details: (r.details || {}) as Record<string, any>,
+        timestamp: r.timestamp.toISOString(),
+      }));
+    }
     try {
       if (isFirebaseConfigured()) {
         const db = getAdminDb();

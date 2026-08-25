@@ -146,8 +146,16 @@ class StorageEngine {
   };
 
   constructor() {
-    if (process.env.NODE_ENV === 'production' && (process.env.STORAGE_MODE || 'local') === 'local') {
-      throw new Error('PRODUCTION_STORAGE_REJECTED: local JSON storage is disabled in production');
+    if (process.env.NODE_ENV === 'production') {
+      // PostgreSQL is the single production source of truth.
+      // This engine exists ONLY as a development/test adapter.
+      if (!process.env.LEADGUARD_ALLOW_LEGACY_STORAGE) {
+        throw new Error(
+          'PRODUCTION_STORAGE_REJECTED: local JSON storage is a dev/test adapter only. ' +
+          'Production requires DATABASE_URL (PostgreSQL).'
+        );
+      }
+      console.warn('[StorageEngine] LEGACY MODE ACTIVE via LEADGUARD_ALLOW_LEGACY_STORAGE — not supported.');
     }
     const dataDir = process.env.LEADGUARD_DATA_DIR || path.join(process.cwd(), 'data');
     if (!fs.existsSync(dataDir)) {
