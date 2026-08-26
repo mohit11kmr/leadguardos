@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "LeadGuard OS Runtime Architecture",
+    "output": "leadguard-runtime.architecture.html",
+    "quality_profile": "showcase",
+    "repository": { "url": "https://github.com/mohit11kmr/leadguardos", "revision": "2da9fa0ddf75fb774dc561062f64fb827ccdec8a" },
+    "views": [
+      { "id": "request-path", "label": "Scan request path", "focus": ["browser", "web-app", "api", "scanner", "postgres"], "note": "Follow a website scan from the browser to durable scan results." },
+      { "id": "security-and-storage", "label": "Security and storage", "focus": ["api", "auth", "ssrf", "postgres", "firebase"], "note": "Inspect authentication, SSRF protection, and storage boundaries." },
+      { "id": "async-and-integrations", "label": "Async work and integrations", "focus": ["api", "queue", "worker", "gemini", "razorpay"], "note": "See background jobs and external service integrations." }
+    ]
+  },
+  "components": [
+    { "id": "browser", "type": "external", "label": "Customer Browser", "sublabel": "React client", "pos": [40, 300], "size": [150, 64], "sources": [{ "path": "src/App.tsx", "label": "UI entry" }] },
+    { "id": "web-app", "type": "frontend", "label": "Vite Web App", "sublabel": "React 19 + TypeScript", "pos": [240, 300], "size": [160, 64], "sources": [{ "path": "vite.config.ts", "label": "Vite config" }] },
+    { "id": "api", "type": "backend", "label": "Express API", "sublabel": "server.ts", "pos": [460, 300], "size": [160, 64], "sources": [{ "path": "server.ts", "label": "HTTP server" }] },
+    { "id": "auth", "type": "security", "label": "Auth and Rate Limits", "sublabel": "JWT + API keys", "tag": "Protected boundary", "pos": [460, 120], "size": [160, 64], "sources": [{ "path": "server/authMiddleware.ts", "label": "Auth middleware" }, { "path": "server/security/rateLimiter.ts", "label": "Rate limiter" }] },
+    { "id": "ssrf", "type": "security", "label": "SSRF Guard", "sublabel": "safeFetch + DNS checks", "pos": [680, 120], "size": [160, 64], "sources": [{ "path": "server/security/safeFetch.ts", "label": "Safe fetch" }, { "path": "server/ssrfGuard.ts", "label": "Network guard" }] },
+    { "id": "scanner", "type": "backend", "label": "Scanner Engine", "sublabel": "Lead, ads, SEO, security", "pos": [680, 300], "size": [170, 64], "sources": [{ "path": "server/scannerEngine.ts", "label": "Scanner engine" }] },
+    { "id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "Prisma repositories", "pos": [920, 300], "size": [170, 64], "sources": [{ "path": "prisma/schema.prisma", "label": "Data model" }, { "path": "server/db/prisma.ts", "label": "Database client" }] },
+    { "id": "firebase", "type": "cloud", "label": "Firebase Fallback", "sublabel": "Firestore storage mode", "pos": [920, 500], "size": [170, 64], "sources": [{ "path": "server/firebaseAdmin.ts", "label": "Firebase admin" }, { "path": "server/db/storageMode.ts", "label": "Storage mode" }] },
+    { "id": "queue", "type": "messagebus", "label": "Job Queue", "sublabel": "Retries + executors", "pos": [680, 500], "size": [170, 64], "sources": [{ "path": "server/queue/jobQueue.ts", "label": "Queue" }, { "path": "server/queue/retryPolicy.ts", "label": "Retry policy" }] },
+    { "id": "worker", "type": "backend", "label": "Worker", "sublabel": "watchdog + async jobs", "pos": [460, 500], "size": [160, 64], "sources": [{ "path": "worker.ts", "label": "Worker entry" }, { "path": "server/watchdogScheduler.ts", "label": "Scheduler" }] },
+    { "id": "gemini", "type": "external", "label": "Gemini AI", "sublabel": "Optional analysis", "pos": [920, 120], "size": [170, 64], "sources": [{ "path": "server/services/ai.service.ts", "label": "AI service" }] },
+    { "id": "razorpay", "type": "external", "label": "Razorpay", "sublabel": "Payment gateway", "pos": [1140, 300], "size": [150, 64], "sources": [{ "path": "server/services/paymentService.ts", "label": "Payment service" }] }
+  ],
+  "boundaries": [
+    { "kind": "security-group", "label": "LeadGuard trusted application boundary", "wraps": ["web-app", "api", "auth", "ssrf", "scanner", "postgres", "firebase", "queue", "worker"] }
+  ],
+  "connections": [
+    { "id": "browser-web", "from": "browser", "to": "web-app", "label": "HTTPS", "variant": "emphasis" },
+    { "id": "web-api", "from": "web-app", "to": "api", "label": "REST API" },
+    { "id": "api-auth", "from": "api", "to": "auth", "label": "validate token", "variant": "security", "fromSide": "top", "toSide": "bottom" },
+    { "id": "api-scanner", "from": "api", "to": "scanner", "label": "start scan" },
+    { "id": "scanner-ssrf", "from": "scanner", "to": "ssrf", "variant": "security", "fromSide": "top", "toSide": "bottom" },
+    { "id": "scanner-postgres", "from": "scanner", "to": "postgres" },
+    { "id": "queue-worker", "from": "queue", "to": "worker" },
+    { "id": "worker-postgres", "from": "worker", "to": "postgres", "label": "write results", "fromSide": "top", "toSide": "bottom" },
+    { "id": "postgres-firebase", "from": "postgres", "to": "firebase", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "scanner-gemini", "from": "scanner", "to": "gemini", "variant": "dashed", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Request path", "items": ["React client calls the Express API", "Scanner runs the four-pillar diagnostics", "Results persist through repository abstractions"] },
+    { "dot": "rose", "title": "Security", "items": ["JWT and API-key middleware protect routes", "safeFetch validates DNS and redirect targets", "Rate limiting and security headers sit at the edge"] },
+    { "dot": "emerald", "title": "Operations", "items": ["Watchdog work is queued with retry policy", "Worker processes background jobs", "PostgreSQL is primary with Firestore fallback"] }
+  ]
+}
