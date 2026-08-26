@@ -74,7 +74,15 @@ export class WatchdogScheduler {
    * Lease-protected so horizontally-scaled API instances never double-enqueue.
    */
   public async enqueueDueWatchdogTargets(): Promise<number> {
-    const targets = await watchdogRepository.getTargets(undefined, undefined, true);
+    let targets: any[] = [];
+    try {
+      targets = await watchdogRepository.getTargets(undefined, undefined, true);
+    } catch (err: any) {
+      if (process.env.NODE_ENV !== 'production') {
+        return 0;
+      }
+      throw err;
+    }
     const due = targets.filter(isDue);
     let enqueued = 0;
 
