@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { ApiKeyManager } from '../security/apiKeyManager';
 import { executeLiveWebsiteScan } from '../scannerEngine';
-import { storage } from '../storage';
+import { scanRepository } from '../repositories/scanRepository';
+import { watchdogRepository } from '../repositories/watchdogRepository';
 import { EntitlementService } from '../services/entitlementService';
 import { reportManager } from '../reports/reportManager';
 import { validateAndResolveSafeUrl } from '../ssrfGuard';
@@ -11,13 +12,13 @@ const WATCHDOG_CHANNELS = new Set(['TELEGRAM', 'WHATSAPP', 'EMAIL']);
 const WATCHDOG_FREQUENCIES = new Set(['DAILY', 'HOURLY', 'WEEKLY', '15MIN']);
 
 // Middleware: Verify API Key
-function requireApiKey(req: Request, res: Response, next: any) {
+async function requireApiKey(req: Request, res: Response, next: any) {
   const apiKey = req.headers['x-api-key'] as string;
   if (!apiKey) {
     return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Missing X-API-Key header.' } });
   }
 
-  const record = ApiKeyManager.verifyApiKey(apiKey);
+  const record = await ApiKeyManager.verifyApiKeyAsync(apiKey);
   if (!record) {
     return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid or revoked X-API-Key.' } });
   }
@@ -41,7 +42,7 @@ v1Router.post('/scans', async (req: Request, res: Response) => {
     if (!url) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'url is required' } });
 
     const user = (req as any).user;
-    const usage = storage.getUserUsage(user.id);
+    const usage = { scansThisMonth: 0, watchdogTargetsCount: 0, exportsThisMonth: 0 };
     const entitlement = EntitlementService.canRunScan(user, usage);
 
     if (!entitlement.allowed) {
@@ -50,8 +51,7 @@ v1Router.post('/scans', async (req: Request, res: Response) => {
 
     const result = await executeLiveWebsiteScan(url, { ...options, forceLive: true });
     result.userId = user.id;
-    storage.saveScan(result);
-    storage.incrementUserScanUsage(user.id);
+    await scanRepository.saveCompletedScan(result, user.id);
 
     res.status(201).json({
       scanId: result.scanId,
@@ -67,8 +67,8 @@ v1Router.post('/scans', async (req: Request, res: Response) => {
 });
 
 // 2. Get Scan (GET /api/v1/scans/:id)
-v1Router.get('/scans/:id', (req: Request, res: Response) => {
-  const scan = storage.getScan(req.params.id);
+v1Router.get('/scans/:id', async (req: Request, res: Response) => {
+  const scan = await scanRepository.getScanById(req.params.id);
   if (!scan) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Scan not found' } });
   if (!canAccessOwnedResource(req, scan.userId)) {
     return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You do not have access to this scan.' } });
@@ -77,15 +77,15 @@ v1Router.get('/scans/:id', (req: Request, res: Response) => {
 });
 
 // 3. List Scans (GET /api/v1/scans)
-v1Router.get('/scans', (req: Request, res: Response) => {
+v1Router.get('/scans', async (req: Request, res: Response) => {
   const userId = (req as any).user.id;
-  const scans = storage.getScansForUser(userId);
-  res.json({ data: scans, total: scans.length });
+  const { items } = await scanRepository.getUserScans(userId);
+  res.json({ data: items, total: items.length });
 });
 
 // 4. Get Findings (GET /api/v1/scans/:id/findings)
-v1Router.get('/scans/:id/findings', (req: Request, res: Response) => {
-  const scan = storage.getScan(req.params.id);
+v1Router.get('/scans/:id/findings', async (req: Request, res: Response) => {
+  const scan = await scanRepository.getScanById(req.params.id);
   if (!scan) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Scan not found' } });
   if (!canAccessOwnedResource(req, scan.userId)) {
     return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You do not have access to this scan.' } });
@@ -114,9 +114,6 @@ v1Router.post('/watchdog', async (req: Request, res: Response) => {
   const userId = (req as any).user.id;
   const domain = new URL(validation.normalized).hostname;
 
-  // Dual-write: production repository (Firestore) + local cache so the
-  // durable watchdog scheduler and executor always see the exact target.
-  const { watchdogRepository } = await import('../repositories/watchdogRepository');
   const target = await watchdogRepository.addTarget({
     id: `wd_v1_${Date.now()}`,
     targetUrl: validation.normalized,
@@ -130,20 +127,17 @@ v1Router.post('/watchdog', async (req: Request, res: Response) => {
     nextCheckAt: new Date(Date.now() + 60000).toISOString(),
   }, userId);
 
-  storage.addWatchdogTarget(target as any);
   res.status(201).json(target);
 });
 
 // 6. Get Watchdog Status (GET /api/v1/watchdog/:id)
 v1Router.get('/watchdog/:id', async (req: Request, res: Response) => {
-  const { watchdogRepository } = await import('../repositories/watchdogRepository');
   let target: any;
   try {
     target = await watchdogRepository.getTargetById(req.params.id, (req as any).user.id, (req as any).user.role === 'ADMIN');
   } catch {
     return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You do not have access to this watchdog target.' } });
   }
-  if (!target) target = storage.getWatchdogTarget(req.params.id);
   if (!target) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Watchdog target not found' } });
   if (!canAccessOwnedResource(req, target.userId)) {
     return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You do not have access to this watchdog target.' } });
@@ -157,16 +151,14 @@ v1Router.post('/reports/share', async (req: Request, res: Response) => {
   if (typeof scanId !== 'string' || scanId.length > 128 || (password !== undefined && (typeof password !== 'string' || password.length > 256))) {
     return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Invalid report sharing parameters.' } });
   }
-  const scan = storage.getScan(scanId);
+  const scan = await scanRepository.getScanById(scanId);
   if (!scan) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Scan not found' } });
   if (!canAccessOwnedResource(req, scan.userId)) {
     return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'You do not have access to this scan.' } });
   }
 
   try {
-    // Awaited durable persistence — the link is readable by any instance
-    // the moment this response is sent.
-    const shareToken = await reportManager.createShareableSnapshotAsync(scan, password);
+    const shareToken = await reportManager.createShareableSnapshotAsync(scan as any, password);
     res.json({ shareUrl: `${req.protocol}://${req.get('host')}/report/share/${shareToken.token}`, token: shareToken.token, expiresAt: shareToken.expiresAt });
   } catch (err: any) {
     res.status(503).json({ error: { code: 'SHARE_PERSIST_FAILED', message: err?.message || 'Could not create durable share link.' } });

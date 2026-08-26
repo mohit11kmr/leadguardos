@@ -1,5 +1,4 @@
 import { isPgEnabled } from '../db/storageMode';
-import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 
 export interface AuditLogEntry {
   id?: string;
@@ -60,20 +59,8 @@ export class AuditRepository {
       return;
     }
 
-    try {
-      if (!isFirebaseConfigured()) return;
-      const db = getAdminDb();
-      const col = db.collection('auditLogs');
-      const docRef = col.doc();
-      await docRef.set({
-        ...record,
-        id: docRef.id,
-        serverTimestamp: FieldValue.serverTimestamp(),
-      });
-    } catch (err: any) {
-      if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-        markFirestorePermissionDenied();
-      }
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('DATABASE_UNAVAILABLE: PostgreSQL is required in production for audit logs');
     }
   }
 
@@ -95,30 +82,16 @@ export class AuditRepository {
         timestamp: r.timestamp.toISOString(),
       }));
     }
-    try {
-      if (isFirebaseConfigured()) {
-        const db = getAdminDb();
-        let q = db.collection('auditLogs').orderBy('timestamp', 'desc').limit(limit);
-        if (actionFilter) {
-          q = q.where('action', '==', actionFilter);
-        }
-        const snap = await q.get();
-        if (!snap.empty) {
-          return snap.docs.map(d => d.data() as AuditLogEntry);
-        }
-      }
-    } catch (err: any) {
-      if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-        markFirestorePermissionDenied();
-      }
-    }
 
     const filtered = actionFilter
       ? this.localLogs.filter(l => l.action === actionFilter)
       : this.localLogs;
     return filtered.slice(0, limit);
   }
+
+  public clear(): void {
+    this.localLogs = [];
+  }
 }
 
 export const auditRepository = new AuditRepository();
-

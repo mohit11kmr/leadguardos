@@ -265,7 +265,7 @@ class PrismaQueueAdapter implements QueueAdapter {
           "workerId" = ${workerId},
           "attempt" = "attempt" + 1,
           "startedAt" = (NOW() AT TIME ZONE 'utc'),
-          "leaseExpiresAt" = NOW() + ${leaseInterval}::interval
+          "leaseExpiresAt" = (NOW() AT TIME ZONE 'utc') + ${leaseInterval}::interval
       WHERE "id" = (
         SELECT "id" FROM "JobExecution"
         WHERE "status" = 'QUEUED' AND "nextAttemptAt" <= (NOW() AT TIME ZONE 'utc')
@@ -285,7 +285,7 @@ class PrismaQueueAdapter implements QueueAdapter {
           "previousWorkerId" = "workerId",
           "attempt" = "attempt" + 1,
           "startedAt" = (NOW() AT TIME ZONE 'utc'),
-          "leaseExpiresAt" = NOW() + ${leaseInterval}::interval,
+          "leaseExpiresAt" = (NOW() AT TIME ZONE 'utc') + ${leaseInterval}::interval,
           "recoveryCount" = "recoveryCount" + 1,
           "recoveredAt" = (NOW() AT TIME ZONE 'utc')
       WHERE "id" = (

@@ -1297,9 +1297,91 @@ async function runTestSuite() {
     'No queue adapter selection path returns FirestoreQueueAdapter'
   );
 
-  // Restore env state
-  process.env.DATABASE_URL = prevDbUrl38;
-  process.env.NODE_ENV = prevNodeEnv38;
+  // -------------------------------------------------------------------------
+  // 39. Final Database Consolidation & Production Fail-Closed Invariants
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 39: Final Database Consolidation & Production Invariants');
+  const prevEnv39 = process.env.NODE_ENV;
+  const prevDb39 = process.env.DATABASE_URL;
+
+  // 39.1 StorageEngine unconditionally rejects production initialization
+  process.env.NODE_ENV = 'production';
+  delete process.env.DATABASE_URL;
+  delete process.env.LEADGUARD_ALLOW_LEGACY_STORAGE;
+  const { StorageEngine } = await import('../server/storage');
+  let storageErr: any = null;
+  try {
+    new StorageEngine();
+  } catch (err) {
+    storageErr = err;
+  }
+  assert(
+    !!storageErr && String(storageErr.message).includes('PRODUCTION_STORAGE_REJECTED'),
+    'StorageEngine rejects production instantiation unconditionally'
+  );
+
+  // Even with LEADGUARD_ALLOW_LEGACY_STORAGE set, it must STILL throw
+  process.env.LEADGUARD_ALLOW_LEGACY_STORAGE = 'true';
+  let storageErrWithFlag: any = null;
+  try {
+    new StorageEngine();
+  } catch (err) {
+    storageErrWithFlag = err;
+  }
+  assert(
+    !!storageErrWithFlag && String(storageErrWithFlag.message).includes('PRODUCTION_STORAGE_REJECTED'),
+    'StorageEngine rejects production instantiation even when legacy flag is set'
+  );
+  delete process.env.LEADGUARD_ALLOW_LEGACY_STORAGE;
+
+  // 39.2 ReportManager fail-closed in production without DB
+  const { ReportManager } = await import('../server/reports/reportManager');
+  const rm = new ReportManager();
+  let rmErr: any = null;
+  try {
+    await rm.createShareableSnapshotAsync({ scanId: 's1', domain: 'd.com', score: 90 } as any);
+  } catch (err) {
+    rmErr = err;
+  }
+  assert(
+    !!rmErr && String(rmErr.message).includes('REPORT_SHARE_STORE_UNAVAILABLE'),
+    'ReportManager fails closed in production when DATABASE_URL is missing'
+  );
+
+  // 39.3 RateLimiter fail-closed in production without DB
+  const { rateLimiter: getRateLimiter39 } = await import('../server/security/rateLimiter');
+  const rateLimitMw39 = getRateLimiter39(10);
+  let rateLimitStatus = 0;
+  let rateLimitBody: any = null;
+  const mockReq: any = { ip: '1.2.3.4', path: '/test', headers: {}, get: () => '1.2.3.4' };
+  const mockRes: any = {
+    status: (code: number) => { rateLimitStatus = code; return mockRes; },
+    json: (body: any) => { rateLimitBody = body; return mockRes; },
+    setHeader: () => mockRes,
+  };
+  await new Promise<void>((resolve) => {
+    rateLimitMw39(mockReq, mockRes, () => resolve());
+    if (rateLimitStatus !== 0) resolve();
+  });
+  assert(
+    rateLimitStatus === 503 && rateLimitBody?.error?.code === 'RATE_LIMITER_UNAVAILABLE',
+    'Shared rate limiter fails closed with 503 in production without PostgreSQL'
+  );
+
+  // 39.4 ApiKeyManager verifies and respects cache TTL
+  process.env.NODE_ENV = 'test';
+  const { ApiKeyManager: ApiKeyManager39 } = await import('../server/security/apiKeyManager');
+  ApiKeyManager39.clear();
+  const { apiKey: testKey, keyId: testKeyId } = await ApiKeyManager39.generateApiKeyAsync('usr_test_39');
+  const v1 = await ApiKeyManager39.verifyApiKeyAsync(testKey);
+  assert(v1?.keyId === testKeyId, 'ApiKeyManager verifies newly generated key');
+  await ApiKeyManager39.revokeApiKeyAsync(testKeyId);
+  const v2 = await ApiKeyManager39.verifyApiKeyAsync(testKey);
+  assert(v2 === null, 'ApiKeyManager rejects revoked key immediately on eviction');
+
+  // Restore env
+  process.env.NODE_ENV = prevEnv39;
+  process.env.DATABASE_URL = prevDb39;
 
   console.log('\n======================================================');
   console.log(`  TEST RESULTS: ${passed} PASSED | ${failed} FAILED`);

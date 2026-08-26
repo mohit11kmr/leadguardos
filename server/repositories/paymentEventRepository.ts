@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
 import { isPgEnabled } from '../db/storageMode';
 
 export interface PaymentEventInput {
@@ -19,7 +18,7 @@ export interface PaymentEventRecord extends PaymentEventInput {
 
 /**
  * Durable payment event idempotency store.
- * Production authority: PostgreSQL transactional claim (unique constraint).
+ * Production authority: PostgreSQL transactional claim (unique constraint on PaymentEvent table).
  */
 class PaymentEventRepository {
   /** @classification DEV-ONLY fallback cache — never used when DATABASE_URL is set */
@@ -59,29 +58,13 @@ class PaymentEventRepository {
       }
     }
 
-    // ── Legacy Firestore path (pre-migration / emulator only) ───────────────
-    if (!isFirebaseConfigured()) {
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error('PAYMENT_EVENT_STORE_UNAVAILABLE: DATABASE_URL required in production');
-      }
-      if (this.local.has(id)) return false;
-      this.local.set(id, { ...event, id, status: 'CLAIMED', createdAt: new Date().toISOString() });
-      return true;
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('PAYMENT_EVENT_STORE_UNAVAILABLE: DATABASE_URL required in production');
     }
 
-    const ref = getAdminDb().collection('paymentEvents').doc(id);
-    return getAdminDb().runTransaction(async (transaction: any) => {
-      const existing = await transaction.get(ref);
-      if (existing.exists) return false;
-      transaction.create(ref, {
-        ...event,
-        id,
-        status: 'CLAIMED',
-        createdAt: new Date().toISOString(),
-        processedAt: FieldValue.serverTimestamp(),
-      });
-      return true;
-    });
+    if (this.local.has(id)) return false;
+    this.local.set(id, { ...event, id, status: 'CLAIMED', createdAt: new Date().toISOString() });
+    return true;
   }
 
   async markProcessed(providerEventId: string, provider: string): Promise<void> {
@@ -96,17 +79,15 @@ class PaymentEventRepository {
       return;
     }
 
-    if (isFirebaseConfigured()) {
-      await getAdminDb().collection('paymentEvents').doc(id).set(
-        { status: 'PROCESSED', processedAt: new Date().toISOString() },
-        { merge: true },
-      );
-    }
     const local = this.local.get(id);
     if (local) {
       local.status = 'PROCESSED';
       local.processedAt = new Date().toISOString();
     }
+  }
+
+  public clear(): void {
+    this.local.clear();
   }
 }
 

@@ -11,17 +11,24 @@ export interface ApiKeyRecord {
   revokedAt?: string;
 }
 
+interface CachedApiKey {
+  record: ApiKeyRecord;
+  cachedAt: number;
+}
+
 /**
  * Durable API-key manager — PostgreSQL is the source of truth.
  * Only SHA-256 hashes are stored; raw keys are shown exactly once at creation.
  * Works across multiple server instances (no process-local state).
  *
- * The in-memory Map remains ONLY as a synchronous read-cache for the
- * verify hot path and is always backed by a durable row.
+ * The in-memory Map remains ONLY as a short-TTL read-cache for the
+ * verify hot path so cross-instance revocations take effect promptly.
  */
 export class ApiKeyManager {
   /** @classification CACHE-ONLY — PostgreSQL `ApiKey` table is authoritative */
-  private static keysCache = new Map<string, ApiKeyRecord>();
+  private static keysCache = new Map<string, CachedApiKey>();
+  /** 10-second TTL to guarantee cross-instance revocation propagation */
+  private static readonly CACHE_TTL_MS = 10_000;
 
   private static dbEnabled(): boolean {
     return !!process.env.DATABASE_URL;
@@ -41,12 +48,12 @@ export class ApiKeyManager {
         },
       });
       // Cache write AFTER durable success.
-      this.keysCache.set(record.keyHash, record);
+      this.keysCache.set(record.keyHash, { record, cachedAt: Date.now() });
       return { apiKey, keyId, record };
     }
 
     // Dev/test without database: cache-only (NOT production path).
-    this.keysCache.set(record.keyHash, record);
+    this.keysCache.set(record.keyHash, { record, cachedAt: Date.now() });
     return { apiKey, keyId, record };
   }
 
@@ -58,7 +65,7 @@ export class ApiKeyManager {
    */
   public static generateApiKey(userId: string): { apiKey: string; keyId: string; record: ApiKeyRecord } {
     const built = this.buildKey(userId);
-    this.keysCache.set(built.record.keyHash, built.record);
+    this.keysCache.set(built.record.keyHash, { record: built.record, cachedAt: Date.now() });
     if (this.dbEnabled()) {
       void prisma.apiKey.create({
         data: {
@@ -91,14 +98,20 @@ export class ApiKeyManager {
   public static async verifyApiKeyAsync(apiKey: string): Promise<ApiKeyRecord | null> {
     if (!apiKey || !apiKey.startsWith('lg_live_')) return null;
     const hash = this.hashKey(apiKey);
+    const now = Date.now();
 
-    // Fast path: cache hit still validated against expiry/active flags only.
+    // Fast path: cache hit if active and within TTL
     const cached = this.keysCache.get(hash);
-    if (cached?.active) return cached;
+    if (cached && cached.record.active && (now - cached.cachedAt < this.CACHE_TTL_MS)) {
+      return cached.record;
+    }
 
-    if (!this.dbEnabled()) return null;
+    if (!this.dbEnabled()) {
+      return cached?.record.active ? cached.record : null;
+    }
+
     const row = await prisma.apiKey.findUnique({ where: { keyHash: hash } });
-    if (!row || !!row.revokedAt || (row.expiresAt && row.expiresAt.getTime() < Date.now())) {
+    if (!row || !!row.revokedAt || (row.expiresAt && row.expiresAt.getTime() < now)) {
       this.keysCache.delete(hash);
       return null;
     }
@@ -110,16 +123,16 @@ export class ApiKeyManager {
       active: true,
       createdAt: row.createdAt.toISOString(),
     };
-    this.keysCache.set(hash, record);
+    this.keysCache.set(hash, { record, cachedAt: now });
     void prisma.apiKey.update({ where: { id: row.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
     return record;
   }
 
   public static verifyApiKey(apiKey: string): ApiKeyRecord | null {
     if (!apiKey || !apiKey.startsWith('lg_live_')) return null;
-    const record = this.keysCache.get(this.hashKey(apiKey));
-    if (!record || !record.active) return null;
-    return record;
+    const cached = this.keysCache.get(this.hashKey(apiKey));
+    if (!cached || !cached.record.active) return null;
+    return cached.record;
   }
 
   public static async revokeApiKeyAsync(keyId: string): Promise<boolean> {
@@ -129,10 +142,11 @@ export class ApiKeyManager {
         data: { revokedAt: new Date() },
       });
       // Evict matching cache entries so revocation is effective immediately on THIS instance.
-      for (const [hash, rec] of this.keysCache.entries()) {
-        if (rec.keyId === keyId) {
-          rec.active = false;
-          rec.revokedAt = new Date().toISOString();
+      for (const [hash, cached] of this.keysCache.entries()) {
+        if (cached.record.keyId === keyId) {
+          cached.record.active = false;
+          cached.record.revokedAt = new Date().toISOString();
+          this.keysCache.delete(hash);
         }
       }
       return result.count > 0;
@@ -153,10 +167,11 @@ export class ApiKeyManager {
         where: { id: keyId, userId, revokedAt: null },
         data: { revokedAt: new Date() },
       });
-      for (const [, rec] of this.keysCache.entries()) {
-        if (rec.keyId === keyId && rec.userId === userId) {
-          rec.active = false;
-          rec.revokedAt = new Date().toISOString();
+      for (const [hash, cached] of this.keysCache.entries()) {
+        if (cached.record.keyId === keyId && cached.record.userId === userId) {
+          cached.record.active = false;
+          cached.record.revokedAt = new Date().toISOString();
+          this.keysCache.delete(hash);
         }
       }
       return result.count > 0;
@@ -172,11 +187,11 @@ export class ApiKeyManager {
   }
 
   private static revokeInMemory(keyId: string, userId?: string): boolean {
-    for (const [hash, record] of this.keysCache.entries()) {
-      if (record.keyId === keyId && (!userId || record.userId === userId)) {
-        record.active = false;
-        record.revokedAt = new Date().toISOString();
-        this.keysCache.set(hash, record);
+    for (const [hash, cached] of this.keysCache.entries()) {
+      if (cached.record.keyId === keyId && (!userId || cached.record.userId === userId)) {
+        cached.record.active = false;
+        cached.record.revokedAt = new Date().toISOString();
+        this.keysCache.delete(hash);
         return true;
       }
     }

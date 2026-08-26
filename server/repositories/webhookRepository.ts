@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 import { isPgEnabled } from '../db/storageMode';
 import { WebhookConfig } from '../storage';
 import { validateAndResolveSafeUrl } from '../ssrfGuard';
@@ -81,21 +80,41 @@ export class WebhookRepository implements IWebhookRepository {
       organizationId: config.organizationId,
     };
 
-    this.localWebhooks.set(id, docData);
-
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        await db.collection('webhooks').doc(id).set({
-          ...docData,
-          serverTimestamp: FieldValue.serverTimestamp(),
-        });
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      await prisma.webhook.upsert({
+        where: { id },
+        create: {
+          id,
+          userId: docData.userId || null,
+          name: docData.name,
+          url: docData.url,
+          secret: docData.secret,
+          events: docData.events,
+          active: docData.active,
+        },
+        update: {
+          name: docData.name,
+          url: docData.url,
+          events: docData.events,
+          active: docData.active,
+        },
+      });
+      this.localWebhooks.set(id, docData);
+      await auditRepository.logEvent({
+        action: 'WEBHOOK_CREATED',
+        userId: docData.userId,
+        details: { webhookId: id, url: docData.url, events: docData.events },
+        timestamp: now,
+      });
+      return docData;
     }
+
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('DATABASE_UNAVAILABLE: PostgreSQL is required in production for webhooks');
+    }
+
+    this.localWebhooks.set(id, docData);
 
     await auditRepository.logEvent({
       action: 'WEBHOOK_CREATED',
@@ -109,7 +128,8 @@ export class WebhookRepository implements IWebhookRepository {
 
   async getWebhooks(userId?: string, isAdmin = false): Promise<WebhookDocument[]> {
     if (isPgEnabled()) {
-      const rows = await (await import('../db/prisma')).prisma.webhook.findMany({
+      const { prisma } = await import('../db/prisma');
+      const rows = await prisma.webhook.findMany({
         where: (!isAdmin && userId) ? { userId } : undefined,
         orderBy: { createdAt: 'desc' },
       });
@@ -118,38 +138,12 @@ export class WebhookRepository implements IWebhookRepository {
         userId: r.userId || undefined,
         name: r.name,
         url: r.url,
-        secret: r.secret,
+        secret: '********',
         events: r.events,
         active: r.active,
-        failureCount: 0,
+        failureCount: r.failureCount,
         createdAt: r.createdAt.toISOString(),
       })) as unknown as WebhookDocument[];
-    }
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        let q = db.collection('webhooks').orderBy('createdAt', 'desc');
-
-        if (!isAdmin && userId) {
-          q = db.collection('webhooks').where('userId', '==', userId).orderBy('createdAt', 'desc');
-        }
-
-        const snap = await q.get();
-        if (!snap.empty) {
-          return snap.docs.map(d => {
-            const data = d.data() as WebhookDocument;
-            return {
-              ...data,
-              // Mask secret in listings
-              secret: '********',
-            };
-          });
-        }
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
     }
 
     const list = Array.from(this.localWebhooks.values());
@@ -161,24 +155,26 @@ export class WebhookRepository implements IWebhookRepository {
   }
 
   async getWebhookById(id: string, userId?: string, isAdmin = false): Promise<WebhookDocument | undefined> {
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        const docSnap = await db.collection('webhooks').doc(id).get();
-        if (docSnap.exists) {
-          const data = docSnap.data() as WebhookDocument;
-          if (!isAdmin && data.userId && userId && data.userId !== userId) {
-            throw new Error('UNAUTHORIZED_WEBHOOK_ACCESS');
-          }
-          this.localWebhooks.set(id, data);
-          return data;
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      const row = await prisma.webhook.findUnique({ where: { id } });
+      if (row) {
+        if (!isAdmin && row.userId && userId && row.userId !== userId) {
+          throw new Error('UNAUTHORIZED_WEBHOOK_ACCESS');
         }
-      } catch (err: any) {
-        if (err?.message === 'UNAUTHORIZED_WEBHOOK_ACCESS') throw err;
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
+        return {
+          id: row.id,
+          userId: row.userId || undefined,
+          name: row.name,
+          url: row.url,
+          secret: row.secret,
+          events: row.events,
+          active: row.active,
+          failureCount: row.failureCount,
+          createdAt: row.createdAt.toISOString(),
+        } as unknown as WebhookDocument;
       }
+      return undefined;
     }
 
     const local = this.localWebhooks.get(id);
@@ -196,19 +192,26 @@ export class WebhookRepository implements IWebhookRepository {
       throw new Error('UNAUTHORIZED_WEBHOOK_DELETE');
     }
 
-    this.localWebhooks.delete(id);
-
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        const docRef = db.collection('webhooks').doc(id);
-        await docRef.delete();
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      await prisma.webhook.delete({ where: { id } }).catch((err: any) => {
+        if (err?.code !== 'P2025') throw err;
+      });
+      this.localWebhooks.delete(id);
+      await auditRepository.logEvent({
+        action: 'WEBHOOK_DELETED',
+        userId,
+        details: { webhookId: id },
+        timestamp: new Date().toISOString(),
+      });
+      return true;
     }
+
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('DATABASE_UNAVAILABLE: PostgreSQL is required in production to delete webhooks');
+    }
+
+    this.localWebhooks.delete(id);
 
     await auditRepository.logEvent({
       action: 'WEBHOOK_DELETED',
@@ -237,49 +240,57 @@ export class WebhookRepository implements IWebhookRepository {
       payloadDigest: log.payloadDigest,
     };
 
+    if (isPgEnabled()) {
+      void (async () => {
+        const { prisma } = await import('../db/prisma');
+        try {
+          await prisma.webhookDelivery.create({
+            data: {
+              id,
+              webhookId: record.webhookId,
+              event: record.event,
+              statusCode: record.httpStatus ?? null,
+              success: record.status === 'SENT',
+              attempt: record.attemptCount,
+              error: record.errorMessage ?? null,
+              payloadHash: record.payloadDigest ?? null,
+            },
+          });
+        } catch { /* non-critical logging */ }
+      })();
+    }
+
     this.localDeliveries.unshift(record);
     if (this.localDeliveries.length > 200) this.localDeliveries.pop();
-
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        await db.collection('webhookDeliveries').doc(id).set({
-          ...record,
-          serverTimestamp: FieldValue.serverTimestamp(),
-        });
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
-    }
 
     return record;
   }
 
   async getDeliveryLogs(webhookId?: string, limit = 50): Promise<WebhookDeliveryRecord[]> {
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        let q = db.collection('webhookDeliveries').orderBy('timestamp', 'desc').limit(limit);
-        if (webhookId) {
-          q = db.collection('webhookDeliveries').where('webhookId', '==', webhookId).orderBy('timestamp', 'desc').limit(limit);
-        }
-        const snap = await q.get();
-        if (!snap.empty) {
-          return snap.docs.map(d => d.data() as WebhookDeliveryRecord);
-        }
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      const rows = await prisma.webhookDelivery.findMany({
+        where: webhookId ? { webhookId } : undefined,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      });
+      return rows.map(r => ({
+        id: r.id,
+        webhookId: r.webhookId,
+        url: '',
+        event: r.event,
+        status: r.success ? 'SENT' : 'FAILED',
+        httpStatus: r.statusCode ?? undefined,
+        errorMessage: r.error ?? undefined,
+        timestamp: r.createdAt.toISOString(),
+        attemptCount: r.attempt,
+        payloadDigest: r.payloadHash ?? undefined,
+      }));
     }
 
     const filtered = webhookId ? this.localDeliveries.filter(d => d.webhookId === webhookId) : this.localDeliveries;
     return filtered.slice(0, limit);
   }
-
 
   async dispatchWebhook(webhook: WebhookDocument, event: string, payload: any): Promise<WebhookDeliveryRecord> {
     // Re-validate SSRF on dispatch
@@ -343,6 +354,11 @@ export class WebhookRepository implements IWebhookRepository {
         payloadDigest: signature.substring(0, 12),
       });
     }
+  }
+
+  public clear(): void {
+    this.localWebhooks.clear();
+    this.localDeliveries = [];
   }
 }
 

@@ -1,4 +1,3 @@
-import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
 import { auditRepository } from './auditRepository';
 import { isPgEnabled } from '../db/storageMode';
 
@@ -68,47 +67,6 @@ class FulfillmentRepository {
       return claimed;
     }
 
-    // ── Legacy Firestore path (pre-migration only) ─────────────────────────
-    if (isFirebaseConfigured()) {
-      const db = getAdminDb();
-      const ref = db.collection('fulfillments').doc(fulfillmentId);
-
-      const claimed = await db.runTransaction(async (transaction: any) => {
-        const existing = await transaction.get(ref);
-        if (existing.exists) return null;
-
-        const record: FulfillmentRecord = {
-          fulfillmentId,
-          orderId,
-          type,
-          status: 'ACTIVATED',
-          activatedAt: now,
-          createdAt: now,
-          userId,
-          tierId,
-        };
-
-        transaction.create(ref, {
-          ...record,
-          serverTimestamp: FieldValue.serverTimestamp(),
-        });
-
-        return record;
-      });
-
-      if (claimed) {
-        this.localFulfillments.set(fulfillmentId, claimed);
-        await auditRepository.logEvent({
-          action: 'FULFILLMENT_ACTIVATED',
-          userId,
-          details: { fulfillmentId, orderId, type, tierId },
-          timestamp: now,
-        });
-      }
-
-      return claimed;
-    }
-
     // ── Development cache-only fallback ─────────────────────────────────────
     if (process.env.NODE_ENV === 'production') {
       throw new Error('FULFILLMENT_STORE_UNAVAILABLE: DATABASE_URL required in production');
@@ -155,16 +113,11 @@ class FulfillmentRepository {
       return this.localFulfillments.get(fulfillmentId);
     }
 
-    if (isFirebaseConfigured()) {
-      try {
-        const snap = await getAdminDb().collection('fulfillments').doc(fulfillmentId).get();
-        if (snap.exists) return snap.data() as FulfillmentRecord;
-      } catch {
-        // Fallback to local
-      }
-    }
-
     return this.localFulfillments.get(fulfillmentId);
+  }
+
+  public clear(): void {
+    this.localFulfillments.clear();
   }
 }
 

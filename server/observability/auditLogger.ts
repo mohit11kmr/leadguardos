@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { storage } from '../storage';
+import { auditRepository } from '../repositories/auditRepository';
 
 export interface AuditEventParams {
   userId?: string;
@@ -14,14 +14,16 @@ export class AuditLogger {
     const logEntry = {
       id: `audit_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`,
       userId: params.userId,
-      action: params.action,
+      action: params.action as any,
       resource: params.resource,
       details: params.details || {},
       ipAddress: params.ipAddress || 'internal',
       timestamp: new Date().toISOString(),
     };
 
-    // Store server-controlled audit event
-    storage.addAuditLog(logEntry);
+    // Forward to authoritative audit repository (Prisma AuditLog in production)
+    void auditRepository.logEvent(logEntry).catch((err) => {
+      console.error('[AuditLogger] Failed to persist audit event:', err?.message || err);
+    });
   }
 }

@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 import { isPgEnabled } from '../db/storageMode';
 import { ScanRecord } from '../storage';
 import { auditRepository } from './auditRepository';
@@ -48,6 +47,7 @@ export interface IScanRepository {
 
 export class ScanRepository implements IScanRepository {
   private localCache: Map<string, ScanDocument> = new Map();
+  private tokenIndex: Map<string, string> = new Map();
 
   /** Persist a ScanDocument to PostgreSQL (upsert on scanId). */
   private async pgUpsertScan(doc: ScanDocument): Promise<void> {
@@ -73,11 +73,18 @@ export class ScanRepository implements IScanRepository {
       scannedAt: doc.scannedAt ? new Date(doc.scannedAt) : new Date(),
       completedAt: doc.completedAt ? new Date(doc.completedAt) : null,
     };
-    await prisma.scan.upsert({ where: { id: data.id }, create: data as any, update: {
-      status: data.status, score: data.score, pillarScores: data.pillarScores,
-      findings: data.findings ?? undefined, estimatedMonthlyLoss: data.estimatedMonthlyLoss,
-      completedAt: data.completedAt,
-    } as any });
+    await prisma.scan.upsert({
+      where: { id: data.id },
+      create: data as any,
+      update: {
+        status: data.status,
+        score: data.score,
+        pillarScores: data.pillarScores,
+        findings: data.findings ?? undefined,
+        estimatedMonthlyLoss: data.estimatedMonthlyLoss,
+        completedAt: data.completedAt,
+      } as any,
+    });
   }
 
   /** Fetch a scan row and rehydrate the legacy ScanDocument shape. */
@@ -117,14 +124,15 @@ export class ScanRepository implements IScanRepository {
       completedAt: row.completedAt?.toISOString?.(),
       lockedIssuesCount: 0,
       aiRemediation: row.aiReport ? {
-        status: 'COMPLETED', content: row.aiReport.content,
-        model: row.aiReport.model, inputHash: row.aiReport.inputHash,
-        resultHash: row.aiReport.resultHash, updatedAt: row.aiReport.createdAt.toISOString(),
+        status: 'COMPLETED',
+        content: row.aiReport.content,
+        model: row.aiReport.model,
+        inputHash: row.aiReport.inputHash,
+        resultHash: row.aiReport.resultHash,
+        updatedAt: row.aiReport.createdAt.toISOString(),
       } : undefined,
     } as unknown as ScanDocument;
   }
-
-  private tokenIndex: Map<string, string> = new Map();
 
   public generatePublicToken(): string {
     return crypto.randomBytes(24).toString('hex');
@@ -192,28 +200,12 @@ export class ScanRepository implements IScanRepository {
       return docData;
     }
 
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`DATABASE_UNAVAILABLE: PostgreSQL is required in production for scan ${scanId}`);
+    }
+
     this.localCache.set(scanId, docData);
     this.tokenIndex.set(publicToken, scanId);
-
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        await db.collection('scans').doc(scanId).set({
-          ...docData,
-          serverTimestamp: FieldValue.serverTimestamp(),
-        });
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-        if (process.env.NODE_ENV === 'production' || process.env.STORAGE_MODE === 'firestore') {
-          throw new Error(`FIRESTORE_WRITE_FAILED: Failed to persist scan ${scanId}: ${err?.message || err}`);
-        }
-        console.warn(`[ScanRepository] Firestore write error for scan ${scanId}:`, err?.message || err);
-      }
-    } else if (process.env.NODE_ENV === 'production' || process.env.STORAGE_MODE === 'firestore') {
-      throw new Error(`DATABASE_UNAVAILABLE: Firestore is required in production but unavailable for scan ${scanId}`);
-    }
 
     await auditRepository.logEvent({
       action: 'SCAN_CREATED',
@@ -268,35 +260,19 @@ export class ScanRepository implements IScanRepository {
     };
 
     if (isPgEnabled()) {
-      const merged = { ...scan, status: 'COMPLETED', completedAt: now } as unknown as ScanDocument;
+      const merged = { ...scan, status: 'COMPLETED', completedAt: now, userId, userEmail, organizationId } as unknown as ScanDocument;
       await this.pgUpsertScan(merged);
       this.localCache.set(scan.scanId, merged);
       this.tokenIndex.set(publicToken, scan.scanId);
       return merged;
     }
 
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`DATABASE_UNAVAILABLE: PostgreSQL is required in production for scan ${scan.scanId}`);
+    }
+
     this.localCache.set(scan.scanId, docData);
     this.tokenIndex.set(publicToken, scan.scanId);
-
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        await db.collection('scans').doc(scan.scanId).set({
-          ...docData,
-          serverTimestamp: FieldValue.serverTimestamp(),
-        });
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-        if (process.env.NODE_ENV === 'production' || process.env.STORAGE_MODE === 'firestore') {
-          throw new Error(`FIRESTORE_WRITE_FAILED: Failed to save scan ${scan.scanId}: ${err?.message || err}`);
-        }
-        console.warn(`[ScanRepository] Firestore write error for scan ${scan.scanId}:`, err?.message || err);
-      }
-    } else if (process.env.NODE_ENV === 'production' || process.env.STORAGE_MODE === 'firestore') {
-      throw new Error(`DATABASE_UNAVAILABLE: Firestore is required in production but unavailable for scan ${scan.scanId}`);
-    }
 
     await auditRepository.logEvent({
       action: 'SCAN_COMPLETED',
@@ -320,22 +296,6 @@ export class ScanRepository implements IScanRepository {
       if (doc) this.localCache.set(scanId, doc);
       return doc;
     }
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        const docSnap = await db.collection('scans').doc(scanId).get();
-        if (docSnap.exists) {
-          const data = docSnap.data() as ScanDocument;
-          this.localCache.set(scanId, data);
-          if (data.publicToken) this.tokenIndex.set(data.publicToken, scanId);
-          return data;
-        }
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
-    }
 
     return this.localCache.get(scanId);
   }
@@ -343,50 +303,23 @@ export class ScanRepository implements IScanRepository {
   async getScanByToken(token: string): Promise<ScanDocument | undefined> {
     if (!token || typeof token !== 'string') return undefined;
 
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        const snap = await db.collection('scans').where('publicToken', '==', token).limit(1).get();
-        if (!snap.empty) {
-          const data = snap.docs[0].data() as ScanDocument;
-          this.localCache.set(data.scanId, data);
-          this.tokenIndex.set(token, data.scanId);
-          return data;
-        }
-        // Strict token lookup: DO NOT fallback to scans.doc(token)
-        return undefined;
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
-    }
-
     const scanId = this.tokenIndex.get(token);
     if (scanId) {
       return this.localCache.get(scanId);
     }
-    // Strict local cache check: verify the document at scanId actually has this publicToken
     return undefined;
   }
 
   async getRecentScans(limit = 20, mode?: 'LIVE' | 'DEMO'): Promise<ScanDocument[]> {
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        let q = db.collection('scans').orderBy('scannedAt', 'desc').limit(limit);
-        if (mode) {
-          q = db.collection('scans').where('mode', '==', mode).orderBy('scannedAt', 'desc').limit(limit);
-        }
-        const snap = await q.get();
-        if (!snap.empty) {
-          return snap.docs.map(d => d.data() as ScanDocument);
-        }
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      const rows = await prisma.scan.findMany({
+        where: mode ? { mode } : undefined,
+        orderBy: { scannedAt: 'desc' },
+        take: limit,
+        include: { aiReport: true },
+      });
+      return rows.map(r => this.pgRowToDocument(r));
     }
 
     const cached = Array.from(this.localCache.values());
@@ -395,31 +328,17 @@ export class ScanRepository implements IScanRepository {
   }
 
   async getUserScans(userId: string, limit = 20, startAfterId?: string): Promise<{ items: ScanDocument[]; nextCursor?: string }> {
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        let q = db
-          .collection('scans')
-          .where('userId', '==', userId)
-          .orderBy('scannedAt', 'desc')
-          .limit(limit);
-
-        if (startAfterId) {
-          const lastDoc = await db.collection('scans').doc(startAfterId).get();
-          if (lastDoc.exists) {
-            q = q.startAfter(lastDoc);
-          }
-        }
-
-        const snap = await q.get();
-        const items = snap.docs.map(d => d.data() as ScanDocument);
-        const nextCursor = items.length === limit ? items[items.length - 1].scanId : undefined;
-        return { items, nextCursor };
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      const rows = await prisma.scan.findMany({
+        where: { userId },
+        orderBy: { scannedAt: 'desc' },
+        take: limit,
+        include: { aiReport: true },
+      });
+      const items = rows.map(r => this.pgRowToDocument(r));
+      const nextCursor = items.length === limit ? items[items.length - 1].scanId : undefined;
+      return { items, nextCursor };
     }
 
     const items = Array.from(this.localCache.values())
@@ -431,24 +350,15 @@ export class ScanRepository implements IScanRepository {
   }
 
   async getDomainScans(domain: string, limit = 10): Promise<ScanDocument[]> {
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        const snap = await db
-          .collection('scans')
-          .where('domain', '==', domain)
-          .orderBy('scannedAt', 'desc')
-          .limit(limit)
-          .get();
-
-        if (!snap.empty) {
-          return snap.docs.map(d => d.data() as ScanDocument);
-        }
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      const rows = await prisma.scan.findMany({
+        where: { domain },
+        orderBy: { scannedAt: 'desc' },
+        take: limit,
+        include: { aiReport: true },
+      });
+      return rows.map(r => this.pgRowToDocument(r));
     }
 
     return Array.from(this.localCache.values())
@@ -465,17 +375,28 @@ export class ScanRepository implements IScanRepository {
       throw new Error(`Unauthorized: You cannot delete scan ${scanId}`);
     }
 
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      await prisma.scan.delete({ where: { id: scanId } }).catch((err: any) => {
+        if (err?.code !== 'P2025') throw err;
+      });
+      this.localCache.delete(scanId);
+      if (existing.publicToken) this.tokenIndex.delete(existing.publicToken);
+      await auditRepository.logEvent({
+        action: 'SCAN_DELETED',
+        userId: requestUserId,
+        details: { scanId, domain: existing.domain },
+        timestamp: new Date().toISOString(),
+      });
+      return true;
+    }
+
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`DATABASE_UNAVAILABLE: PostgreSQL is required in production to delete scan ${scanId}`);
+    }
+
     this.localCache.delete(scanId);
     if (existing.publicToken) this.tokenIndex.delete(existing.publicToken);
-
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        await db.collection('scans').doc(scanId).delete();
-      } catch (err) {
-        console.warn(`[ScanRepository] Firestore deletion error for ${scanId}:`, err);
-      }
-    }
 
     await auditRepository.logEvent({
       action: 'SCAN_DELETED',
@@ -485,6 +406,11 @@ export class ScanRepository implements IScanRepository {
     });
 
     return true;
+  }
+
+  public clear(): void {
+    this.localCache.clear();
+    this.tokenIndex.clear();
   }
 }
 

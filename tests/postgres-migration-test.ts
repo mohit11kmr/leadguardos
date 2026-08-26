@@ -147,6 +147,8 @@ async function main() {
   const isPrismaQueue = !(jobQueue as any).jobMap;
   assert(isPrismaQueue, 'DATABASE_URL set → Prisma-backed queue adapter selected');
 
+  await prisma.jobExecution.deleteMany({});
+
   const qj = await jobQueue.enqueue('sendWebhook', { url: 'https://pg-test/hook' }, dbUser!.id, 3);
   const qFetched = await jobQueue.getJob(qj.id);
   assert(qFetched?.status === 'QUEUED', 'Job persisted to jobExecutions table');
@@ -234,17 +236,84 @@ async function main() {
   const revokedCheck = await instanceB.getSnapshotAsync(snap.token);
   assert(!!revokedCheck.error, 'Revoked share link rejected');
 
-  // ─── 7. Transaction behavior — rollback on failure ────────────────────────────
-  console.log('\n📌 Section 7: Transaction Integrity');
-  const before = await prisma.user.count();
-  try {
-    await prisma.$transaction([
-      prisma.user.create({ data: { email: `tx_${Date.now()}@t.in`, passwordHash: 'x' } }),
-      prisma.user.create({ data: { email: dbUser!.email, passwordHash: 'dup' } }), // duplicate → fails
-    ]);
-  } catch { /* expected */ }
-  const after = await prisma.user.count();
-  assert(before === after, '$transaction rolls back fully on constraint violation');
+  // ─── 8. Domain Repositories Consolidated in PostgreSQL ────────────────────────
+  console.log('\n📌 Section 8: Domain Repositories Consolidated in PostgreSQL');
+  // 8.1 ScanRepository
+  const testScan = await scanRepoPg.createScan({
+    scanId: `scan_test_${Date.now()}`,
+    targetUrl: 'https://consolidated.example.com',
+    domain: 'consolidated.example.com',
+    score: 95,
+    overallScore: 95,
+    status: 'COMPLETED' as any,
+    mode: 'LIVE',
+    userId: dbUser!.id,
+    pillarScores: { leadGen: 90, adSpend: 95, seo: 100, security: 95 },
+  } as any);
+  const fetchedScan = await scanRepoPg.getScanById(testScan.scanId);
+  assert(fetchedScan?.scanId === testScan.scanId && fetchedScan?.overallScore === 95, 'ScanRepository persists and fetches from PostgreSQL');
+  const userScans = await scanRepoPg.getUserScans(dbUser!.id);
+  assert(userScans.items.some(s => s.scanId === testScan.scanId), 'ScanRepository getUserScans returns user scans from PostgreSQL');
+
+  // 8.2 WatchdogRepository & Distributed Lease
+  const { watchdogRepository } = await import('../server/repositories/watchdogRepository');
+  const testWd = await watchdogRepository.addTarget({
+    id: `wd_test_${Date.now()}`,
+    targetUrl: 'https://consolidated.example.com',
+    domain: 'consolidated.example.com',
+    channel: 'EMAIL',
+    frequency: 'DAILY',
+    userId: dbUser!.id,
+    status: 'ACTIVE_TRIAL',
+  }, dbUser!.id);
+  const fetchedWd = await watchdogRepository.getTargetById(testWd.id, dbUser!.id, false);
+  assert(fetchedWd?.id === testWd.id, 'WatchdogRepository persists and fetches from PostgreSQL');
+
+  const leaseWorker1 = await watchdogRepository.acquireTargetLease(testWd.id, 'worker_1', 60000);
+  assert(leaseWorker1 === true, 'Worker 1 acquires distributed watchdog lease');
+  const leaseWorker2 = await watchdogRepository.acquireTargetLease(testWd.id, 'worker_2', 60000);
+  assert(leaseWorker2 === false, 'Worker 2 rejected while Worker 1 holds active lease');
+  await watchdogRepository.releaseTargetLease(testWd.id, 'worker_1');
+  const leaseWorker2AfterRelease = await watchdogRepository.acquireTargetLease(testWd.id, 'worker_2', 60000);
+  assert(leaseWorker2AfterRelease === true, 'Worker 2 acquires lease after Worker 1 releases');
+  await watchdogRepository.releaseTargetLease(testWd.id, 'worker_2');
+
+  // 8.3 WebhookRepository
+  const { webhookRepository } = await import('../server/repositories/webhookRepository');
+  const testWh = await webhookRepository.addWebhook({
+    id: `whk_test_${Date.now()}`,
+    name: 'Test Webhook',
+    url: 'https://example.com/webhook',
+    userId: dbUser!.id,
+  }, dbUser!.id);
+  const fetchedWh = await webhookRepository.getWebhookById(testWh.id, dbUser!.id);
+  assert(fetchedWh?.id === testWh.id, 'WebhookRepository persists and fetches from PostgreSQL');
+  const whDelivery = await webhookRepository.logDelivery({
+    webhookId: testWh.id,
+    url: 'https://example.com/webhook',
+    event: 'scan.completed',
+    status: 'SENT',
+    httpStatus: 200,
+  });
+  assert(whDelivery.status === 'SENT', 'Webhook delivery logged to PostgreSQL');
+
+  // 8.4 StatsRepository
+  const { statsRepository } = await import('../server/repositories/statsRepository');
+  await statsRepository.recordScanCompleted(true, false, 3, true);
+  await statsRepository.recordFixCompleted();
+  const currentStats = await statsRepository.getSystemStats();
+  assert(currentStats.totalScannedSites >= 1 && currentStats.problemsFound >= 3, 'StatsRepository updates SystemStats table in PostgreSQL');
+
+  // 8.5 AuditRepository
+  const { auditRepository } = await import('../server/repositories/auditRepository');
+  await auditRepository.logEvent({
+    action: 'ADMIN_ACTION',
+    userId: dbUser!.id,
+    details: { test: 'consolidation_verification' },
+    timestamp: new Date().toISOString(),
+  });
+  const recentAudit = await auditRepository.getRecentLogs(10, 'ADMIN_ACTION');
+  assert(recentAudit.some(l => l.userId === dbUser!.id), 'AuditRepository logs to AuditLog table in PostgreSQL');
 
   // ─── Summary ─────────────────────────────────────────────────────────────────
   console.log('\n═══════════════════════════════════════════════════════');

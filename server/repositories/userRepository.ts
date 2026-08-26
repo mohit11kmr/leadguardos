@@ -1,6 +1,8 @@
-import { getAdminDb, getAdminAuth, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
+import { isPgEnabled } from '../db/storageMode';
 import { UserAccount } from '../storage';
 import { auditRepository } from './auditRepository';
+import { verifyAccessToken } from '../auth/authService';
+import { verifyFirebaseIdToken } from '../security/firebaseAuth';
 
 export interface UserProfileDocument extends UserAccount {
   displayName?: string;
@@ -25,20 +27,25 @@ export class UserRepository implements IUserRepository {
   private localUsers: Map<string, UserProfileDocument> = new Map();
 
   async getUserById(uid: string): Promise<UserProfileDocument | undefined> {
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        const snap = await db.collection('users').doc(uid).get();
-        if (snap.exists) {
-          const data = snap.data() as UserProfileDocument;
-          this.localUsers.set(uid, data);
-          return data;
-        }
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      const row = await prisma.user.findUnique({ where: { id: uid } });
+      if (row) {
+        const user: UserProfileDocument = {
+          id: row.id,
+          email: row.email,
+          displayName: row.displayName || undefined,
+          photoURL: row.photoUrl || undefined,
+          role: row.role as 'USER' | 'AGENCY' | 'ADMIN',
+          organizationId: row.organizationId || undefined,
+          createdAt: row.createdAt.toISOString(),
+          lastLoginAt: row.lastLoginAt?.toISOString?.(),
+          updatedAt: row.updatedAt?.toISOString?.(),
+        };
+        this.localUsers.set(uid, user);
+        return user;
       }
+      return undefined;
     }
 
     return this.localUsers.get(uid);
@@ -51,65 +58,43 @@ export class UserRepository implements IUserRepository {
     photoURL?: string
   ): Promise<UserProfileDocument> {
     const now = new Date().toISOString();
-    let existing = this.localUsers.get(uid);
 
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        const docRef = db.collection('users').doc(uid);
-        const snap = await docRef.get();
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      const upserted = await prisma.user.upsert({
+        where: { id: uid },
+        create: {
+          id: uid,
+          email: email.trim().toLowerCase(),
+          displayName: displayName || 'LeadGuard Member',
+          photoUrl: photoURL || null,
+          role: 'USER',
+          lastLoginAt: new Date(),
+        },
+        update: {
+          email: email.trim().toLowerCase(),
+          displayName: displayName || undefined,
+          photoUrl: photoURL || undefined,
+          lastLoginAt: new Date(),
+        },
+      });
 
-        if (snap.exists) {
-          existing = snap.data() as UserProfileDocument;
-          const updates: Partial<UserProfileDocument> = {
-            email,
-            displayName: displayName || existing.displayName,
-            photoURL: photoURL || existing.photoURL,
-            lastLoginAt: now,
-            updatedAt: now,
-          };
-          await docRef.set(updates, { merge: true });
-          const merged = { ...existing, ...updates };
-          this.localUsers.set(uid, merged);
-          return merged;
-        } else {
-          // Default role for new users is USER - privileged roles require explicit admin assignment or claims
-          const role: 'USER' | 'AGENCY' | 'ADMIN' = 'USER';
-
-          const newProfile: UserProfileDocument = {
-            id: uid,
-            email,
-            displayName: displayName || 'LeadGuard Member',
-            photoURL,
-            role,
-            createdAt: now,
-            lastLoginAt: now,
-            updatedAt: now,
-          };
-
-          await docRef.set({
-            ...newProfile,
-            serverTimestamp: FieldValue.serverTimestamp(),
-          });
-
-          await auditRepository.logEvent({
-            action: 'AUTH_LOGIN',
-            userId: uid,
-            userEmail: email,
-            details: { role, isNewUser: true },
-            timestamp: now,
-          });
-
-          this.localUsers.set(uid, newProfile);
-          return newProfile;
-        }
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
+      const profile: UserProfileDocument = {
+        id: upserted.id,
+        email: upserted.email,
+        displayName: upserted.displayName || undefined,
+        photoURL: upserted.photoUrl || undefined,
+        role: upserted.role as 'USER' | 'AGENCY' | 'ADMIN',
+        organizationId: upserted.organizationId || undefined,
+        createdAt: upserted.createdAt.toISOString(),
+        lastLoginAt: upserted.lastLoginAt?.toISOString(),
+        updatedAt: upserted.updatedAt.toISOString(),
+      };
+      this.localUsers.set(uid, profile);
+      return profile;
     }
 
+    let existing = this.localUsers.get(uid);
     if (existing) {
       existing = {
         ...existing,
@@ -151,26 +136,29 @@ export class UserRepository implements IUserRepository {
       throw new Error('USER_NOT_FOUND');
     }
 
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      const updated = await prisma.user.update({
+        where: { id: uid },
+        data: { role },
+      });
+      const profile: UserProfileDocument = {
+        ...user,
+        role: updated.role as 'USER' | 'AGENCY' | 'ADMIN',
+        updatedAt: updated.updatedAt.toISOString(),
+      };
+      this.localUsers.set(uid, profile);
+      await auditRepository.logEvent({
+        action: 'ADMIN_ACTION',
+        userId: requestedByAdminUid,
+        details: { targetUserId: uid, updatedRole: role },
+        timestamp: new Date().toISOString(),
+      });
+      return profile;
+    }
+
     const updated = { ...user, role, updatedAt: new Date().toISOString() };
     this.localUsers.set(uid, updated);
-
-    if (isFirebaseConfigured()) {
-      try {
-        const auth = getAdminAuth();
-        await auth.setCustomUserClaims(uid, {
-          role,
-          admin: role === 'ADMIN',
-        });
-
-        const db = getAdminDb();
-        const docRef = db.collection('users').doc(uid);
-        await docRef.set({ role, updatedAt: new Date().toISOString() }, { merge: true });
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
-    }
 
     await auditRepository.logEvent({
       action: 'ADMIN_ACTION',
@@ -190,7 +178,40 @@ export class UserRepository implements IUserRepository {
     const token = bearerToken.startsWith('Bearer ') ? bearerToken.split(' ')[1] : bearerToken;
     if (!token) return null;
 
-    // Check in-memory fast validation ONLY in non-production test/development environments
+    // 1. Primary: PostgreSQL JWT Access Token
+    const jwtClaims = verifyAccessToken(token);
+    if (jwtClaims?.sub) {
+      let role: 'USER' | 'AGENCY' | 'ADMIN' = (jwtClaims.role as any) || 'USER';
+      // In PG mode, check authoritative user role
+      if (isPgEnabled()) {
+        const dbUser = await this.getUserById(jwtClaims.sub);
+        if (dbUser) role = dbUser.role;
+      }
+      return {
+        uid: jwtClaims.sub,
+        email: jwtClaims.email,
+        role,
+        isAnonymous: false,
+      };
+    }
+
+    // 2. Transitional: Firebase ID token (resolved against PostgreSQL)
+    const firebaseUser = await verifyFirebaseIdToken(token);
+    if (firebaseUser?.uid) {
+      let role: 'USER' | 'AGENCY' | 'ADMIN' = firebaseUser.role || 'USER';
+      if (isPgEnabled()) {
+        const dbUser = await this.getUserById(firebaseUser.uid);
+        if (dbUser) role = dbUser.role;
+      }
+      return {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        role,
+        isAnonymous: false,
+      };
+    }
+
+    // 3. Dev/test in-memory token check
     const isProduction = process.env.NODE_ENV === 'production';
     if (!isProduction && this.localUsers.has(token)) {
       const local = this.localUsers.get(token)!;
@@ -202,32 +223,11 @@ export class UserRepository implements IUserRepository {
       };
     }
 
-    if (isFirebaseConfigured()) {
-      try {
-        const auth = getAdminAuth();
-        const decoded = await auth.verifyIdToken(token);
-        const profile = await this.getUserById(decoded.uid);
-
-        // Strict role resolution via custom claim or verified profile - NO email substring guessing
-        const claimRole = (decoded.admin === true || decoded.role === 'ADMIN')
-          ? 'ADMIN'
-          : (decoded.role === 'AGENCY' ? 'AGENCY' : undefined);
-        const role = claimRole || profile?.role || 'USER';
-
-        return {
-          uid: decoded.uid,
-          email: decoded.email,
-          role,
-          isAnonymous: decoded.firebase?.sign_in_provider === 'anonymous',
-        };
-      } catch (err) {
-        // Token invalid or expired
-        return null;
-      }
-    }
-
-    // In production, if Firebase Admin is not configured or token fails, fail closed
     return null;
+  }
+
+  public clear(): void {
+    this.localUsers.clear();
   }
 }
 

@@ -6,10 +6,10 @@ import { jobQueue } from '../jobQueue';
 import { executeLiveWebsiteScan } from '../../scannerEngine';
 import { generateRemediation, validateAiOutput } from '../../services/ai.service';
 import { isPgEnabled } from '../../db/storageMode';
-import { isFirebaseConfigured, getAdminDb, FieldValue } from '../../firebaseAdmin';
 import { scanRepository } from '../../repositories/scanRepository';
 import { watchdogRepository } from '../../repositories/watchdogRepository';
 import { pdfReportRepository } from '../../repositories/pdfReportRepository';
+import { webhookRepository } from '../../repositories/webhookRepository';
 import { safeFetch } from '../../security/safeFetch';
 import { storage } from '../../storage';
 import { computeNextCheckAt, WATCHDOG_FREQUENCY_MS } from '../../watchdogScheduler';
@@ -291,16 +291,6 @@ async function checkDeliveryIdempotency(deliveryKey: string): Promise<boolean> {
     return row?.status === 'SENT';
   }
 
-  try {
-    if (isFirebaseConfigured()) {
-      const snap = await getAdminDb().collection('notificationDeliveries').doc(deliveryKey).get();
-      if (snap.exists && snap.data()?.status === 'SENT') {
-        return true; // Already successfully delivered
-      }
-    }
-  } catch {
-    // If we can't check, proceed with delivery (idempotency is best-effort for availability)
-  }
   return false;
 }
 
@@ -310,36 +300,34 @@ async function persistNotificationRecord(record: NotificationRecord): Promise<vo
     localDeliveryKeys.set(record.deliveryKey, { status: 'SENT', sentAt: record.sentAt });
   }
 
-  if (!isFirebaseConfigured()) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('NOTIFICATION_STORE_UNAVAILABLE: Firestore required in production');
-    }
-    return; // Dev mode: skip persistence
-  }
-
-  const db = getAdminDb();
-  const batch = db.batch();
-
-  // Persist notification record
-  batch.set(db.collection('notifications').doc(record.notificationId), {
-    ...record,
-    serverTimestamp: FieldValue.serverTimestamp(),
-  });
-
-  // Persist delivery key for idempotency
-  if (record.status === 'SENT') {
-    batch.set(db.collection('notificationDeliveries').doc(record.deliveryKey), {
-      deliveryKey: record.deliveryKey,
-      notificationId: record.notificationId,
-      status: 'SENT',
-      sentAt: record.sentAt,
-      provider: record.provider,
-      recipient: record.recipient,
-      serverTimestamp: FieldValue.serverTimestamp(),
+  if (isPgEnabled()) {
+    const { prisma } = await import('../../db/prisma');
+    await prisma.notificationDelivery.upsert({
+      where: { deliveryKey: record.deliveryKey },
+      create: {
+        deliveryKey: record.deliveryKey,
+        notificationId: record.notificationId,
+        provider: record.provider,
+        recipient: record.recipient,
+        event: 'notification',
+        status: record.status,
+        providerMessageId: record.providerMessageId || null,
+        error: record.error || null,
+        sentAt: record.sentAt ? new Date(record.sentAt) : null,
+      },
+      update: {
+        status: record.status,
+        providerMessageId: record.providerMessageId || undefined,
+        error: record.error || undefined,
+        sentAt: record.sentAt ? new Date(record.sentAt) : undefined,
+      },
     });
+    return;
   }
 
-  await batch.commit();
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('NOTIFICATION_STORE_UNAVAILABLE: PostgreSQL required in production');
+  }
 }
 
 // ─── sendNotification executor ─────────────────────────────────────────────────
@@ -696,17 +684,34 @@ export async function executeAiAnalysis(job: QueueJobPayload): Promise<AiAnalysi
  * network access to a real LLM provider.
  */
 export async function persistAiResult(scanId: string, aiRemediation: Record<string, any>): Promise<void> {
-  if (isFirebaseConfigured()) {
+  if (isPgEnabled()) {
     try {
-      await getAdminDb().collection('scans').doc(scanId).set({
-        aiRemediation,
-        serverTimestamp: FieldValue.serverTimestamp(),
-      }, { merge: true });
+      const { prisma } = await import('../../db/prisma');
+      await prisma.aiReport.upsert({
+        where: { scanId },
+        create: {
+          scanId,
+          model: aiRemediation.model || 'gemini-1.5-flash',
+          promptVersion: aiRemediation.promptVersion || AI_PROMPT_VERSION,
+          inputHash: aiRemediation.inputHash || 'hash',
+          resultHash: aiRemediation.resultHash || 'hash',
+          confidence: typeof aiRemediation.confidence === 'number' ? aiRemediation.confidence : 0.8,
+          content: aiRemediation.content || '',
+        },
+        update: {
+          model: aiRemediation.model || undefined,
+          content: aiRemediation.content || undefined,
+          confidence: typeof aiRemediation.confidence === 'number' ? aiRemediation.confidence : undefined,
+        },
+      });
+      return;
     } catch (persistErr: any) {
       throw new Error(`AI_PERSISTENCE_FAILED: ${persistErr?.message || persistErr}`);
     }
-  } else if (process.env.NODE_ENV === 'production') {
-    throw new Error('AI_PERSISTENCE_FAILED: Firestore required in production for AI result storage');
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('AI_PERSISTENCE_FAILED: PostgreSQL required in production for AI result storage');
   }
 }
 
@@ -829,10 +834,8 @@ export async function dispatchIncidentNotifications(target: any, scanResult: any
   };
 
   // 1. Signed user webhooks (existing feature — preserved)
-  const webhooks = storage.getWebhooks().filter(
-    (w: any) => w.active && (!target.userId || !w.userId || w.userId === target.userId)
-  );
-  for (const hook of webhooks) {
+  const webhooks = await webhookRepository.getWebhooks(target.userId, true);
+  for (const hook of webhooks.filter(w => w.active)) {
     try {
       const bodyStr = JSON.stringify(payload);
       const signature = crypto.createHmac('sha256', hook.secret).update(bodyStr).digest('hex');
@@ -846,13 +849,10 @@ export async function dispatchIncidentNotifications(target: any, scanResult: any
         body: bodyStr,
         timeoutMs: 8000,
       });
-      hook.lastTriggeredAt = new Date().toISOString();
-      hook.failureCount = 0;
     } catch {
-      hook.failureCount = (hook.failureCount || 0) + 1;
+      // Best-effort webhook dispatch
     }
   }
-  storage.saveToDisk();
 
   // 2. Channel notification via durable sendNotification job
   if (target.channel && target.contact && ['EMAIL', 'TELEGRAM', 'WHATSAPP'].includes(target.channel)) {

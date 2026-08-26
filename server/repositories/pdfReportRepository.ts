@@ -1,8 +1,8 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
 import { isPgEnabled } from '../db/storageMode';
+import { isFirebaseConfigured } from '../firebaseAdmin';
 
 export interface PdfReportMetadata {
   pdfId: string;
@@ -20,12 +20,12 @@ export interface PdfReportMetadata {
 /**
  * Durable PDF report metadata repository.
  *
- * Firestore holds ONLY small metadata documents. Actual PDF bytes live in
- * Firebase Storage (production) or the local data directory (development).
- * Never store large base64 blobs in Firestore.
+ * PostgreSQL `PdfReport` table holds authoritative metadata.
+ * Actual PDF bytes live in Firebase Storage / S3 / GCS (production) or
+ * the local data directory (development).
  */
 class PdfReportRepository {
-  /** @classification CACHE-ONLY in dev; Firestore is authority in production */
+  /** @classification CACHE-ONLY in dev; PostgreSQL is authority in production */
   private local = new Map<string, PdfReportMetadata>();
 
   async save(metadata: PdfReportMetadata): Promise<void> {
@@ -53,21 +53,11 @@ class PdfReportRepository {
       return;
     }
 
-    this.local.set(metadata.pdfId, metadata);
-
-    if (isFirebaseConfigured()) {
-      const db = getAdminDb();
-      // Fail-closed: metadata write failure must fail the generating job.
-      await db.collection('pdfReports').doc(metadata.pdfId).set({
-        ...metadata,
-        serverTimestamp: FieldValue.serverTimestamp(),
-      });
-      return;
-    }
-
     if (process.env.NODE_ENV === 'production') {
-      throw new Error('PDF_METADATA_STORE_UNAVAILABLE: Firestore required in production');
+      throw new Error('PDF_METADATA_STORE_UNAVAILABLE: PostgreSQL required in production');
     }
+
+    this.local.set(metadata.pdfId, metadata);
   }
 
   async getById(pdfId: string): Promise<PdfReportMetadata | undefined> {
@@ -85,18 +75,7 @@ class PdfReportRepository {
         generatedAt: row.generatedAt.toISOString(),
       };
     }
-    if (isFirebaseConfigured()) {
-      try {
-        const snap = await getAdminDb().collection('pdfReports').doc(pdfId).get();
-        if (snap.exists) {
-          const meta = snap.data() as PdfReportMetadata;
-          this.local.set(pdfId, meta);
-          return meta;
-        }
-      } catch {
-        // Fall through to local cache
-      }
-    }
+
     return this.local.get(pdfId);
   }
 
@@ -136,6 +115,10 @@ class PdfReportRepository {
   verifyIntegrity(bytes: Buffer, metadata: PdfReportMetadata): boolean {
     const digest = crypto.createHash('sha256').update(bytes).digest('hex');
     return digest === metadata.sha256;
+  }
+
+  public clear(): void {
+    this.local.clear();
   }
 }
 

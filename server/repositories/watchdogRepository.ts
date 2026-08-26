@@ -1,4 +1,3 @@
-import { getAdminDb, FieldValue, isFirebaseConfigured, markFirestorePermissionDenied } from '../firebaseAdmin';
 import { isPgEnabled } from '../db/storageMode';
 import { WatchdogTarget, WatchdogCheckLog } from '../storage';
 import { auditRepository } from './auditRepository';
@@ -130,21 +129,11 @@ export class WatchdogRepository implements IWatchdogRepository {
       return docData;
     }
 
-    this.localTargets.set(id, docData);
-
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        await db.collection('watchdogTargets').doc(id).set({
-          ...docData,
-          serverTimestamp: FieldValue.serverTimestamp(),
-        });
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`DATABASE_UNAVAILABLE: PostgreSQL is required in production for watchdog target ${id}`);
     }
+
+    this.localTargets.set(id, docData);
 
     await auditRepository.logEvent({
       action: 'WATCHDOG_CREATED',
@@ -168,23 +157,6 @@ export class WatchdogRepository implements IWatchdogRepository {
       this.localTargets.set(id, target);
       return target;
     }
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        const docSnap = await db.collection('watchdogTargets').doc(id).get();
-        if (docSnap.exists) {
-          const target = docSnap.data() as WatchdogTargetDocument;
-          if (!isAdmin && target.userId && userId && target.userId !== userId) {
-            throw new Error('Unauthorized: You do not own this watchdog monitor');
-          }
-          this.localTargets.set(id, target);
-          return target;
-        }
-      } catch (err: any) {
-        if (err?.message?.includes('Unauthorized')) throw err;
-        markFirestorePermissionDenied();
-      }
-    }
 
     const local = this.localTargets.get(id);
     if (local && !isAdmin && local.userId && userId && local.userId !== userId) {
@@ -194,25 +166,21 @@ export class WatchdogRepository implements IWatchdogRepository {
   }
 
   async getTargets(userId?: string, organizationId?: string, isAdmin = false): Promise<WatchdogTargetDocument[]> {
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        let q = db.collection('watchdogTargets').orderBy('createdAt', 'desc');
-
-        if (!isAdmin && userId) {
-          q = q.where('userId', '==', userId);
-        } else if (!isAdmin && organizationId) {
-          q = q.where('organizationId', '==', organizationId);
-        }
-
-        const snapshot = await q.get();
-        const targets = snapshot.docs.map((doc) => doc.data() as WatchdogTargetDocument);
-
-        targets.forEach((t) => this.localTargets.set(t.id, t));
-        return targets;
-      } catch (err: any) {
-        markFirestorePermissionDenied();
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      const whereClause: any = {};
+      if (!isAdmin && userId) {
+        whereClause.userId = userId;
+      } else if (!isAdmin && organizationId) {
+        whereClause.organizationId = organizationId;
       }
+      const rows = await prisma.watchdog.findMany({
+        where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
+        orderBy: { createdAt: 'desc' },
+      });
+      const targets = rows.map(r => this.mapPgRow(r));
+      targets.forEach(t => this.localTargets.set(t.id, t));
+      return targets;
     }
 
     const list = Array.from(this.localTargets.values());
@@ -265,21 +233,11 @@ export class WatchdogRepository implements IWatchdogRepository {
       return updatedData;
     }
 
-    this.localTargets.set(id, updatedData);
-
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        await db.collection('watchdogTargets').doc(id).set({
-          ...updatedData,
-          serverTimestamp: FieldValue.serverTimestamp(),
-        }, { merge: true });
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`DATABASE_UNAVAILABLE: PostgreSQL is required in production to update watchdog ${id}`);
     }
+
+    this.localTargets.set(id, updatedData);
 
     await auditRepository.logEvent({
       action: 'WATCHDOG_UPDATED',
@@ -313,18 +271,11 @@ export class WatchdogRepository implements IWatchdogRepository {
       return true;
     }
 
-    this.localTargets.delete(id);
-
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        await db.collection('watchdogTargets').doc(id).delete();
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`DATABASE_UNAVAILABLE: PostgreSQL is required in production to delete watchdog ${id}`);
     }
+
+    this.localTargets.delete(id);
 
     await auditRepository.logEvent({
       action: 'WATCHDOG_DELETED',
@@ -378,40 +329,30 @@ export class WatchdogRepository implements IWatchdogRepository {
     this.localLogs.unshift(docData);
     if (this.localLogs.length > 500) this.localLogs.pop();
 
-    if (!isPgEnabled() && isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        await db.collection('watchdogChecks').doc(id).set({
-          ...docData,
-          serverTimestamp: FieldValue.serverTimestamp(),
-        });
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
-    }
-
     return docData;
   }
 
   async getCheckLogs(targetId?: string, limit = 25): Promise<WatchdogCheckDocument[]> {
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        let q = db.collection('watchdogChecks').orderBy('timestamp', 'desc').limit(limit);
-        if (targetId) {
-          q = db.collection('watchdogChecks').where('targetId', '==', targetId).orderBy('timestamp', 'desc').limit(limit);
-        }
-        const snap = await q.get();
-        if (!snap.empty) {
-          return snap.docs.map(d => d.data() as WatchdogCheckDocument);
-        }
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      const rows = await prisma.watchdogCheckLog.findMany({
+        where: targetId ? { watchdogId: targetId } : undefined,
+        orderBy: { timestamp: 'desc' },
+        take: limit,
+      });
+      return rows.map(r => ({
+        id: r.id,
+        targetId: r.watchdogId,
+        domain: '',
+        scanId: r.scanId || undefined,
+        check: r.check,
+        status: r.status,
+        score: r.score,
+        durationMs: r.durationMs || undefined,
+        details: r.details || undefined,
+        mode: r.mode as 'LIVE' | 'DEMO',
+        timestamp: r.timestamp.toISOString(),
+      }));
     }
 
     const filtered = targetId ? this.localLogs.filter(l => l.targetId === targetId) : this.localLogs;
@@ -428,11 +369,11 @@ export class WatchdogRepository implements IWatchdogRepository {
 
     if (isPgEnabled()) {
       const { prisma } = await import('../db/prisma');
+      const leaseInterval = `${leaseDurationMs} milliseconds`;
       const result = await prisma.$queryRaw<any[]>`
         UPDATE "Watchdog"
         SET "leaseOwner" = ${workerId},
-            "leaseExpiresAt" = NOW() + (${leaseDurationMs} || ' milliseconds')::interval,
-            "lastRunId" = ${`run_${now}_${Math.random().toString(36).substring(2, 6)}`}
+            "leaseExpiresAt" = (NOW() AT TIME ZONE 'utc') + ${leaseInterval}::interval
         WHERE "id" = ${targetId}
           AND (
             "leaseOwner" IS NULL
@@ -444,49 +385,8 @@ export class WatchdogRepository implements IWatchdogRepository {
       return result.length > 0;
     }
 
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        const docRef = db.collection('watchdogTargets').doc(targetId);
-
-        const acquired = await db.runTransaction(async (transaction) => {
-          const snap = await transaction.get(docRef);
-          if (!snap.exists) return false;
-
-          const data = snap.data() as WatchdogTargetDocument;
-          const currentLeaseExp = data.leaseExpiresAt ? new Date(data.leaseExpiresAt).getTime() : 0;
-
-          // If currently leased by another active worker and not expired, skip
-          if (data.leaseOwner && data.leaseOwner !== workerId && currentLeaseExp > now) {
-            return false;
-          }
-
-          transaction.update(docRef, {
-            leaseOwner: workerId,
-            leaseExpiresAt: expiresAt,
-            lastRunId: `run_${now}_${Math.random().toString(36).substring(2, 6)}`,
-          });
-
-          return true;
-        });
-
-        if (acquired) {
-          const local = this.localTargets.get(targetId);
-          if (local) {
-            this.localTargets.set(targetId, {
-              ...local,
-              leaseOwner: workerId,
-              leaseExpiresAt: expiresAt,
-            });
-          }
-        }
-
-        return acquired;
-      } catch (err: any) {
-        if (err?.code === 7 || String(err).includes('PERMISSION_DENIED')) {
-          markFirestorePermissionDenied();
-        }
-      }
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`DATABASE_UNAVAILABLE: PostgreSQL is required in production to acquire watchdog lease`);
     }
 
     // Local in-memory lease checking for development / offline
@@ -512,24 +412,15 @@ export class WatchdogRepository implements IWatchdogRepository {
    * Ensures only the owning worker can release its active lease.
    */
   async releaseTargetLease(targetId: string, workerId: string): Promise<void> {
-    if (isFirebaseConfigured()) {
-      try {
-        const db = getAdminDb();
-        const docRef = db.collection('watchdogTargets').doc(targetId);
-        await db.runTransaction(async (transaction) => {
-          const snap = await transaction.get(docRef);
-          if (!snap.exists) return;
-          const data = snap.data() as WatchdogTargetDocument;
-          if (data.leaseOwner === workerId) {
-            transaction.update(docRef, {
-              leaseOwner: FieldValue.delete(),
-              leaseExpiresAt: FieldValue.delete(),
-            });
-          }
-        });
-      } catch {
-        // Non-critical cleanup fallback
-      }
+    if (isPgEnabled()) {
+      const { prisma } = await import('../db/prisma');
+      await prisma.$queryRaw<any[]>`
+        UPDATE "Watchdog"
+        SET "leaseOwner" = NULL,
+            "leaseExpiresAt" = NULL
+        WHERE "id" = ${targetId} AND "leaseOwner" = ${workerId};
+      `;
+      return;
     }
 
     const local = this.localTargets.get(targetId);
@@ -537,6 +428,11 @@ export class WatchdogRepository implements IWatchdogRepository {
       delete local.leaseOwner;
       delete local.leaseExpiresAt;
     }
+  }
+
+  public clear(): void {
+    this.localTargets.clear();
+    this.localLogs = [];
   }
 }
 

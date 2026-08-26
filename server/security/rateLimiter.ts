@@ -1,20 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
-import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
 import { isPgEnabled } from '../db/storageMode';
 
 /**
  * Production-grade rate limiter.
  *
  * Architecture:
- * - Development: In-memory Map (single-instance, no external deps)
- * - Production: Firestore-backed short-window counters (shared across instances)
+ * - Development/Test: In-memory Map (single-instance, no external deps)
+ * - Production: PostgreSQL-backed short-window counters (RateLimitWindow table, shared across instances)
  *
- * For high-scale production, consider:
- * - Google Cloud Armor rate limiting (infrastructure-level)
- * - Redis-backed sliding window (if Redis is available)
- * - API Gateway rate limiting
- *
- * @classification PRODUCTION — Firestore-backed in production, in-memory for dev
+ * Fail-closed in production if PostgreSQL is unreachable (returns 503).
  */
 
 interface RateBucket {
@@ -57,7 +51,7 @@ if (typeof memoryBucketCleanup.unref === 'function') memoryBucketCleanup.unref()
 
 // ─── PostgreSQL Rate Limiter (Production) ──────────────────────────────────────
 
-async function checkPgRateLimit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; remaining: number }> {
+export async function checkPgRateLimit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; remaining: number }> {
   const { prisma } = await import('../db/prisma');
   const windowId = `${key}:${Math.floor(Date.now() / windowMs)}`;
   const now = new Date();
@@ -90,42 +84,6 @@ async function checkPgRateLimit(key: string, limit: number, windowMs: number): P
   }
 }
 
-// ─── Firestore Rate Limiter (legacy pre-migration) ─────────────────────────────
-
-async function checkFirestoreRateLimit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; remaining: number }> {
-  const db = getAdminDb();
-
-  const windowId = `${key}:${Math.floor(Date.now() / windowMs)}`;
-  const ref = db.collection('rateLimits').doc(windowId);
-
-  const result = await db.runTransaction(async (transaction: any) => {
-    const snap = await transaction.get(ref);
-    const data = snap.data();
-    const currentCount = data?.count || 0;
-
-    if (currentCount >= limit) {
-      return { allowed: false, remaining: 0 };
-    }
-
-    if (snap.exists) {
-      transaction.update(ref, { count: FieldValue.increment(1), lastRequestAt: new Date().toISOString() });
-    } else {
-      transaction.create(ref, {
-        key,
-        count: 1,
-        windowStart: new Date().toISOString(),
-        lastRequestAt: new Date().toISOString(),
-        // TTL for automatic Firestore cleanup (requires TTL policy on collection)
-        expiresAt: new Date(Date.now() + windowMs + 60_000).toISOString(),
-      });
-    }
-
-    return { allowed: true, remaining: limit - currentCount - 1 };
-  });
-
-  return result;
-}
-
 // ─── Unified Rate Limit Check ──────────────────────────────────────────────────
 
 /**
@@ -143,7 +101,7 @@ export function rateLimitFailureMode(): 'fail-closed' | 'fail-open' {
   return process.env.NODE_ENV === 'production' ? 'fail-closed' : 'fail-open';
 }
 
-async function checkRateLimit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; remaining: number; resetAt?: number }> {
+export async function checkRateLimit(key: string, limit: number, windowMs: number): Promise<{ allowed: boolean; remaining: number; resetAt?: number }> {
   const isProduction = process.env.NODE_ENV === 'production';
 
   // PostgreSQL shared counters — production authority (multi-instance safe)
@@ -220,7 +178,7 @@ export function productionRateLimiter(config: RateLimitConfig) {
 
       if (!result.allowed) {
         return res.status(429).json({
-          error: 'Rate limit exceeded. Please wait before retrying.',
+          error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Rate limit exceeded. Please wait before retrying.' },
           retryAfterMs: windowMs,
         });
       }
@@ -232,7 +190,7 @@ export function productionRateLimiter(config: RateLimitConfig) {
       const isSharedStoreError = String((err as Error)?.message || '').includes('RATE_LIMIT_SHARED_STORE_UNAVAILABLE');
       if (isSharedStoreError && process.env.NODE_ENV === 'production') {
         return res.status(503).json({
-          error: 'Rate limiting service temporarily unavailable. Request rejected for protection.',
+          error: { code: 'RATE_LIMITER_UNAVAILABLE', message: 'Rate limiting service temporarily unavailable. Request rejected for protection.' },
           retryAfterMs: windowMs,
         });
       }
@@ -240,6 +198,13 @@ export function productionRateLimiter(config: RateLimitConfig) {
       next();
     }
   };
+}
+
+/**
+ * Universal rate limiter middleware for endpoints.
+ */
+export function rateLimiter(limit = 60, windowMs = 60_000) {
+  return productionRateLimiter({ limit, windowMs });
 }
 
 /**
@@ -254,7 +219,7 @@ export function legacyRateLimiter(limitPerMin = 60) {
 
     if (!result.allowed) {
       return res.status(429).json({
-        error: 'Rate limit exceeded. Please wait a moment before sending more diagnostic requests.',
+        error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Rate limit exceeded. Please wait a moment before sending more diagnostic requests.' },
       });
     }
 

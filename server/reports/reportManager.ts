@@ -1,7 +1,6 @@
 import crypto from 'crypto';
 import { AuditResult } from '../../src/types';
 import { toPublicAuditReport } from './publicReport';
-import { getAdminDb, FieldValue, isFirebaseConfigured } from '../firebaseAdmin';
 import { isPgEnabled } from '../db/storageMode';
 
 export interface ShareableSnapshot {
@@ -17,14 +16,14 @@ export interface ShareableSnapshot {
 /**
  * Durable shareable-report registry.
  *
- * Production authority: Firestore `reportShares` collection — share links
+ * Production authority: PostgreSQL `ReportShare` table — share links
  * survive process restarts and resolve identically across horizontally
  * scaled API instances. The in-memory Map is a read-through CACHE ONLY
- * (@classification CACHE-ONLY) and is never the source of truth.
+ * (@classification CACHE-ONLY) and is never the authoritative store.
  */
 export class ReportManager {
   private static instance: ReportManager | null = null;
-  /** @classification CACHE-ONLY — Firestore is the authority in production */
+  /** @classification CACHE-ONLY — PostgreSQL `ReportShare` table is authority */
   private snapshotsMap = new Map<string, ShareableSnapshot>();
 
   public static getInstance(): ReportManager {
@@ -34,23 +33,12 @@ export class ReportManager {
     return ReportManager.instance;
   }
 
-  private requireDb() {
-    if (!isFirebaseConfigured()) {
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error('REPORT_SHARE_STORE_UNAVAILABLE: Firestore required in production for durable share links');
-      }
-      return null;
-    }
-    return getAdminDb();
-  }
-
   /**
    * Durable create: AWAITS persistence so the link is guaranteed readable by
    * any instance immediately after this call resolves.
    *
    * Token entropy: 32 bytes (256 bits) from crypto.randomBytes, encoded as
-   * 64-char hex string. Collision probability is negligible (~2^-128 for
-   * 2^64 tokens per birthday bound).
+   * 64-char hex string.
    */
   public async createShareableSnapshotAsync(auditResult: AuditResult, password?: string, ttlDays = 30): Promise<ShareableSnapshot> {
     // Generate high-entropy 64-char random token
@@ -91,25 +79,8 @@ export class ReportManager {
       return snapshot;
     }
 
-    const db = this.requireDb();
-    if (db) {
-      try {
-        await db.collection('reportShares').doc(token).set({
-          token,
-          scanId: snapshot.scanId,
-          snapshot: snapshot.snapshot,
-          passwordHash: snapshot.passwordHash ?? null,
-          createdAt: snapshot.createdAt,
-          expiresAt: snapshot.expiresAt,
-          revoked: false,
-          serverTimestamp: FieldValue.serverTimestamp(),
-        });
-      } catch (err: any) {
-        console.error('[ReportManager] FAILED to persist share token:', err?.message || err);
-        throw new Error(`REPORT_SHARE_PERSIST_FAILED: ${err?.message || err}`);
-      }
-    } else if (process.env.NODE_ENV === 'production') {
-      throw new Error('REPORT_SHARE_STORE_UNAVAILABLE: Firestore required in production for durable share links');
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('REPORT_SHARE_STORE_UNAVAILABLE: PostgreSQL required in production for durable share links');
     }
 
     this.snapshotsMap.set(token, snapshot);
@@ -138,7 +109,7 @@ export class ReportManager {
   public async getSnapshotAsync(token: string, password?: string): Promise<{ snapshot?: AuditResult; error?: string }> {
     let record = this.snapshotsMap.get(token);
 
-    // Read-through to durable store when not cached
+    // Read-through to PostgreSQL when not cached
     if (!record) {
       if (isPgEnabled()) {
         try {
@@ -157,20 +128,6 @@ export class ReportManager {
           }
         } catch {
           // fall through to invalid-link response below
-        }
-      }
-    }
-    if (!record) {
-      const db = this.requireDb();
-      if (db) {
-        try {
-          const snap = await db.collection('reportShares').doc(token).get();
-          if (snap.exists) {
-            record = snap.data() as ShareableSnapshot;
-            this.snapshotsMap.set(token, record);
-          }
-        } catch {
-          // Fall through to invalid-link response below
         }
       }
     }
@@ -215,31 +172,15 @@ export class ReportManager {
       return result.count > 0;
     }
 
-    const db = this.requireDb();
-
-    if (db) {
-      try {
-        const ref = db.collection('reportShares').doc(token);
-        const result = await db.runTransaction(async (transaction: any) => {
-          const snap = await transaction.get(ref);
-          if (!snap.exists) return false;
-          transaction.update(ref, { revoked: true, revokedAt: new Date().toISOString() });
-          return true;
-        });
-        if (!result && !record) return false;
-      } catch (err: any) {
-        if (process.env.NODE_ENV === 'production') throw err;
-        console.error('[ReportManager] Revoke persistence failed:', err?.message || err);
-      }
-    } else if (!record) {
-      return false;
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('REPORT_SHARE_STORE_UNAVAILABLE: PostgreSQL required in production to revoke share link');
     }
 
     if (record) {
       record.revoked = true;
       return true;
     }
-    return true;
+    return false;
   }
 
   /** Backward-compatible synchronous revoke (cache-first). */
@@ -253,6 +194,11 @@ export class ReportManager {
     // Unknown locally — attempt durable revoke for cross-instance correctness
     void this.revokeTokenAsync(token).catch(() => undefined);
     return !!this.snapshotsMap.get(token);
+  }
+
+  /** Test helper: clears in-memory cache to verify DB resolution across restarts */
+  public clear(): void {
+    this.snapshotsMap.clear();
   }
 }
 
