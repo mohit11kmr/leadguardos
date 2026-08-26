@@ -140,73 +140,21 @@ export function verifyStripeWebhookSignature(
   }
 }
 
-export interface StripeSignatureResult {
-  valid: boolean;
-  reason?: string;
-  eventAgeSeconds?: number;
-}
-
-const STRIPE_DEFAULT_TOLERANCE_SECONDS = 300;
-
-import crypto from 'crypto';
-
-export interface CashfreeSignatureResult {
-  valid: boolean;
-  reason?: string;
-  eventAgeSeconds?: number;
-}
-
-const CASHFREE_DEFAULT_TOLERANCE_SECONDS = 300;
+// ─── Cashfree Webhook Signature Verification ───────────────────────────────────
 
 export function verifyCashfreeWebhookSignature(
   rawBody: string | Buffer,
   signature: string,
   clientSecret: string,
-  toleranceSeconds = 300,
-): CashfreeSignatureResult {
-  if (!rawBody || !signature || !clientSecret) {
-    return { valid: false, reason: 'MISSING_INPUTS' };
-  }
-  const bodyStr = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
-  const expected = crypto.createHmac('sha256', clientSecret).update(bodyStr).digest('base64');
-  const provided = signature.trim();
-  if (provided.length !== expected.length) {
-    return { valid: false, reason: 'SIGNATURE_LENGTH_MISMATCH' };
-  }
-  if (!crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected))) {
-    return { valid: false, reason: 'SIGNATURE_MISMATCH' };
-  }
-
-  let payload = null;
+): boolean {
   try {
-    payload = JSON.parse(bodyStr);
+    if (!rawBody || !signature || !clientSecret) return false;
+    const bodyStr = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
+    const expected = crypto.createHmac('sha256', clientSecret).update(bodyStr).digest('base64');
+    const provided = signature.trim();
+    if (provided.length !== expected.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
   } catch {
-    payload = null;
-  }
-
-  if (payload) {
-    const timestamp = payload?.timestamp || payload?.event_time || payload?.created_at;
-    if (timestamp) {
-      const eventTime = typeof timestamp === 'number' ? timestamp : parseInt(timestamp, 10);
-      if (Number.isFinite(eventTime)) {
-        const age = Math.floor(Date.now() / 1000) - eventTime;
-        if (Math.abs(age) > toleranceSeconds) {
-          return { valid: false, reason: 'TIMESTAMP_OUT_OF_TOLERANCE', eventAgeSeconds: age };
-        }
-        return { valid: true, eventAgeSeconds: age };
-      }
-    }
-
-    return { valid: true };
-  } catch {
-    return { valid: false, reason: 'VERIFICATION_ERROR' };
+    return false;
   }
 }
-
-export interface CashfreeSignatureResult {
-  valid: boolean;
-  reason?: string;
-  eventAgeSeconds?: number;
-}
-
-const CASHFREE_DEFAULT_TOLERANCE_SECONDS = 300;

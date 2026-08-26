@@ -38,7 +38,7 @@ export function validateEnvironment(): EnvValidationResult {
     if (isProd) {
       errors.push('RAZORPAY_KEY_SECRET is required in production environment');
     } else {
-      warnings.push('RAZORPAY_KEY_SECRET not set, using development fallback key');
+      warnings.push('RAZORPAY_KEY_SECRET not set; payment verification will be disabled (HTTP 503)');
     }
   }
 

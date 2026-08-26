@@ -21,7 +21,7 @@ export function validateEnv(): AppEnv {
 
   const jwtSecret = process.env.JWT_SECRET || (isProd ? '' : 'leadguard_dev_jwt_secret_key_32_chars');
   const adminKey = process.env.ADMIN_API_KEY || (isProd ? '' : 'leadguard_dev_admin_api_key');
-  const razorpaySecret = process.env.RAZORPAY_KEY_SECRET || (isProd ? '' : 'leadguard_dev_razorpay_secret');
+  const razorpaySecret = process.env.RAZORPAY_KEY_SECRET ?? '';
 
   if (isProd) {
     const missingSecrets: string[] = [];

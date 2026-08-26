@@ -629,7 +629,7 @@ async function runTestSuite() {
   assert(!invalidUrlRes.valid && invalidUrlRes.error?.includes('blocked'), 'SSRF Guard rejects loopback URL with explicit port');
 
   // Payment Signature Tampering
-  const forgedSig = verifyPaymentSignature('order_fake_123', 'pay_fake_456', 'bad_signature_string', 'leadguard_dev_razorpay_secret');
+  const forgedSig = verifyPaymentSignature('order_fake_123', 'pay_fake_456', 'bad_signature_string', 'unit_test_tamper_secret');
   assert(!forgedSig, 'Payment Engine rejects forged payment signature string');
 
   // -------------------------------------------------------------------------
@@ -1166,8 +1166,82 @@ async function runTestSuite() {
   process.env.NODE_ENV = prevEnv36;
 
   // -------------------------------------------------------------------------
-  // Final Results
+  // 37. P0-01 / P0-02 Razorpay Secret Handling & Fallback Removal Regression Tests
   // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 37: P0-01 / P0-02 Razorpay Secret & Verification Regression');
+  const { validateEnv } = await import('../server/config/env');
+  const orderRepo37 = (await import('../server/repositories/orderRepository')).orderRepository;
+
+  // 1. Confirm no application fallback secret exists in env configuration
+  delete process.env.RAZORPAY_KEY_SECRET;
+  const devEnv = validateEnv();
+  assert(
+    devEnv.RAZORPAY_KEY_SECRET === '',
+    'No application fallback secret exists in validateEnv() when RAZORPAY_KEY_SECRET is unset'
+  );
+
+  // 2. Missing Razorpay secret → order verification path fails closed
+  const testOrder37 = await orderRepo37.createPendingOrder(
+    { tierId: 'tier-express-fix', orderId: 'ord_p0_secret_missing' },
+    'usr_p0_test',
+    'p0test@x.com'
+  );
+  assert(testOrder37.status === 'PENDING', 'Order created PENDING for missing-secret verification test');
+
+  let missingSecretErr: any = null;
+  try {
+    await orderRepo37.verifyAndMarkPaid('ord_p0_secret_missing', {
+      paymentReference: 'pay_missing_secret',
+      provider: 'RAZORPAY',
+      providerOrderId: 'ord_p0_secret_missing',
+      providerPaymentId: 'pay_missing_secret',
+      signature: 'dummy_signature',
+      providerAmount: 2999,
+      providerCurrency: 'INR',
+    }, 'usr_p0_test');
+  } catch (err) {
+    missingSecretErr = err;
+  }
+  assert(
+    !!missingSecretErr && String(missingSecretErr.message).includes('INVALID_PAYMENT_PROOF'),
+    'Order verification fails closed when RAZORPAY_KEY_SECRET is not configured'
+  );
+
+  // Webhook fails closed when secret is empty / unconfigured
+  const testWebhookPayload = JSON.stringify({ event: 'payment.captured', id: 'evt_p0_test' });
+  assert(
+    verifyWebhookSignature(testWebhookPayload, 'some_sig', '') === false,
+    'Razorpay webhook signature verification returns false when secret is empty'
+  );
+
+  // 3. Invalid Razorpay signature is rejected
+  const explicitTestSecret = 'test_secret_explicit_unit_vector';
+  const invalidSig = 'invalid_sha256_signature_string';
+  assert(
+    verifyPaymentSignature('ord_p0_secret_missing', 'pay_test', invalidSig, explicitTestSecret) === false,
+    'Payment verification rejects invalid Razorpay signature'
+  );
+  assert(
+    verifyWebhookSignature(testWebhookPayload, invalidSig, explicitTestSecret) === false,
+    'Webhook verification rejects invalid Razorpay webhook signature'
+  );
+
+  // 4. Valid Razorpay signature is accepted
+  const validPaymentSig = generateRazorpaySignature('ord_p0_secret_missing', 'pay_test', explicitTestSecret);
+  assert(
+    verifyPaymentSignature('ord_p0_secret_missing', 'pay_test', validPaymentSig, explicitTestSecret) === true,
+    'Payment verification accepts valid Razorpay signature'
+  );
+
+  const validWebhookSigHex = crypto
+    .createHmac('sha256', explicitTestSecret)
+    .update(testWebhookPayload)
+    .digest('hex');
+  assert(
+    verifyWebhookSignature(testWebhookPayload, validWebhookSigHex, explicitTestSecret) === true,
+    'Webhook verification accepts valid Razorpay webhook signature'
+  );
+
   console.log('\n======================================================');
   console.log(`  TEST RESULTS: ${passed} PASSED | ${failed} FAILED`);
   console.log('======================================================\n');
