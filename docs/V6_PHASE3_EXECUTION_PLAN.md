@@ -8,6 +8,10 @@ This is an implementation order, not an implementation. Phase 3 must stop after 
 
 Checkpoint: `v6/02-contracts` (working-tree checkpoint; commit after all required gates pass).
 
+## Phase 3C Status
+
+**Web source migration checkpoint reached on 2026-08-27.** The V5 frontend is copied into `apps/web/src`, builds independently, uses the current compatibility API, and passes the boundary/contract gates. Root `src/` remains as a verified fallback until configured live scan, auth, reports, monitoring, agency, and billing flows are exercised. Backend, database, auth, payment, scanner, and worker migrations have not started.
+
 ## Preconditions and Checkpoints
 
 1. Freeze V5 behavior: tag the current baseline, record API fixtures, public report URLs, payment test fixtures, scanner golden results, and current environment contract.
