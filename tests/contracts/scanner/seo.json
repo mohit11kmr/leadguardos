@@ -1,0 +1,5 @@
+{
+  "source": "server/scannerEngine.ts:SAMPLE_PRESETS.drsharmadental.in",
+  "category": "seo",
+  "seoPenalty": { "hasNoIndex": true, "isHttps": true, "status": "CRITICAL_PENALTY" }
+}

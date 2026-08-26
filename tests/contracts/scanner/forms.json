@@ -1,0 +1,5 @@
+{
+  "source": "tests/run-tests.ts:leadHtml",
+  "category": "forms",
+  "expected": { "formCount": 2, "internalFirst": true, "externalSecond": true }
+}

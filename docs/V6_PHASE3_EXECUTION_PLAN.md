@@ -2,6 +2,12 @@
 
 This is an implementation order, not an implementation. Phase 3 must stop after any failed gate and preserve the last green checkpoint.
 
+## Phase 3A Status
+
+**Complete on 2026-08-27.** The additive contracts, schemas, fixtures, boundary checker, environment manifest, and compatibility suite are present. No Phase 3B application migration has started; V5 runtime behavior, routes, schema, authentication, payments, scanner, and CSS remain unchanged.
+
+Checkpoint: `v6/02-contracts` (working-tree checkpoint; commit after all required gates pass).
+
 ## Preconditions and Checkpoints
 
 1. Freeze V5 behavior: tag the current baseline, record API fixtures, public report URLs, payment test fixtures, scanner golden results, and current environment contract.

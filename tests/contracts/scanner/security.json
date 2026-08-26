@@ -1,0 +1,5 @@
+{
+  "source": "server/scannerEngine.ts:SAMPLE_PRESETS.drsharmadental.in",
+  "category": "security",
+  "cyberShield": { "score": 95, "riskLevel": "CLEAN" }
+}

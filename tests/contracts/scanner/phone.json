@@ -1,0 +1,10 @@
+{
+  "source": "server/scannerEngine.ts:SAMPLE_PRESETS.drsharmadental.in",
+  "category": "phone",
+  "phoneLinks": [{
+    "url": "tel:9876543210",
+    "status": "WORKING",
+    "isValid": true,
+    "number": "+91 98765 43210"
+  }]
+}

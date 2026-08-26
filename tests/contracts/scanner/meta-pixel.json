@@ -1,0 +1,5 @@
+{
+  "source": "server/scannerEngine.ts:SAMPLE_PRESETS.drsharmadental.in",
+  "category": "pixel",
+  "metaPixel": { "exists": false, "status": "MISSING" }
+}

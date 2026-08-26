@@ -1,0 +1,5 @@
+{
+  "source": "server/scannerEngine.ts:SAMPLE_PRESETS.drsharmadental.in",
+  "category": "ga4",
+  "googleTag": { "exists": true, "tagId": "G-DRSHARMA99", "status": "HEALTHY" }
+}

@@ -1,0 +1,13 @@
+{
+  "source": "server/services/paymentService.ts and server/repositories/orderRepository.ts",
+  "cases": [
+    { "name": "valid payment", "provider": "RAZORPAY", "signature": "computed", "expected": "accepted" },
+    { "name": "wrong amount", "provider": "RAZORPAY", "expected": "rejected" },
+    { "name": "wrong currency", "provider": "RAZORPAY", "expected": "rejected" },
+    { "name": "wrong order", "provider": "RAZORPAY", "expected": "rejected" },
+    { "name": "invalid signature", "provider": "RAZORPAY", "expected": "rejected" },
+    { "name": "replay", "provider": "RAZORPAY", "expected": "rejected-by-state" },
+    { "name": "duplicate event", "provider": "RAZORPAY", "expected": "deduplicated" },
+    { "name": "already fulfilled", "provider": "RAZORPAY", "expected": "idempotent" }
+  ]
+}

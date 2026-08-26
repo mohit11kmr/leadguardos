@@ -1,0 +1,7 @@
+{
+  "source": "server/scanner/runtime/browserScanner.ts:BrowserRuntimeResult",
+  "category": "runtime-mobile",
+  "viewport": { "width": 390, "height": 844 },
+  "networkPings": { "metaPixel": false, "ga4": false, "gtm": false },
+  "consoleErrors": []
+}

@@ -1,0 +1,9 @@
+{
+  "source": "server/reports/publicReport.ts and current API registry",
+  "routes": [
+    { "path": "/report/:id", "expectation": "legacy public compatibility route" },
+    { "path": "/report/share/:token", "expectation": "token/password share route" },
+    { "path": "/api/report/:token", "expectation": "sanitized token report API" }
+  ],
+  "privacy": ["private ownership", "admin access", "sanitized public projection", "token expiry/password semantics"]
+}
