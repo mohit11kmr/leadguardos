@@ -489,6 +489,303 @@
         "status": "PENDING",
         "updatedAt": "2026-08-26T14:40:13.359Z"
       }
+    },
+    {
+      "scanId": "scan_1787757370391_a45f86f6",
+      "publicToken": "pub_74de17d6ea2856ad",
+      "targetUrl": "https://urbanvogue.in",
+      "domain": "urbanvogue.in",
+      "businessName": "Urbanvogue",
+      "score": 73,
+      "estimatedMonthlyLoss": 36000,
+      "revenueImpactRange": {
+        "lowEstimateINR": 25200,
+        "highEstimateINR": 46800
+      },
+      "adSpendRisk": "HIGH",
+      "pillars": {
+        "lead": {
+          "score": 90,
+          "status": "HEALTHY",
+          "findingsCount": 1
+        },
+        "ad": {
+          "score": 45,
+          "status": "CRITICAL",
+          "findingsCount": 2
+        },
+        "seo": {
+          "score": 60,
+          "status": "WARNING",
+          "findingsCount": 2
+        },
+        "cyber": {
+          "score": 90,
+          "status": "HEALTHY",
+          "findingsCount": 1
+        }
+      },
+      "findings": [
+        {
+          "id": "wa_missing_widget",
+          "category": "whatsapp",
+          "title": "No WhatsApp Direct Chat Button Detected",
+          "severity": "MEDIUM",
+          "confidence": "HIGH",
+          "detectedBy": "STATIC",
+          "observed": "No href matching wa.me or api.whatsapp.com was detected in page HTML.",
+          "inferred": "High-intent mobile visitors are forced through high-friction contact forms instead of 1-tap WhatsApp chat.",
+          "evidence": "Checked all HTML <a> tags for WhatsApp URL signatures.",
+          "impact": "Lower mobile conversion rates compared to competitors with instant chat widgets.",
+          "recommendation": "Deploy a floating 1-tap WhatsApp chat widget on high-converting landing pages.",
+          "timestamp": "2026-08-26T15:16:10.374Z",
+          "metadata": {}
+        },
+        {
+          "id": "seo_missing_canonical",
+          "category": "seo",
+          "title": "Canonical URL Link Tag Missing",
+          "severity": "LOW",
+          "confidence": "HIGH",
+          "detectedBy": "STATIC",
+          "observed": "No <link rel=\"canonical\"> tag detected in page head.",
+          "inferred": "Search engines may index duplicate URL variations (HTTP vs HTTPS, tracking parameters, trailing slash variations) as separate pages.",
+          "evidence": "<link rel=\"canonical\">: [not present]",
+          "impact": "INDEXABILITY RISK: Potential dilution of search ranking signals across duplicate URLs.",
+          "recommendation": "Add a self-referential canonical URL tag <link rel=\"canonical\" href=\"https://example.com/page\"> inside <head>.",
+          "timestamp": "2026-08-26T15:16:10.375Z",
+          "metadata": {}
+        },
+        {
+          "id": "seo_noindex_penalty",
+          "category": "seo",
+          "title": "Critical SEO Indexing Restriction: Active \"noindex\" Meta Tag Detected",
+          "severity": "CRITICAL",
+          "confidence": "HIGH",
+          "detectedBy": "STATIC",
+          "observed": "Observed <meta name=\"robots\" content=\"noindex\"> tag or X-Robots-Tag HTTP header.",
+          "inferred": "Google Search crawler is instructed to remove this website from search engine results.",
+          "evidence": "Found <meta name=\"robots\" content=\"noindex\"> in page HTML.",
+          "impact": "INDEXABILITY RISK: Complete suppression of organic search traffic and discovery.",
+          "recommendation": "Remove noindex rule from site SEO configuration / CMS settings immediately.",
+          "timestamp": "2026-08-26T15:16:10.375Z",
+          "metadata": {}
+        },
+        {
+          "id": "security_missing_csp",
+          "category": "cyber",
+          "title": "Content Security Policy (CSP) Header Missing",
+          "severity": "MEDIUM",
+          "confidence": "HIGH",
+          "detectedBy": "STATIC",
+          "observed": "No Content-Security-Policy HTTP header or meta tag detected.",
+          "inferred": "Browsers cannot restrict script execution origins, increasing vulnerability to Cross-Site Scripting (XSS).",
+          "evidence": "Content-Security-Policy: [not present]",
+          "impact": "Higher exposure to unauthorized third-party script execution and data exfiltration.",
+          "recommendation": "Configure Content-Security-Policy response header restricting script-src and object-src directives.",
+          "timestamp": "2026-08-26T15:16:10.379Z",
+          "metadata": {}
+        },
+        {
+          "id": "meta_pixel_absent",
+          "category": "pixel",
+          "title": "Meta Pixel Conversion Tracking Missing",
+          "severity": "CRITICAL",
+          "confidence": "HIGH",
+          "detectedBy": "STATIC",
+          "observed": "No Meta Pixel initialization script (fbq) or Facebook event tracking snippet was detected.",
+          "inferred": "If running Instagram or Facebook Ads campaigns, ad budget is being spent without conversion optimization or retargeting data.",
+          "evidence": "Searched page HTML for connect.facebook.net/fbevents.js and fbq(\"init\") calls.",
+          "impact": "Meta algorithm cannot learn target audience profiles, raising Cost Per Lead (CPL) up to 3x-4x.",
+          "recommendation": "Install base Meta Pixel script before launch to capture custom audiences and conversion events.",
+          "timestamp": "2026-08-26T15:16:10.381Z",
+          "metadata": {}
+        },
+        {
+          "id": "ga4_tag_absent",
+          "category": "ga4",
+          "title": "Google Analytics 4 / GTM Tag Absent",
+          "severity": "HIGH",
+          "confidence": "HIGH",
+          "detectedBy": "STATIC",
+          "observed": "No GA4 tag (G-XXXXX) or Google Tag Manager container (GTM-XXXXX) was found.",
+          "inferred": "Traffic analytics, scroll depth, and bounce rates are unmonitored.",
+          "evidence": "Searched HTML for googletagmanager.com snippets.",
+          "impact": "Zero visibility on mobile visitor drop-offs and campaign traffic attribution.",
+          "recommendation": "Add GA4 tag script snippet to site <head> to track visitor behavior.",
+          "timestamp": "2026-08-26T15:16:10.387Z",
+          "metadata": {}
+        }
+      ],
+      "allIssues": [
+        {
+          "id": "wa_missing_widget",
+          "pillar": "LEAD",
+          "category": "whatsapp",
+          "severity": "MEDIUM",
+          "confidence": "HIGH",
+          "ruleId": "RULE-WA_MISSING_WIDGET",
+          "title": "No WhatsApp Direct Chat Button Detected",
+          "description": "No href matching wa.me or api.whatsapp.com was detected in page HTML. High-intent mobile visitors are forced through high-friction contact forms instead of 1-tap WhatsApp chat.",
+          "evidence": "Checked all HTML <a> tags for WhatsApp URL signatures.",
+          "impact": "Lower mobile conversion rates compared to competitors with instant chat widgets.",
+          "fixSnippet": "Deploy a floating 1-tap WhatsApp chat widget on high-converting landing pages.",
+          "isLocked": true
+        },
+        {
+          "id": "seo_missing_canonical",
+          "pillar": "SEO",
+          "category": "seo",
+          "severity": "LOW",
+          "confidence": "HIGH",
+          "ruleId": "RULE-SEO_MISSING_CANONICAL",
+          "title": "Canonical URL Link Tag Missing",
+          "description": "No <link rel=\"canonical\"> tag detected in page head. Search engines may index duplicate URL variations (HTTP vs HTTPS, tracking parameters, trailing slash variations) as separate pages.",
+          "evidence": "<link rel=\"canonical\">: [not present]",
+          "impact": "INDEXABILITY RISK: Potential dilution of search ranking signals across duplicate URLs.",
+          "fixSnippet": "Add a self-referential canonical URL tag <link rel=\"canonical\" href=\"https://example.com/page\"> inside <head>.",
+          "isLocked": true
+        },
+        {
+          "id": "seo_noindex_penalty",
+          "pillar": "SEO",
+          "category": "seo",
+          "severity": "CRITICAL",
+          "confidence": "HIGH",
+          "ruleId": "RULE-SEO_NOINDEX_PENALTY",
+          "title": "Critical SEO Indexing Restriction: Active \"noindex\" Meta Tag Detected",
+          "description": "Observed <meta name=\"robots\" content=\"noindex\"> tag or X-Robots-Tag HTTP header. Google Search crawler is instructed to remove this website from search engine results.",
+          "evidence": "Found <meta name=\"robots\" content=\"noindex\"> in page HTML.",
+          "impact": "INDEXABILITY RISK: Complete suppression of organic search traffic and discovery.",
+          "fixSnippet": "Remove noindex rule from site SEO configuration / CMS settings immediately.",
+          "isLocked": false
+        },
+        {
+          "id": "security_missing_csp",
+          "pillar": "CYBER",
+          "category": "cyber",
+          "severity": "MEDIUM",
+          "confidence": "HIGH",
+          "ruleId": "RULE-SECURITY_MISSING_CSP",
+          "title": "Content Security Policy (CSP) Header Missing",
+          "description": "No Content-Security-Policy HTTP header or meta tag detected. Browsers cannot restrict script execution origins, increasing vulnerability to Cross-Site Scripting (XSS).",
+          "evidence": "Content-Security-Policy: [not present]",
+          "impact": "Higher exposure to unauthorized third-party script execution and data exfiltration.",
+          "fixSnippet": "Configure Content-Security-Policy response header restricting script-src and object-src directives.",
+          "isLocked": true
+        },
+        {
+          "id": "meta_pixel_absent",
+          "pillar": "AD",
+          "category": "pixel",
+          "severity": "CRITICAL",
+          "confidence": "HIGH",
+          "ruleId": "RULE-META_PIXEL_ABSENT",
+          "title": "Meta Pixel Conversion Tracking Missing",
+          "description": "No Meta Pixel initialization script (fbq) or Facebook event tracking snippet was detected. If running Instagram or Facebook Ads campaigns, ad budget is being spent without conversion optimization or retargeting data.",
+          "evidence": "Searched page HTML for connect.facebook.net/fbevents.js and fbq(\"init\") calls.",
+          "impact": "Meta algorithm cannot learn target audience profiles, raising Cost Per Lead (CPL) up to 3x-4x.",
+          "fixSnippet": "Install base Meta Pixel script before launch to capture custom audiences and conversion events.",
+          "isLocked": false
+        },
+        {
+          "id": "ga4_tag_absent",
+          "pillar": "AD",
+          "category": "ga4",
+          "severity": "HIGH",
+          "confidence": "HIGH",
+          "ruleId": "RULE-GA4_TAG_ABSENT",
+          "title": "Google Analytics 4 / GTM Tag Absent",
+          "description": "No GA4 tag (G-XXXXX) or Google Tag Manager container (GTM-XXXXX) was found. Traffic analytics, scroll depth, and bounce rates are unmonitored.",
+          "evidence": "Searched HTML for googletagmanager.com snippets.",
+          "impact": "Zero visibility on mobile visitor drop-offs and campaign traffic attribution.",
+          "fixSnippet": "Add GA4 tag script snippet to site <head> to track visitor behavior.",
+          "isLocked": true
+        }
+      ],
+      "whatsappLinks": [],
+      "phoneLinks": [],
+      "emailLinks": [],
+      "reviewLinks": [],
+      "socialLinks": [],
+      "metaPixel": {
+        "exists": false,
+        "duplicate": false,
+        "status": "MISSING"
+      },
+      "googleTag": {
+        "tagId": "GA4_ACTIVE",
+        "status": "MISSING"
+      },
+      "seoPenalty": {
+        "hasNoIndex": true,
+        "hasNoFollow": true,
+        "isHttps": true,
+        "canonicalStatus": "MISSING",
+        "canonicalTags": [],
+        "status": "CRITICAL_PENALTY"
+      },
+      "cyberShield": {
+        "score": 90,
+        "spamGamblingDetected": false,
+        "spamKeywordsFound": [],
+        "obfuscatedScriptsDetected": false,
+        "base64HeavyScriptsCount": 0,
+        "hiddenIframesCount": 0,
+        "suspiciousRedirectDetected": false,
+        "cspStatus": "MISSING",
+        "riskLevel": "ATTENTION_NEEDED",
+        "diagnosis": "Clean content signature, but Content Security Policy (CSP) header is missing."
+      },
+      "lockedIssuesCount": 5,
+      "freeIssue": {
+        "id": "wa_missing_widget",
+        "pillar": "LEAD",
+        "category": "whatsapp",
+        "severity": "MEDIUM",
+        "confidence": "HIGH",
+        "ruleId": "RULE-WA_MISSING_WIDGET",
+        "title": "No WhatsApp Direct Chat Button Detected",
+        "description": "No href matching wa.me or api.whatsapp.com was detected in page HTML. High-intent mobile visitors are forced through high-friction contact forms instead of 1-tap WhatsApp chat.",
+        "evidence": "Checked all HTML <a> tags for WhatsApp URL signatures.",
+        "impact": "Lower mobile conversion rates compared to competitors with instant chat widgets.",
+        "fixSnippet": "Deploy a floating 1-tap WhatsApp chat widget on high-converting landing pages.",
+        "isLocked": true
+      },
+      "performance": {
+        "fetchTimeMs": 607,
+        "parseTimeMs": 152,
+        "totalTimeMs": 759,
+        "images": {
+          "totalImages": 0,
+          "lazyLoadedCount": 0,
+          "missingLazyCount": 0,
+          "modernFormatCount": 0,
+          "missingDimensionsCount": 0,
+          "responsiveCount": 0,
+          "status": "UNVERIFIED"
+        }
+      },
+      "scannedAt": "2026-08-26T15:16:10.392Z",
+      "leadAuditData": {
+        "emails": [],
+        "phones": [],
+        "whatsapp": [],
+        "forms": [],
+        "analytics": {
+          "gtag": false,
+          "googleTagManager": false,
+          "fbq": false,
+          "detected": []
+        },
+        "brokenLinks": [],
+        "durationMs": 89
+      },
+      "aiDiagnosticAdvice": "Aapki website filhal Google se completely hidden hai aur missing tracking tags ki wajah se aap har roz apni ad spend ka paisa barbaad kar rahe hain. Is critical SEO 'noindex' tag ko hatana aur GA4/Meta Pixel setup karna immediate priority hai, warna aapka revenue aur organic visibility dono zero rahenge.",
+      "aiRemediation": {
+        "status": "PENDING",
+        "updatedAt": "2026-08-26T15:26:14.635Z"
+      }
     }
   ],
   "watchdogTargets": [

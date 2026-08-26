@@ -2,15 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { Navbar, AppNavTab } from './components/Navbar';
 import { HeroScanner } from './components/HeroScanner';
 import { LiveScanningRadar } from './components/LiveScanningRadar';
-import { ScoreDashboard } from './components/ScoreDashboard';
-import { FixCenter } from './components/FixCenter';
-import { ReportsView } from './components/ReportsView';
+import { AuditCommandCenter } from './components/AuditCommandCenter';
+import { IntelligenceView } from './components/IntelligenceView';
 import { MonitoringView } from './components/MonitoringView';
+import { ReportsView } from './components/ReportsView';
 import { AgencyView } from './components/AgencyView';
 import { PricingView } from './components/PricingView';
 import { DeveloperDashboardView } from './components/DeveloperDashboardView';
 import { AccountSettingsView } from './components/AccountSettingsView';
 import { AdminDashboardView } from './components/AdminDashboardView';
+import { BillingView } from './components/BillingView';
 import { TestimonialsWall, ReviewItem } from './components/TestimonialsWall';
 import { BlogHubView } from './components/BlogHubView';
 import { PublicReportView } from './components/PublicReportView';
@@ -40,11 +41,11 @@ export default function App() {
   const [activeUrl, setActiveUrl] = useState('');
   const [globalStats, setGlobalStats] = useState<GlobalScanStats | null>(null);
 
-  // Public Report View
+  // Public Report Direct Route View
   const [publicReport, setPublicReport] = useState<AuditResult | null>(null);
   const [isLoadingPublicReport, setIsLoadingPublicReport] = useState(false);
 
-  // Agency prospect pitch selection
+  // Selected Prospect for AI Pitch
   const [selectedProspectPitch, setSelectedProspectPitch] = useState<{
     domain: string;
     businessName: string;
@@ -88,7 +89,7 @@ export default function App() {
   useEffect(() => {
     fetchGlobalStats();
 
-    // Check if current route is a public shareable report (/report/:id)
+    // Check if current route is a public shareable report (/report/:id or #report/:id)
     const checkReportRoute = async () => {
       const path = window.location.pathname;
       const hash = window.location.hash;
@@ -186,7 +187,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-rose-500 selection:text-white flex flex-col">
       
-      {/* Top Simplified Navigation (5 Primary Tabs) */}
+      {/* Top V3 Enterprise Navigation */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -195,10 +196,10 @@ export default function App() {
         onOpenAuth={() => setIsAuthOpen(true)}
       />
 
-      {/* Main Content View Container */}
+      {/* Main Content Area */}
       <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 flex-1 space-y-8">
         
-        {/* Human-Friendly Error Alert Toast */}
+        {/* Error Alert Toast */}
         {errorMessage && (
           <div className="rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-xs sm:text-sm text-rose-200 flex items-center gap-3 shadow-lg">
             <AlertCircle className="h-5 w-5 text-rose-400 shrink-0" />
@@ -215,42 +216,31 @@ export default function App() {
           </div>
         )}
 
-        {/* 1. AUDIT TAB (Hero Scanner or Audit Result) */}
+        {/* 1. AUDIT COMMAND CENTER (Hero Scanner / Diagnostic Scan / Audit Workspace) */}
         {activeTab === 'audit' && (
           <div className="space-y-8">
             
-            {/* Hero Input (Visible when no scan is loading) */}
+            {/* Hero Zero-Friction Input */}
             <HeroScanner
               onScan={handleScan}
               isLoading={isLoading}
               activeUrl={activeUrl}
             />
 
-            {/* Diagnostic Progression (Visible while scanning) */}
+            {/* Diagnostic Progression State (While scanning) */}
             {isLoading && (
               <LiveScanningRadar targetUrl={activeUrl || 'Target Domain'} />
             )}
 
-            {/* Audit Results View (Visible once scan is complete) */}
+            {/* Audit Command Center (Active once scan is complete) */}
             {auditResult && !isLoading && (
-              <div className="space-y-10 pt-4 border-t border-slate-800/80">
-                
-                {/* 1. Score & Financial Impact Overview */}
-                <ScoreDashboard
-                  result={auditResult}
-                  onOpenWatchdog={() => setIsWatchdogOpen(true)}
-                  onOpenExpressFix={() => setIsExpressFixOpen(true)}
-                  onOpenAlerts={() => setIsAlertsOpen(true)}
-                  onOpenShareModal={() => setIsShareModalOpen(true)}
-                />
-
-                {/* 2. Unified Fix Center */}
-                <FixCenter
-                  result={auditResult}
-                  onOpenExpressFix={() => setIsExpressFixOpen(true)}
-                  onOpenWatchdog={() => setIsWatchdogOpen(true)}
-                />
-              </div>
+              <AuditCommandCenter
+                result={auditResult}
+                onOpenWatchdog={() => setIsWatchdogOpen(true)}
+                onOpenExpressFix={() => setIsExpressFixOpen(true)}
+                onOpenAlerts={() => setIsAlertsOpen(true)}
+                onOpenShareModal={() => setIsShareModalOpen(true)}
+              />
             )}
 
             {/* Global Live Scan Counters */}
@@ -258,7 +248,27 @@ export default function App() {
           </div>
         )}
 
-        {/* 2. REPORTS TAB */}
+        {/* 2. REVENUE INTELLIGENCE WORKSPACE */}
+        {activeTab === 'intelligence' && (
+          <IntelligenceView
+            currentAudit={auditResult}
+            onOpenExpressFix={() => setIsExpressFixOpen(true)}
+            onSelectProspectForPitch={handleSelectProspectForPitch}
+            onScanNewStore={(url) => {
+              handleScan(url);
+              setActiveTab('audit');
+            }}
+          />
+        )}
+
+        {/* 3. MONITORING WORKSPACE (24/7 Watchdog & Schedules) */}
+        {activeTab === 'monitoring' && (
+          <MonitoringView
+            onOpenNewMonitor={() => setIsWatchdogOpen(true)}
+          />
+        )}
+
+        {/* 4. REPORTS HUB */}
         {activeTab === 'reports' && (
           <ReportsView
             currentAudit={auditResult}
@@ -277,14 +287,7 @@ export default function App() {
           />
         )}
 
-        {/* 3. MONITORING TAB (24/7 Watchdog) */}
-        {activeTab === 'monitoring' && (
-          <MonitoringView
-            onOpenNewMonitor={() => setIsWatchdogOpen(true)}
-          />
-        )}
-
-        {/* 4. AGENCY TAB */}
+        {/* 5. AGENCY GROWTH SUITE */}
         {activeTab === 'agency' && (
           <AgencyView
             currentAudit={auditResult}
@@ -293,7 +296,7 @@ export default function App() {
           />
         )}
 
-        {/* 5. PRICING TAB */}
+        {/* 6. PRICING & PLANS */}
         {activeTab === 'pricing' && (
           <PricingView
             onOpenExpressFix={() => setIsExpressFixOpen(true)}
@@ -301,8 +304,9 @@ export default function App() {
           />
         )}
 
-        {/* SECONDARY UTILITY TABS */}
+        {/* SECONDARY UTILITY & SETTINGS VIEWS */}
         {activeTab === 'developer' && <DeveloperDashboardView />}
+        {activeTab === 'billing' && <BillingView onOpenExpressFix={() => setIsExpressFixOpen(true)} />}
         {activeTab === 'settings' && <AccountSettingsView />}
         {activeTab === 'admin' && <AdminDashboardView />}
         {activeTab === 'reviews' && (

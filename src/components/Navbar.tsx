@@ -1,10 +1,23 @@
 import React, { useState } from 'react';
-import { Shield, Search, FileText, Radio, Briefcase, Zap, HelpCircle, User, LogIn, LogOut, Wrench, Settings, Sun, Moon, Monitor, ChevronDown, Menu, X, MessageSquare, Star, Phone, Code, ShieldAlert } from 'lucide-react';
+import { Shield, Search, LineChart, Radio, FileText, Briefcase, Zap, HelpCircle, User, LogIn, LogOut, Wrench, Settings, Sun, Moon, Monitor, ChevronDown, Menu, X, MessageSquare, Star, Phone, Code, ShieldAlert, CreditCard, Layers, TrendingDown, ShoppingCart, Swords, Smartphone, Calendar, BookOpen, ExternalLink, Sparkles } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, ThemeMode } from '../context/ThemeContext';
 
-export type AppNavTab = 'audit' | 'reports' | 'monitoring' | 'agency' | 'pricing' | 'developer' | 'settings' | 'admin' | 'reviews' | 'blog';
+export type AppNavTab =
+  | 'audit'
+  | 'intelligence'
+  | 'monitoring'
+  | 'reports'
+  | 'agency'
+  | 'pricing'
+  | 'developer'
+  | 'settings'
+  | 'admin'
+  | 'billing'
+  | 'reviews'
+  | 'blog';
+
 export type AppTab = AppNavTab;
 
 interface NavbarProps {
@@ -25,7 +38,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   const { lang, setLang } = useLanguage();
   const { user, profile, signOut, isAdmin } = useAuth();
   const { theme, setTheme } = useTheme();
-  
+
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -36,19 +50,48 @@ export const Navbar: React.FC<NavbarProps> = ({
     setTheme(modes[nextIndex]);
   };
 
-  const navItems = [
+  const primaryNavItems = [
     { id: 'audit', label: 'Audit', icon: Search },
-    { id: 'reports', label: 'Reports', icon: FileText },
+    { id: 'intelligence', label: 'Intelligence', icon: LineChart },
     { id: 'monitoring', label: 'Monitoring', icon: Radio },
+    { id: 'reports', label: 'Reports', icon: FileText },
     { id: 'agency', label: 'Agency', icon: Briefcase },
     { id: 'pricing', label: 'Pricing', icon: Zap },
+  ];
+
+  const moreMenuSections = [
+    {
+      category: 'Diagnostic Tools',
+      items: [
+        { id: 'intelligence', label: 'Funnel Leak Simulator', desc: 'Simulate ad spend drop-offs', icon: TrendingDown },
+        { id: 'intelligence', label: 'WhatsApp Zero-Intent', desc: 'Pre-filled message optimizer', icon: MessageSquare },
+        { id: 'intelligence', label: 'Cart Leakage Monitor', desc: 'Checkout & cart abandonment', icon: ShoppingCart },
+        { id: 'agency', label: 'Competitor Gap Spy', desc: 'Audit competitor landing pages', icon: Swords },
+      ],
+    },
+    {
+      category: 'Automation & Protection',
+      items: [
+        { id: 'monitoring', label: '24/7 Watchdog Radar', desc: 'Continuous link & pixel monitor', icon: Radio },
+        { id: 'monitoring', label: 'Automated Schedules', desc: 'Hourly / daily recurring scans', icon: Calendar },
+        { id: 'developer', label: 'HMAC Webhooks', desc: 'Real-time incident dispatchers', icon: Code },
+      ],
+    },
+    {
+      category: 'Developer & Resources',
+      items: [
+        { id: 'developer', label: 'Developer Portal', desc: 'REST API keys & OpenAPI spec', icon: Code },
+        { id: 'blog', label: 'Knowledge Hub & B2B Guides', desc: 'How to fix WhatsApp & pixel bugs', icon: BookOpen },
+        { id: 'reviews', label: 'Verified Client Reviews', desc: 'SMB customer success stories', icon: Star },
+      ],
+    },
   ];
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl shadow-lg">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
         
-        {/* Brand Logo & Tagline */}
+        {/* Brand Logo & Title */}
         <div 
           className="flex items-center gap-3 cursor-pointer select-none group shrink-0" 
           onClick={() => {
@@ -67,16 +110,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 LeadGuard<span className="bg-gradient-to-r from-rose-400 to-amber-300 bg-clip-text text-transparent font-extrabold ml-0.5">OS</span>
               </span>
               <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-300 border border-rose-500/20">
-                Lead Protection
+                V3 Enterprise
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 hidden md:block">Stop Dropping Leads & Wasting Ad Spend</p>
+            <p className="text-[10px] text-slate-400 hidden lg:block">Lead Protection & Revenue Intelligence</p>
           </div>
         </div>
 
-        {/* Primary Desktop Navigation (Clean 5-Tab Architecture) */}
+        {/* Primary Desktop Navigation Bar */}
         <nav className="hidden md:flex items-center gap-1 rounded-2xl bg-slate-900/80 p-1.5 border border-slate-800 shadow-inner">
-          {navItems.map((item) => {
+          {primaryNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
             return (
@@ -84,7 +127,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 key={item.id}
                 id={`nav-tab-${item.id}`}
                 onClick={() => setActiveTab(item.id as AppNavTab)}
-                className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold tracking-wide transition-all ${
+                className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-semibold tracking-wide transition-all ${
                   isActive
                     ? 'bg-rose-600 text-white shadow-md shadow-rose-950/50 border border-rose-400/30'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
@@ -95,9 +138,58 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             );
           })}
+
+          {/* More ▾ Dropdown Menu */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setIsMoreMenuOpen(!isMoreMenuOpen);
+                setIsAccountMenuOpen(false);
+                setIsHelpMenuOpen(false);
+              }}
+              className="flex items-center gap-1 rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition-colors"
+            >
+              <span>More</span>
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isMoreMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isMoreMenuOpen && (
+              <div
+                className="absolute left-0 mt-2 w-80 rounded-2xl bg-slate-950/95 border border-slate-800 shadow-2xl p-3 z-50 space-y-3 backdrop-blur-2xl text-xs max-h-[460px] overflow-y-auto"
+                onMouseLeave={() => setIsMoreMenuOpen(false)}
+              >
+                {moreMenuSections.map((section, sIdx) => (
+                  <div key={sIdx} className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block px-2 pt-1">
+                      {section.category}
+                    </span>
+                    {section.items.map((it, iIdx) => {
+                      const Icon = it.icon;
+                      return (
+                        <button
+                          key={iIdx}
+                          onClick={() => {
+                            setActiveTab(it.id as AppNavTab);
+                            setIsMoreMenuOpen(false);
+                          }}
+                          className="w-full text-left flex items-start gap-2.5 p-2 rounded-xl text-slate-300 hover:bg-slate-900 hover:text-white transition-colors"
+                        >
+                          <Icon className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+                          <div>
+                            <div className="font-semibold text-white">{it.label}</div>
+                            <div className="text-[10px] text-slate-400">{it.desc}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </nav>
 
-        {/* Right Side: Help & Account Menus */}
+        {/* Right Side: Help & Account Dropdowns */}
         <div className="flex items-center gap-2">
           
           {/* Help Dropdown */}
@@ -106,6 +198,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={() => {
                 setIsHelpMenuOpen(!isHelpMenuOpen);
                 setIsAccountMenuOpen(false);
+                setIsMoreMenuOpen(false);
               }}
               className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-colors"
             >
@@ -154,7 +247,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }}
                   className="w-full text-left flex items-center gap-2.5 p-2.5 rounded-xl text-slate-200 hover:bg-slate-900 hover:text-white transition-colors"
                 >
-                  <FileText className="h-4 w-4 text-cyan-400" />
+                  <BookOpen className="h-4 w-4 text-cyan-400" />
                   <div>
                     <div className="font-semibold">Knowledge Hub</div>
                     <div className="text-[10px] text-slate-400">How to fix +9191 WhatsApp bugs</div>
@@ -170,6 +263,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={() => {
                 setIsAccountMenuOpen(!isAccountMenuOpen);
                 setIsHelpMenuOpen(false);
+                setIsMoreMenuOpen(false);
               }}
               className="flex items-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-850 px-3 py-2 text-xs font-semibold text-white border border-slate-800 transition-colors shadow-sm"
             >
@@ -216,6 +310,34 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <div>
                     <div className="font-semibold">Developer Portal</div>
                     <div className="text-[10px] text-slate-400">REST API Keys & Webhooks</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveTab('billing');
+                    setIsAccountMenuOpen(false);
+                  }}
+                  className="w-full text-left flex items-center gap-2.5 p-2.5 rounded-xl text-slate-200 hover:bg-slate-900 hover:text-white transition-colors"
+                >
+                  <CreditCard className="h-4 w-4 text-emerald-400" />
+                  <div>
+                    <div className="font-semibold">Billing & Invoices</div>
+                    <div className="text-[10px] text-slate-400">Manage payment methods</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveTab('settings');
+                    setIsAccountMenuOpen(false);
+                  }}
+                  className="w-full text-left flex items-center gap-2.5 p-2.5 rounded-xl text-slate-200 hover:bg-slate-900 hover:text-white transition-colors"
+                >
+                  <Settings className="h-4 w-4 text-slate-400" />
+                  <div>
+                    <div className="font-semibold">Account Settings</div>
+                    <div className="text-[10px] text-slate-400">Security & credentials</div>
                   </div>
                 </button>
 
@@ -290,9 +412,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Mobile Drawer Navigation */}
       {isMobileMenuOpen && (
-        <div className="md:hidden border-t border-slate-800 bg-slate-950/95 p-4 space-y-2 backdrop-blur-2xl">
+        <div className="md:hidden border-t border-slate-800 bg-slate-950/95 p-4 space-y-3 backdrop-blur-2xl">
           <div className="grid grid-cols-2 gap-2">
-            {navItems.map((item) => {
+            {primaryNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
               return (
