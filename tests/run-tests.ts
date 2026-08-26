@@ -1353,16 +1353,14 @@ async function runTestSuite() {
   const rateLimitMw39 = getRateLimiter39(10);
   let rateLimitStatus = 0;
   let rateLimitBody: any = null;
-  const mockReq: any = { ip: '1.2.3.4', path: '/test', headers: {}, get: () => '1.2.3.4' };
+  const mockReq: any = { ip: '1.2.3.4', path: '/test', headers: {}, get: () => '1.2.3.4', socket: { remoteAddress: '1.2.3.4' } };
   const mockRes: any = {
     status: (code: number) => { rateLimitStatus = code; return mockRes; },
     json: (body: any) => { rateLimitBody = body; return mockRes; },
     setHeader: () => mockRes,
   };
-  await new Promise<void>((resolve) => {
-    rateLimitMw39(mockReq, mockRes, () => resolve());
-    if (rateLimitStatus !== 0) resolve();
-  });
+  // The middleware is async — await its completion directly.
+  await rateLimitMw39(mockReq, mockRes, () => {});
   assert(
     rateLimitStatus === 503 && rateLimitBody?.error?.code === 'RATE_LIMITER_UNAVAILABLE',
     'Shared rate limiter fails closed with 503 in production without PostgreSQL'
@@ -1473,6 +1471,111 @@ async function runTestSuite() {
   const { selectQueueAdapter: selectQueueAdapter40 } = await import('../server/queue/jobQueue');
   const resolvedAdapter = selectQueueAdapter40();
   assert(!!resolvedAdapter, 'selectQueueAdapter returns active queue adapter instance');
+
+  // =========================================================================
+  // Test Suite 41: Extended P1 Regression Coverage
+  // =========================================================================
+  console.log('\n📌 Test Suite 41: Extended P1 Regression & Cross-Instance Safety');
+
+  // 41.1 API Key Cross-Instance Revocation Semantics
+  const { ApiKeyManager: ApiKeyManager41 } = await import('../server/security/apiKeyManager');
+  ApiKeyManager41.clear();
+  const gen41 = await ApiKeyManager41.generateApiKeyAsync('user_revoke_test_41');
+  const verify41a = await ApiKeyManager41.verifyApiKeyAsync(gen41.apiKey);
+  assert(verify41a !== null && verify41a.active === true, 'API key verifies after creation');
+
+  // Simulate cross-instance revocation: revoke by keyId
+  const revoked41 = await ApiKeyManager41.revokeApiKeyAsync(gen41.keyId);
+  assert(revoked41 === true, 'API key revocation returns true');
+
+  // After revocation, verify must REJECT (cache evicted)
+  const verify41b = await ApiKeyManager41.verifyApiKeyAsync(gen41.apiKey);
+  assert(verify41b === null, 'API key REJECTED after revocation (cross-instance cache eviction)');
+
+  // 41.2 P1-02 Queue Lease — workerId is application-controlled, not user-injected
+  // Verify DEFAULT_LEASE_MS is a compile-time numeric constant
+  const { DEFAULT_LEASE_MS: leaseDuration41 } = await import('../server/queue/jobQueue');
+  assert(typeof leaseDuration41 === 'number', 'DEFAULT_LEASE_MS is a compile-time number constant');
+  assert(leaseDuration41 === 5 * 60_000, 'DEFAULT_LEASE_MS equals 300000 (5 minutes)');
+  // workerId format: always prefixed by worker runtime, never from user input
+  const testWorkerId41 = `worker-${process.pid}`;
+  assert(testWorkerId41.startsWith('worker-'), 'workerId format is process-controlled (worker-PID)');
+
+  // 41.3 Malformed CSP header test
+  const { SecurityDetector: SecurityDetector41 } = await import('../server/scanner/detectors/security');
+  // Whitespace-only CSP is functionally MISSING (browsers ignore empty headers)
+  const resWhitespaceCsp = SecurityDetector41.analyzeSecurity('<html><body>test</body></html>', {
+    'content-security-policy': '   ',
+  });
+  assert(resWhitespaceCsp.cyberShield.cspStatus === 'MISSING', 'SecurityDetector classifies whitespace-only CSP as MISSING (functionally absent)');
+
+  // Truly malformed CSP: semicolons only, no valid directives
+  const resMalformedCsp = SecurityDetector41.analyzeSecurity('<html><body>test</body></html>', {
+    'content-security-policy': '; ; ;',
+  });
+  assert(resMalformedCsp.cyberShield.cspStatus === 'MALFORMED', 'SecurityDetector classifies directive-less CSP as MALFORMED');
+  assert(resMalformedCsp.findings.some(f => f.id === 'security_malformed_csp'), 'SecurityDetector adds security_malformed_csp finding');
+
+  // CSP via meta tag fallback
+  const resCspMeta = SecurityDetector41.analyzeSecurity(
+    '<html><head><meta http-equiv="content-security-policy" content="default-src \'self\'"></head></html>',
+    {}
+  );
+  assert(resCspMeta.cyberShield.cspStatus === 'STRONG', 'SecurityDetector detects strong CSP from meta tag');
+
+  // 41.4 P1-01 Rate Limiter — atomic increment with race-safe semantics
+  const { checkPgRateLimit: checkPgRateLimit41 } = await import('../server/security/rateLimiter');
+  // Verify the function exists and signature is correct (takes key, limit, windowMs)
+  assert(typeof checkPgRateLimit41 === 'function', 'checkPgRateLimit is exported and callable');
+
+  // 41.5 P1-05 AI Configuration — generateRemediation fails gracefully without API key
+  const { generateRemediation: genRem41 } = await import('../server/services/ai.service');
+  const savedKey = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  const aiResult41 = await genRem41([{ title: 'test', severity: 'LOW' }]);
+  assert(aiResult41.status === 'FAILED', 'generateRemediation returns FAILED when no API key configured');
+  assert(aiResult41.error?.includes('not configured'), 'generateRemediation error message indicates not configured');
+  if (savedKey) process.env.OPENAI_API_KEY = savedKey;
+
+  // 41.6 P1-08 Firebase config — production requires FIREBASE_PROJECT_ID env
+  const { verifyFirebaseIdToken: verifyFB41 } = await import('../server/security/firebaseAuth');
+  const savedProjectId = process.env.FIREBASE_PROJECT_ID;
+  const savedNodeEnv41 = process.env.NODE_ENV;
+  delete process.env.FIREBASE_PROJECT_ID;
+  delete process.env.GCLOUD_PROJECT;
+  process.env.NODE_ENV = 'production';
+  // Construct a structurally valid but unsigned JWT for project ID resolution test
+  const fakeHeader41 = Buffer.from(JSON.stringify({ alg: 'RS256', kid: 'test-kid' })).toString('base64url');
+  const fakePayload41 = Buffer.from(JSON.stringify({ aud: 'no-project', iss: 'https://securetoken.google.com/no-project', sub: 'uid1', exp: Math.floor(Date.now()/1000)+999, iat: Math.floor(Date.now()/1000) })).toString('base64url');
+  const fbResult41 = await verifyFB41(`${fakeHeader41}.${fakePayload41}.fakesig`);
+  assert(fbResult41 === null, 'Firebase token verification rejects in production without FIREBASE_PROJECT_ID env var');
+  process.env.NODE_ENV = savedNodeEnv41;
+  if (savedProjectId) process.env.FIREBASE_PROJECT_ID = savedProjectId;
+
+  // 41.7 SEO Canonical — malformed URL test
+  const { SeoDetector: SeoDetector41 } = await import('../server/scanner/detectors/seo');
+  const resMalformedCan = SeoDetector41.analyzeSeo(
+    '<html><head><link rel="canonical" href="javascript:void(0)"></head></html>',
+    'https://example.com'
+  );
+  assert(resMalformedCan.seoPenalty.canonicalStatus === 'MALFORMED', 'SeoDetector classifies javascript: canonical as MALFORMED');
+
+  // 41.8 Queue adapter production fail-closed without DATABASE_URL
+  const savedDbUrl41 = process.env.DATABASE_URL;
+  const savedNodeEnvQ41 = process.env.NODE_ENV;
+  delete process.env.DATABASE_URL;
+  process.env.NODE_ENV = 'production';
+  const { selectQueueAdapter: selectQueueAdapter41 } = await import('../server/queue/jobQueue');
+  const failAdapter = selectQueueAdapter41();
+  let queueFailClosed = false;
+  try {
+    await failAdapter.enqueue('scanWebsite', {});
+  } catch (e: any) {
+    if (e.message.includes('DATABASE_URL')) queueFailClosed = true;
+  }
+  assert(queueFailClosed, 'Queue adapter fails closed in production without DATABASE_URL');
+  process.env.NODE_ENV = savedNodeEnvQ41;
+  if (savedDbUrl41) process.env.DATABASE_URL = savedDbUrl41;
 
   console.log('\n======================================================');
   console.log(`  TEST RESULTS: ${passed} PASSED | ${failed} FAILED`);

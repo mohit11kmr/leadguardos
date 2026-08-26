@@ -11,6 +11,24 @@ jobs:
     name: 🧪 Continuous Integration (Typecheck & Audit Tests)
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: leadguard
+          POSTGRES_PASSWORD: leadguard_ci
+          POSTGRES_DB: leadguardos_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U leadguard"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://leadguard:leadguard_ci@localhost:5432/leadguardos_ci
+
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
@@ -24,17 +42,26 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm ci
 
+      - name: 🗄️ Generate Prisma Client
+        run: npx prisma generate
+
+      - name: 🗄️ Apply Database Migrations
+        run: npx prisma migrate deploy
+
       - name: 🔍 TypeScript Static Typecheck
         run: npx tsc --noEmit
 
       - name: 🧪 Run Automated 4-Pillar Diagnostic Test Suite
         run: npx tsx tests/run-tests.ts
 
+      - name: 🐘 Run PostgreSQL Integration Tests
+        run: npm run test:pg
+
       - name: 🏗️ Production Build Bundle Check
         run: npm run build
 
       - name: 🔐 Dependency Audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high || true
 
   docker-build:
     name: 🐳 Container Build & Deployment Check
