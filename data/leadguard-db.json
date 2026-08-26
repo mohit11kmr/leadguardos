@@ -1,5 +1,496 @@
 {
-  "scans": [],
+  "scans": [
+    {
+      "scanId": "scan_1787755209083_ac87f4ea",
+      "publicToken": "pub_3d556d5f11ab0510",
+      "targetUrl": "https://github.com/",
+      "domain": "github.com",
+      "businessName": "GitHub · Change is constant. GitHub keeps you ahead. · GitHub",
+      "score": 77,
+      "estimatedMonthlyLoss": 18000,
+      "revenueImpactRange": {
+        "lowEstimateINR": 12600,
+        "highEstimateINR": 23400
+      },
+      "adSpendRisk": "HIGH",
+      "pillars": {
+        "lead": {
+          "score": 90,
+          "status": "HEALTHY",
+          "findingsCount": 1
+        },
+        "ad": {
+          "score": 45,
+          "status": "CRITICAL",
+          "findingsCount": 2
+        },
+        "seo": {
+          "score": 100,
+          "status": "HEALTHY",
+          "findingsCount": 0
+        },
+        "cyber": {
+          "score": 70,
+          "status": "WARNING",
+          "findingsCount": 3
+        }
+      },
+      "findings": [
+        {
+          "id": "wa_missing_widget",
+          "category": "whatsapp",
+          "title": "No WhatsApp Direct Chat Button Detected",
+          "severity": "MEDIUM",
+          "confidence": "HIGH",
+          "detectedBy": "STATIC",
+          "observed": "No href matching wa.me or api.whatsapp.com was detected in page HTML.",
+          "inferred": "High-intent mobile visitors are forced through high-friction contact forms instead of 1-tap WhatsApp chat.",
+          "evidence": "Checked all HTML <a> tags for WhatsApp URL signatures.",
+          "impact": "Lower mobile conversion rates compared to competitors with instant chat widgets.",
+          "recommendation": "Deploy a floating 1-tap WhatsApp chat widget on high-converting landing pages.",
+          "timestamp": "2026-08-26T14:40:09.048Z",
+          "metadata": {}
+        },
+        {
+          "id": "security_weak_csp",
+          "category": "cyber",
+          "title": "Permissive Content Security Policy (CSP) Directives Detected",
+          "severity": "LOW",
+          "confidence": "HIGH",
+          "detectedBy": "STATIC",
+          "observed": "CSP contains permissive rules: 'unsafe-inline' allowed.",
+          "inferred": "Permissive directives allow inline scripts or dynamic code execution, reducing XSS mitigation strength.",
+          "evidence": "default-src 'none'; base-uri 'self'; child-src github.githubassets.com github.com/assets-cdn/worker/ github.com/assets/ gist.github.com/assets-cdn/worker/; connect-src 'self' uploads.github.com www.githubstatus.com collector.github.com raw.githubusercontent.com api.github.com github-cloud.s3.amazona",
+          "impact": "Reduced defense-in-depth protection against cross-site script injection.",
+          "recommendation": "Remove unsafe-inline/unsafe-eval directives and adopt nonce-based or hash-based CSP.",
+          "timestamp": "2026-08-26T14:40:09.067Z",
+          "metadata": {}
+        },
+        {
+          "id": "meta_pixel_absent",
+          "category": "pixel",
+          "title": "Meta Pixel Conversion Tracking Missing",
+          "severity": "CRITICAL",
+          "confidence": "HIGH",
+          "detectedBy": "STATIC",
+          "observed": "No Meta Pixel initialization script (fbq) or Facebook event tracking snippet was detected.",
+          "inferred": "If running Instagram or Facebook Ads campaigns, ad budget is being spent without conversion optimization or retargeting data.",
+          "evidence": "Searched page HTML for connect.facebook.net/fbevents.js and fbq(\"init\") calls.",
+          "impact": "Meta algorithm cannot learn target audience profiles, raising Cost Per Lead (CPL) up to 3x-4x.",
+          "recommendation": "Install base Meta Pixel script before launch to capture custom audiences and conversion events.",
+          "timestamp": "2026-08-26T14:40:09.076Z",
+          "metadata": {}
+        },
+        {
+          "id": "ga4_tag_absent",
+          "category": "ga4",
+          "title": "Google Analytics 4 / GTM Tag Absent",
+          "severity": "HIGH",
+          "confidence": "HIGH",
+          "detectedBy": "STATIC",
+          "observed": "No GA4 tag (G-XXXXX) or Google Tag Manager container (GTM-XXXXX) was found.",
+          "inferred": "Traffic analytics, scroll depth, and bounce rates are unmonitored.",
+          "evidence": "Searched HTML for googletagmanager.com snippets.",
+          "impact": "Zero visibility on mobile visitor drop-offs and campaign traffic attribution.",
+          "recommendation": "Add GA4 tag script snippet to site <head> to track visitor behavior.",
+          "timestamp": "2026-08-26T14:40:09.079Z",
+          "metadata": {}
+        },
+        {
+          "id": "perf_slow_server_response",
+          "category": "performance",
+          "title": "Slow Server Response Time (> 4.0 Seconds)",
+          "severity": "HIGH",
+          "confidence": "HIGH",
+          "detectedBy": "STATIC",
+          "observed": "Initial HTML fetch completed in 7.33 seconds.",
+          "inferred": "Mobile visitors on 4G networks experience long blank screen delays before seeing CTA content.",
+          "evidence": "7329ms initial response time",
+          "impact": "Bounce rates increase by up to 50% for load times exceeding 3 seconds.",
+          "recommendation": "Enable server page caching, gzip compression, and CDN hosting.",
+          "timestamp": "2026-08-26T14:40:09.080Z",
+          "metadata": {}
+        },
+        {
+          "id": "perf_images_missing_dimensions",
+          "category": "performance",
+          "title": "Image Elements Missing Explicit Dimensions (CLS Risk)",
+          "severity": "LOW",
+          "confidence": "HIGH",
+          "detectedBy": "STATIC",
+          "observed": "22 of 24 images lack explicit width and height attributes.",
+          "inferred": "Browsers cannot allocate layout space before images load, causing content shifts during rendering.",
+          "evidence": "22/24 images missing width/height",
+          "impact": "Cumulative Layout Shift (CLS) Core Web Vital score degradation.",
+          "recommendation": "Specify explicit width and height attributes or CSS aspect-ratio on image tags.",
+          "timestamp": "2026-08-26T14:40:09.081Z",
+          "metadata": {}
+        }
+      ],
+      "allIssues": [
+        {
+          "id": "wa_missing_widget",
+          "pillar": "LEAD",
+          "category": "whatsapp",
+          "severity": "MEDIUM",
+          "confidence": "HIGH",
+          "ruleId": "RULE-WA_MISSING_WIDGET",
+          "title": "No WhatsApp Direct Chat Button Detected",
+          "description": "No href matching wa.me or api.whatsapp.com was detected in page HTML. High-intent mobile visitors are forced through high-friction contact forms instead of 1-tap WhatsApp chat.",
+          "evidence": "Checked all HTML <a> tags for WhatsApp URL signatures.",
+          "impact": "Lower mobile conversion rates compared to competitors with instant chat widgets.",
+          "fixSnippet": "Deploy a floating 1-tap WhatsApp chat widget on high-converting landing pages.",
+          "isLocked": true
+        },
+        {
+          "id": "security_weak_csp",
+          "pillar": "CYBER",
+          "category": "cyber",
+          "severity": "LOW",
+          "confidence": "HIGH",
+          "ruleId": "RULE-SECURITY_WEAK_CSP",
+          "title": "Permissive Content Security Policy (CSP) Directives Detected",
+          "description": "CSP contains permissive rules: 'unsafe-inline' allowed. Permissive directives allow inline scripts or dynamic code execution, reducing XSS mitigation strength.",
+          "evidence": "default-src 'none'; base-uri 'self'; child-src github.githubassets.com github.com/assets-cdn/worker/ github.com/assets/ gist.github.com/assets-cdn/worker/; connect-src 'self' uploads.github.com www.githubstatus.com collector.github.com raw.githubusercontent.com api.github.com github-cloud.s3.amazona",
+          "impact": "Reduced defense-in-depth protection against cross-site script injection.",
+          "fixSnippet": "Remove unsafe-inline/unsafe-eval directives and adopt nonce-based or hash-based CSP.",
+          "isLocked": true
+        },
+        {
+          "id": "meta_pixel_absent",
+          "pillar": "AD",
+          "category": "pixel",
+          "severity": "CRITICAL",
+          "confidence": "HIGH",
+          "ruleId": "RULE-META_PIXEL_ABSENT",
+          "title": "Meta Pixel Conversion Tracking Missing",
+          "description": "No Meta Pixel initialization script (fbq) or Facebook event tracking snippet was detected. If running Instagram or Facebook Ads campaigns, ad budget is being spent without conversion optimization or retargeting data.",
+          "evidence": "Searched page HTML for connect.facebook.net/fbevents.js and fbq(\"init\") calls.",
+          "impact": "Meta algorithm cannot learn target audience profiles, raising Cost Per Lead (CPL) up to 3x-4x.",
+          "fixSnippet": "Install base Meta Pixel script before launch to capture custom audiences and conversion events.",
+          "isLocked": false
+        },
+        {
+          "id": "ga4_tag_absent",
+          "pillar": "AD",
+          "category": "ga4",
+          "severity": "HIGH",
+          "confidence": "HIGH",
+          "ruleId": "RULE-GA4_TAG_ABSENT",
+          "title": "Google Analytics 4 / GTM Tag Absent",
+          "description": "No GA4 tag (G-XXXXX) or Google Tag Manager container (GTM-XXXXX) was found. Traffic analytics, scroll depth, and bounce rates are unmonitored.",
+          "evidence": "Searched HTML for googletagmanager.com snippets.",
+          "impact": "Zero visibility on mobile visitor drop-offs and campaign traffic attribution.",
+          "fixSnippet": "Add GA4 tag script snippet to site <head> to track visitor behavior.",
+          "isLocked": true
+        },
+        {
+          "id": "perf_slow_server_response",
+          "pillar": "CYBER",
+          "category": "performance",
+          "severity": "HIGH",
+          "confidence": "HIGH",
+          "ruleId": "RULE-PERF_SLOW_SERVER_RESPONSE",
+          "title": "Slow Server Response Time (> 4.0 Seconds)",
+          "description": "Initial HTML fetch completed in 7.33 seconds. Mobile visitors on 4G networks experience long blank screen delays before seeing CTA content.",
+          "evidence": "7329ms initial response time",
+          "impact": "Bounce rates increase by up to 50% for load times exceeding 3 seconds.",
+          "fixSnippet": "Enable server page caching, gzip compression, and CDN hosting.",
+          "isLocked": true
+        },
+        {
+          "id": "perf_images_missing_dimensions",
+          "pillar": "CYBER",
+          "category": "performance",
+          "severity": "LOW",
+          "confidence": "HIGH",
+          "ruleId": "RULE-PERF_IMAGES_MISSING_DIMENSIONS",
+          "title": "Image Elements Missing Explicit Dimensions (CLS Risk)",
+          "description": "22 of 24 images lack explicit width and height attributes. Browsers cannot allocate layout space before images load, causing content shifts during rendering.",
+          "evidence": "22/24 images missing width/height",
+          "impact": "Cumulative Layout Shift (CLS) Core Web Vital score degradation.",
+          "fixSnippet": "Specify explicit width and height attributes or CSS aspect-ratio on image tags.",
+          "isLocked": true
+        }
+      ],
+      "whatsappLinks": [],
+      "phoneLinks": [],
+      "emailLinks": [],
+      "reviewLinks": [],
+      "socialLinks": [
+        {
+          "platform": "instagram",
+          "url": "https://www.instagram.com/github",
+          "status": "WORKING",
+          "isValid": true
+        },
+        {
+          "platform": "youtube",
+          "url": "https://www.youtube.com/github",
+          "status": "WORKING",
+          "isValid": true
+        }
+      ],
+      "metaPixel": {
+        "exists": false,
+        "duplicate": false,
+        "status": "MISSING"
+      },
+      "googleTag": {
+        "tagId": "GA4_ACTIVE",
+        "status": "MISSING"
+      },
+      "seoPenalty": {
+        "hasNoIndex": false,
+        "hasNoFollow": false,
+        "isHttps": true,
+        "canonicalUrl": "https://github.com",
+        "canonicalStatus": "CONSISTENT",
+        "canonicalTags": [
+          "https://github.com"
+        ],
+        "status": "HEALTHY"
+      },
+      "cyberShield": {
+        "score": 95,
+        "spamGamblingDetected": false,
+        "spamKeywordsFound": [],
+        "obfuscatedScriptsDetected": false,
+        "base64HeavyScriptsCount": 0,
+        "hiddenIframesCount": 0,
+        "suspiciousRedirectDetected": false,
+        "cspStatus": "WEAK",
+        "cspHeaderValue": "default-src 'none'; base-uri 'self'; child-src github.githubassets.com github.com/assets-cdn/worker/ github.com/assets/ gist.github.com/assets-cdn/worker/; connect-src 'self' uploads.github.com www.githubstatus.com collector.github.com raw.githubusercontent.com api.github.com github-cloud.s3.amazonaws.com github-production-repository-file-5c1aeb.s3.amazonaws.com github-production-upload-manifest-file-7fdce7.s3.amazonaws.com github-production-user-asset-6210df.s3.amazonaws.com *.rel.tunnels.api.v",
+        "riskLevel": "CLEAN",
+        "diagnosis": "Clean security signature with active Content Security Policy."
+      },
+      "lockedIssuesCount": 5,
+      "freeIssue": {
+        "id": "wa_missing_widget",
+        "pillar": "LEAD",
+        "category": "whatsapp",
+        "severity": "MEDIUM",
+        "confidence": "HIGH",
+        "ruleId": "RULE-WA_MISSING_WIDGET",
+        "title": "No WhatsApp Direct Chat Button Detected",
+        "description": "No href matching wa.me or api.whatsapp.com was detected in page HTML. High-intent mobile visitors are forced through high-friction contact forms instead of 1-tap WhatsApp chat.",
+        "evidence": "Checked all HTML <a> tags for WhatsApp URL signatures.",
+        "impact": "Lower mobile conversion rates compared to competitors with instant chat widgets.",
+        "fixSnippet": "Deploy a floating 1-tap WhatsApp chat widget on high-converting landing pages.",
+        "isLocked": true
+      },
+      "performance": {
+        "fetchTimeMs": 5863,
+        "parseTimeMs": 1466,
+        "totalTimeMs": 7329,
+        "images": {
+          "totalImages": 24,
+          "lazyLoadedCount": 24,
+          "missingLazyCount": 0,
+          "modernFormatCount": 21,
+          "missingDimensionsCount": 22,
+          "responsiveCount": 0,
+          "status": "DETECTED"
+        }
+      },
+      "scannedAt": "2026-08-26T14:40:09.084Z",
+      "leadAuditData": {
+        "emails": [
+          "you@domain.com"
+        ],
+        "phones": [],
+        "whatsapp": [],
+        "forms": [
+          {
+            "action": "/signup",
+            "resolvedAction": "https://github.com/signup",
+            "isInternal": true,
+            "method": "GET",
+            "inputCount": 2,
+            "fields": [
+              "source",
+              "user_email"
+            ]
+          },
+          {
+            "action": "/signup",
+            "resolvedAction": "https://github.com/signup",
+            "isInternal": true,
+            "method": "GET",
+            "inputCount": 2,
+            "fields": [
+              "source",
+              "user_email"
+            ]
+          }
+        ],
+        "analytics": {
+          "gtag": false,
+          "googleTagManager": false,
+          "fbq": false,
+          "detected": []
+        },
+        "brokenLinks": [
+          {
+            "url": "https://docs.github.com/",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.blog/",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.blog/changelog",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/enterprise",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/enterprise/startups",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/features",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/features/actions",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/features/ai/github-app",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/features/code-quality",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/features/code-review",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/features/codespaces",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/features/copilot",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/features/issues",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/login",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/marketplace",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/mcp",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/security/advanced-security",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/security/advanced-security/code-security",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/security/advanced-security/secret-protection",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/solutions/industry/financial-services",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/solutions/industry/healthcare",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/solutions/industry/nonprofits",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/solutions/use-case",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/solutions/use-case/app-modernization",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/solutions/use-case/ci-cd",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/solutions/use-case/devops",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/solutions/use-case/devsecops",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/team",
+            "status": 200,
+            "broken": false
+          },
+          {
+            "url": "https://github.com/why-github",
+            "status": 200,
+            "broken": false
+          }
+        ],
+        "durationMs": 6062
+      },
+      "aiDiagnosticAdvice": "GitHub ka current setup high-intent leads aur retargeting data waste kar raha hai, jisse aapka marketing ROI directly hit ho raha hai. Sabse pehle Meta Pixel aur GA4 integrate kijiye taaki ad spend optimized ho, uske baad server response time fix karke bounce rate control mein laiye.",
+      "aiRemediation": {
+        "status": "PENDING",
+        "updatedAt": "2026-08-26T14:40:13.359Z"
+      }
+    }
+  ],
   "watchdogTargets": [
     {
       "id": "wd_default_1",
