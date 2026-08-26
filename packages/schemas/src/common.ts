@@ -15,7 +15,9 @@ export const actorContextSchema = z.object({
 export const successResponseSchema = <T extends z.ZodType>(data: T) => z.object({
   success: z.literal(true),
   data,
-  meta: z.record(z.string(), z.unknown()).optional(),
+  meta: z.object({
+    requestId: z.string().min(1).optional(),
+  }).passthrough().optional(),
 }).strict();
 
 export const errorResponseSchema = z.object({
@@ -24,6 +26,14 @@ export const errorResponseSchema = z.object({
     code: z.string().min(1),
     message: z.string().min(1),
     requestId: z.string().min(1).optional(),
+    details: z.union([
+      z.record(z.string(), z.unknown()),
+      z.array(z.unknown()),
+      z.string(),
+      z.number(),
+      z.boolean(),
+      z.null(),
+    ]).optional(),
   }).strict(),
 }).strict();
 

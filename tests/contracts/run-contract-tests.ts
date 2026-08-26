@@ -29,6 +29,8 @@ function testSchemas(): void {
   assertContract(!auditRequestSchema.safeParse({ url: '' }).success, 'rejects empty audit URL');
   actorContextSchema.parse({ authSource: 'anonymous' });
   assertContract(!errorResponseSchema.safeParse({ success: false, error: {} }).success, 'rejects incomplete error envelope');
+  assertContract(errorResponseSchema.safeParse({ success: false, error: { code: 'VALIDATION_ERROR', message: 'bad input', requestId: 'req_123', details: { field: 'url' } } }).success, 'accepts error envelope details');
+  assertContract(auditResponseEnvelopeSchema.safeParse({ success: true, data: { contractVersion: 'v6.audit.v1', scanId: 'scan_1', domain: 'example.com', targetUrl: 'https://example.com', status: 'COMPLETED', mode: 'LIVE', scannerVersion: 'compat', overallScore: 90, pillarScores: { lead: { score: 90 }, ad: { score: 90 }, seo: { score: 90 }, cyber: { score: 90 } }, findings: [], businessImpact: { criticalIssueCount: 0 }, createdAt: '2026-01-01T00:00:00.000Z', completedAt: '2026-01-01T00:00:00.000Z' }, meta: { requestId: 'req_123' } }).success, 'accepts success envelope request metadata');
   auditFindingSchema.parse({ id: 'finding_1', pillar: 'LEAD', category: 'whatsapp', severity: 'HIGH', title: 'Broken route', description: 'Route fails', impact: 'Lost lead' });
   assertContract(!auditFindingSchema.safeParse({ id: 'finding_1', pillar: 'LEAD', category: 'whatsapp', severity: 'HIGH' }).success, 'requires finding evidence fields');
   monitoringTargetRequestSchema.parse({ targetUrl: 'https://example.com', contact: 'alerts@example.com' });

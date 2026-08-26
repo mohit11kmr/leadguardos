@@ -1,7 +1,10 @@
 export interface SuccessResponse<T> {
   success: true;
   data: T;
-  meta?: Record<string, unknown>;
+  meta?: {
+    requestId?: string;
+    [key: string]: unknown;
+  };
 }
 
 export interface ErrorResponse {
@@ -10,6 +13,7 @@ export interface ErrorResponse {
     code: string;
     message: string;
     requestId?: string;
+    details?: Record<string, unknown> | unknown[] | string | number | boolean | null;
   };
 }
 
