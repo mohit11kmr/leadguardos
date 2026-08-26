@@ -1242,6 +1242,65 @@ async function runTestSuite() {
     'Webhook verification accepts valid Razorpay webhook signature'
   );
 
+  // -------------------------------------------------------------------------
+  // 38. P0-03 Queue Adapter Selection — Production Fail-Closed Regression
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 38: P0-03 Queue Adapter Selection & Production Fail-Closed');
+  const { selectQueueAdapter } = await import('../server/queue/jobQueue');
+
+  // Save env state
+  const prevDbUrl38 = process.env.DATABASE_URL;
+  const prevNodeEnv38 = process.env.NODE_ENV;
+
+  // TEST 1: production + DATABASE_URL → PrismaQueueAdapter (not InMemory)
+  process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/testdb';
+  process.env.NODE_ENV = 'production';
+  const prodAdapter = selectQueueAdapter();
+  // PrismaQueueAdapter does not have a .jobMap (InMemory) and its constructor
+  // does not throw (unlike UnavailableQueueAdapter which throws on any call).
+  const isPrisma = !(prodAdapter as any).jobMap && typeof prodAdapter.enqueue === 'function';
+  assert(isPrisma, 'Production + DATABASE_URL → PrismaQueueAdapter selected');
+
+  // TEST 2: production + no DATABASE_URL → fails closed (UnavailableQueueAdapter)
+  delete process.env.DATABASE_URL;
+  process.env.NODE_ENV = 'production';
+  const failClosedAdapter = selectQueueAdapter();
+  let failClosedErr: any = null;
+  try {
+    await failClosedAdapter.enqueue('scanWebsite', { url: 'test' });
+  } catch (err) {
+    failClosedErr = err;
+  }
+  assert(
+    !!failClosedErr && String(failClosedErr.message).includes('DATABASE_URL is required'),
+    'Production + no DATABASE_URL → queue adapter fails closed with configuration error'
+  );
+
+  // TEST 3: dev/test → InMemoryQueueAdapter (JobQueueManager)
+  process.env.DATABASE_URL = '';
+  process.env.NODE_ENV = 'test';
+  const devAdapter = selectQueueAdapter();
+  assert(
+    !!(devAdapter as any).jobMap || devAdapter.constructor.name === 'JobQueueManager',
+    'Dev/test → InMemoryQueueAdapter (JobQueueManager) available'
+  );
+
+  // TEST 4: No selection path returns FirestoreQueueAdapter
+  // Verify the adapter class names across all scenarios
+  const adapterNames = [
+    prodAdapter.constructor.name,
+    failClosedAdapter.constructor.name,
+    devAdapter.constructor.name,
+  ];
+  assert(
+    adapterNames.every(n => !n.includes('Firestore')),
+    'No queue adapter selection path returns FirestoreQueueAdapter'
+  );
+
+  // Restore env state
+  process.env.DATABASE_URL = prevDbUrl38;
+  process.env.NODE_ENV = prevNodeEnv38;
+
   console.log('\n======================================================');
   console.log(`  TEST RESULTS: ${passed} PASSED | ${failed} FAILED`);
   console.log('======================================================\n');

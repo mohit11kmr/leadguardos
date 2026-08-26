@@ -176,10 +176,6 @@ export class JobQueueManager implements QueueAdapter {
 }
 
 /**
- * Firestore-backed durable queue adapter.
- * Production authority for job state, retry scheduling, and crash recovery.
- */
-/**
  * PostgreSQL-backed durable queue adapter (production authority).
  *
  * Claiming uses `FOR UPDATE SKIP LOCKED` — the canonical Postgres pattern for
@@ -367,7 +363,7 @@ class UnavailableQueueAdapter implements QueueAdapter {
   clear(): Promise<void> { return Promise.reject(this.reject()); }
 }
 
-function selectQueueAdapter(): QueueAdapter {
+export function selectQueueAdapter(): QueueAdapter {
   if (isPgEnabled()) return new PrismaQueueAdapter();
   if (process.env.NODE_ENV === 'production') return new UnavailableQueueAdapter();
   return JobQueueManager.getInstance(); // dev/test only
