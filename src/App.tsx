@@ -17,6 +17,7 @@ import { BlogHubView } from './components/BlogHubView';
 import { PublicReportView } from './components/PublicReportView';
 import { ScanCounterStats } from './components/ScanCounterStats';
 import { Footer } from './components/Footer';
+import { MarketingHome } from './components/MarketingHome';
 
 // Modals
 import { WatchdogModal } from './components/WatchdogModal';
@@ -63,6 +64,7 @@ export default function App() {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isServicesOpen, setIsServicesOpen] = useState(false);
   const [customReviews, setCustomReviews] = useState<ReviewItem[]>([]);
+  const isPublicExperience = activeTab === 'audit' && !auditResult;
 
   const handleAddReview = (newReview: Omit<ReviewItem, 'id' | 'approved' | 'date'>) => {
     const item: ReviewItem = {
@@ -187,17 +189,26 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-rose-500 selection:text-white flex flex-col">
       
-      {/* Top V3 Enterprise Navigation */}
-      <Navbar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onSelectSample={handleScan}
-        onOpenContact={() => setIsContactOpen(true)}
-        onOpenAuth={() => setIsAuthOpen(true)}
-      />
+      {isPublicExperience ? (
+        <MarketingHome
+          onScan={handleScan}
+          isLoading={isLoading}
+          activeUrl={activeUrl}
+          setActiveTab={setActiveTab}
+          stats={globalStats}
+        />
+      ) : <>
+        {/* Top V3 Enterprise Navigation */}
+        <Navbar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onSelectSample={handleScan}
+          onOpenContact={() => setIsContactOpen(true)}
+          onOpenAuth={() => setIsAuthOpen(true)}
+        />
 
-      {/* Main Content Area */}
-      <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 flex-1 space-y-8">
+        {/* Main Content Area */}
+        <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 flex-1 space-y-8">
         
         {/* Error Alert Toast */}
         {errorMessage && (
@@ -320,7 +331,8 @@ export default function App() {
           <BlogHubView onOpenExpressFix={() => setIsExpressFixOpen(true)} />
         )}
 
-      </main>
+        </main>
+      </>}
 
       {/* Footer */}
       <Footer
