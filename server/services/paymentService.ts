@@ -19,16 +19,7 @@ export interface Order {
   updatedAt: string;
 }
 
-/**
- * Payment event idempotency is handled durably by paymentEventRepository.claim().
- * The previous in-memory Set has been removed — it was lost on process restart.
- *
- * @see server/repositories/paymentEventRepository.ts
- * @deprecated Use paymentEventRepository.claim() directly
- */
 export function isEventIdempotent(_eventId: string): boolean {
-  // This function is retained for backward compatibility but is a NO-OP.
-  // All callers should use paymentEventRepository.claim() instead.
   console.warn('[PaymentService] isEventIdempotent() is deprecated. Use paymentEventRepository.claim() for durable idempotency.');
   return true;
 }
@@ -87,22 +78,15 @@ export function verifyRazorpayWebhookSignature(
 
 export const verifyWebhookSignature = verifyRazorpayWebhookSignature;
 
-// ─── Stripe Webhook Signature Verification (official algorithm) ────────────────
-// Implements Stripe's documented scheme: signed payload is
-// `{timestamp}.{rawBody}`, HMAC-SHA256 with the webhook secret (whsec_...),
-// compared against the v1 signature using timing-safe equality.
-// Tolerance window rejects replayed events.
-
 export interface StripeSignatureResult {
   valid: boolean;
   reason?: string;
   eventAgeSeconds?: number;
 }
 
-const STRIPE_DEFAULT_TOLERANCE_SECONDS = 300; // 5 minutes per Stripe docs
+const STRIPE_DEFAULT_TOLERANCE_SECONDS = 300;
 
 function parseStripeSecret(secret: string): { timestamp: string; signatures: string[] } | null {
-  // Format: "t=1614556800,v1=5257a869...,v1=..."
   const parts = secret.split(',');
   let timestamp: string | undefined;
   const signatures: string[] = [];
@@ -126,7 +110,6 @@ export function verifyStripeWebhookSignature(
     if (!rawBody || !header || !webhookSecret) {
       return { valid: false, reason: 'MISSING_INPUTS' };
     }
-    // Strip whsec_ prefix if present — the signing key material follows it.
     const keyMaterial = webhookSecret.startsWith('whsec_') ? webhookSecret.slice(6) : webhookSecret;
 
     const parsed = parseStripeSecret(header);
@@ -157,24 +140,73 @@ export function verifyStripeWebhookSignature(
   }
 }
 
-// ─── Cashfree Webhook Signature Verification (official algorithm) ──────────────
-// Cashfree App/Prod webhooks sign the RAW body with base64(HMAC-SHA256(body,
-// client_secret)) delivered in `x-webhook-signature` (v2/v3) — verified
-// byte-for-byte with timing-safe comparison.
+export interface StripeSignatureResult {
+  valid: boolean;
+  reason?: string;
+  eventAgeSeconds?: number;
+}
+
+const STRIPE_DEFAULT_TOLERANCE_SECONDS = 300;
+
+import crypto from 'crypto';
+
+export interface CashfreeSignatureResult {
+  valid: boolean;
+  reason?: string;
+  eventAgeSeconds?: number;
+}
+
+const CASHFREE_DEFAULT_TOLERANCE_SECONDS = 300;
 
 export function verifyCashfreeWebhookSignature(
   rawBody: string | Buffer,
   signature: string,
   clientSecret: string,
-): boolean {
+  toleranceSeconds = 300,
+): CashfreeSignatureResult {
+  if (!rawBody || !signature || !clientSecret) {
+    return { valid: false, reason: 'MISSING_INPUTS' };
+  }
+  const bodyStr = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
+  const expected = crypto.createHmac('sha256', clientSecret).update(bodyStr).digest('base64');
+  const provided = signature.trim();
+  if (provided.length !== expected.length) {
+    return { valid: false, reason: 'SIGNATURE_LENGTH_MISMATCH' };
+  }
+  if (!crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected))) {
+    return { valid: false, reason: 'SIGNATURE_MISMATCH' };
+  }
+
+  let payload = null;
   try {
-    if (!rawBody || !signature || !clientSecret) return false;
-    const bodyStr = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
-    const expected = crypto.createHmac('sha256', clientSecret).update(bodyStr).digest('base64');
-    const provided = signature.trim();
-    if (provided.length !== expected.length) return false;
-    return crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+    payload = JSON.parse(bodyStr);
   } catch {
-    return false;
+    payload = null;
+  }
+
+  if (payload) {
+    const timestamp = payload?.timestamp || payload?.event_time || payload?.created_at;
+    if (timestamp) {
+      const eventTime = typeof timestamp === 'number' ? timestamp : parseInt(timestamp, 10);
+      if (Number.isFinite(eventTime)) {
+        const age = Math.floor(Date.now() / 1000) - eventTime;
+        if (Math.abs(age) > toleranceSeconds) {
+          return { valid: false, reason: 'TIMESTAMP_OUT_OF_TOLERANCE', eventAgeSeconds: age };
+        }
+        return { valid: true, eventAgeSeconds: age };
+      }
+    }
+
+    return { valid: true };
+  } catch {
+    return { valid: false, reason: 'VERIFICATION_ERROR' };
   }
 }
+
+export interface CashfreeSignatureResult {
+  valid: boolean;
+  reason?: string;
+  eventAgeSeconds?: number;
+}
+
+const CASHFREE_DEFAULT_TOLERANCE_SECONDS = 300;

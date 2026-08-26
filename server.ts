@@ -1254,7 +1254,11 @@ app.post("/api/payments/webhook", async (req: RawBodyRequest, res: Response) => 
     return res.status(400).json({ error: "Missing webhook signature" });
   }
 
-  const secret = process.env.RAZORPAY_KEY_SECRET || (process.env.NODE_ENV === "production" ? "" : "leadguard_dev_razorpay_secret");
+  const secret = process.env.RAZORPAY_KEY_SECRET;
+  if (!secret) {
+    AuditLogger.log({ action: "PAYMENT_WEBHOOK_FAILED", resource: "WEBHOOK", details: { reason: "RAZORPAY_KEY_SECRET not configured" } });
+    return res.status(503).json({ error: "Payment provider secret not configured" });
+  }
   const isValid = verifyWebhookSignature(payload, signature, secret);
   if (!isValid) {
     AuditLogger.log({ action: "PAYMENT_WEBHOOK_FAILED", resource: "WEBHOOK", details: { reason: "Invalid HMAC signature" } });
@@ -1457,6 +1461,11 @@ import { AuditLogger } from "./server/observability/auditLogger";
 import { ApiKeyManager } from "./server/security/apiKeyManager";
 
 async function startServer() {
+  // Validate required AI configuration at startup
+  if (process.env.NODE_ENV === 'production' && !process.env.OPENAI_API_KEY) {
+    console.warn('[STARTUP WARNING] OPENAI_API_KEY not set — AI remediation will be unavailable');
+  }
+
   // Start background watchdog heartbeat & background queue worker
   watchdogScheduler.start(60000);
   backgroundWorker.start(1000);

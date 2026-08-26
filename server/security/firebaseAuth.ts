@@ -2,6 +2,13 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
+/**
+ * @deprecated Firebase Authentication is deprecated and will be removed in v2.0.0.
+ * Use PostgreSQL-backed JWT authentication (see authService.ts) instead.
+ * This module remains for transitional compatibility only.
+ * Removal target: 2025-Q3.
+ */
+
 export interface FirebaseVerifiedToken {
   uid: string;
   email?: string;
@@ -33,10 +40,18 @@ function decodeBase64UrlJson<T>(segment: string): T {
 }
 
 function getFirebaseProjectId(explicitProjectId?: string): string | null {
+  // P1-08: Firebase project ID must come from environment variables only.
+  // The firebase-applet-config.json is for development only.
   if (explicitProjectId || process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT) {
     return explicitProjectId || process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || null;
   }
 
+  // In production, require explicit env var — no config file fallback.
+  if (process.env.NODE_ENV === 'production') {
+    return null;
+  }
+
+  // Development fallback to config file (legacy)
   try {
     const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
     const raw = fs.readFileSync(configPath, 'utf8');
@@ -74,10 +89,14 @@ async function fetchFirebaseCerts(): Promise<Record<string, string>> {
   const cacheControl = response.headers.get('cache-control') || '';
   const maxAgeMatch = /max-age=(\d+)/i.exec(cacheControl);
   const maxAgeSeconds = maxAgeMatch ? Number(maxAgeMatch[1]) : 3600;
+  
+  // P1-07: Cap cert cache TTL at 1 hour (3600s) to ensure rotation on key rotation
+  const cappedMaxAgeSeconds = Math.min(maxAgeSeconds, 3600);
+  
   const certs = await response.json() as Record<string, string>;
   cachedCerts = {
     certs,
-    expiresAtMs: now + Math.max(60, maxAgeSeconds - 60) * 1000,
+    expiresAtMs: now + Math.max(60, cappedMaxAgeSeconds - 60) * 1000,
   };
   return certs;
 }
@@ -86,6 +105,10 @@ export async function verifyFirebaseIdToken(
   token: string,
   options: FirebaseVerifyOptions = {}
 ): Promise<FirebaseVerifiedToken | null> {
+  // DEPRECATION WARNING: Firebase Auth is deprecated. Use PostgreSQL JWT auth instead.
+  // This function will be removed in v2.0.0 (target: 2025-Q3).
+  console.warn('[DEPRECATED] verifyFirebaseIdToken() is deprecated. Use PostgreSQL JWT authentication (authService.ts) instead. See MIGRATION.md for migration guide.');
+  
   try {
     const projectId = getFirebaseProjectId(options.projectId);
     if (!projectId) return null;

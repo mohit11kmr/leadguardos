@@ -161,20 +161,9 @@ async function checkRateLimit(key: string, limit: number, windowMs: number): Pro
   }
 
   if (isProduction) {
-    if (!isFirebaseConfigured()) {
-      // Shared enforcement is REQUIRED in production — refuse to degrade.
-      throw new Error('RATE_LIMIT_SHARED_STORE_UNAVAILABLE: Firestore not configured for shared rate limiting');
-    }
-    try {
-      return await checkFirestoreRateLimit(key, limit, windowMs);
-    } catch (err) {
-      const mode = rateLimitFailureMode();
-      console.error(`[RateLimiter] Shared limiter error (${mode}):`, err instanceof Error ? err.message : err);
-      if (mode === 'fail-closed') {
-        throw new Error('RATE_LIMIT_SHARED_STORE_UNAVAILABLE: shared counter unreachable');
-      }
-      return { allowed: true, remaining: limit };
-    }
+    // Production MUST use PostgreSQL-backed rate limiting.
+    // No Firestore fallback — if PG is unavailable, fail closed.
+    throw new Error('RATE_LIMIT_SHARED_STORE_UNAVAILABLE: PostgreSQL required for rate limiting in production');
   }
 
   return checkMemoryRateLimit(key, limit, windowMs);

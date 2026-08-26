@@ -47,6 +47,10 @@ export class ReportManager {
   /**
    * Durable create: AWAITS persistence so the link is guaranteed readable by
    * any instance immediately after this call resolves.
+   *
+   * Token entropy: 32 bytes (256 bits) from crypto.randomBytes, encoded as
+   * 64-char hex string. Collision probability is negligible (~2^-128 for
+   * 2^64 tokens per birthday bound).
    */
   public async createShareableSnapshotAsync(auditResult: AuditResult, password?: string, ttlDays = 30): Promise<ShareableSnapshot> {
     // Generate high-entropy 64-char random token
