@@ -157,7 +157,7 @@ export default function App() {
         <div className="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center animate-pulse">
           <Shield className="h-6 w-6 text-rose-500" />
         </div>
-        <p className="text-sm font-semibold text-slate-300">Retrieving Verified LeadGuard Forensic Report...</p>
+        <p className="text-sm font-semibold text-slate-300">Retrieving Verified LeadGuard Audit Report...</p>
       </div>
     );
   }
@@ -240,6 +240,7 @@ export default function App() {
                 onOpenExpressFix={() => setIsExpressFixOpen(true)}
                 onOpenAlerts={() => setIsAlertsOpen(true)}
                 onOpenShareModal={() => setIsShareModalOpen(true)}
+                onRescan={handleScan}
               />
             )}
 

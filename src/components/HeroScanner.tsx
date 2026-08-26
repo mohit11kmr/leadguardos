@@ -57,7 +57,7 @@ export const HeroScanner: React.FC<HeroScannerProps> = ({ onScan, isLoading, act
           {/* Badge */}
           <div className="inline-flex items-center gap-2 rounded-full border border-rose-500/30 bg-rose-500/10 px-3.5 py-1 text-xs font-semibold text-rose-300 shadow-md">
             <span className="h-1.5 w-1.5 rounded-full bg-rose-400 animate-pulse"></span>
-            <span>Instant Forensic Lead Audit</span>
+            <span>Instant 30-Second Website Audit</span>
           </div>
 
           {/* Headline */}
