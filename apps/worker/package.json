@@ -1,0 +1,11 @@
+{
+  "name": "@leadguard/worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/worker.ts",
+    "build": "esbuild src/worker.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/worker.mjs",
+    "start": "node dist/worker.mjs"
+  }
+}
