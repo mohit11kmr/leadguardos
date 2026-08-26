@@ -42,9 +42,29 @@ export function validateEnvironment(): EnvValidationResult {
     }
   }
 
-  // 3. Database URL Validation
-  if (isProd && storageMode === 'local') errors.push('STORAGE_MODE=local is forbidden in production');
-  if (isProd && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.FIREBASE_PRIVATE_KEY && process.env.K_SERVICE !== 'true') errors.push('Firestore credentials are required in production');
+  // 3. Database URL Validation (PostgreSQL is production authority)
+  if (isProd && !databaseUrl) {
+    errors.push('DATABASE_URL is required in production (PostgreSQL is authoritative)');
+  }
+  if (isProd && storageMode === 'local') {
+    errors.push('STORAGE_MODE=local is forbidden in production');
+  }
+
+  // 4. AI Service Configuration Validation (Optional Features)
+  const openAiKey = process.env.OPENAI_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!openAiKey && !geminiKey) {
+    warnings.push('No AI API key set (OPENAI_API_KEY or GEMINI_API_KEY). AI remediation is disabled; core scanning functions normally.');
+  } else {
+    if (openAiKey && (openAiKey.length < 20 || openAiKey.includes('dummy') || openAiKey.includes('placeholder'))) {
+      if (isProd) errors.push('OPENAI_API_KEY appears invalid or is a placeholder in production');
+      else warnings.push('OPENAI_API_KEY appears to be a placeholder');
+    }
+    if (geminiKey && (geminiKey.length < 20 || geminiKey.includes('dummy') || geminiKey.includes('placeholder'))) {
+      if (isProd) errors.push('GEMINI_API_KEY appears invalid or is a placeholder in production');
+      else warnings.push('GEMINI_API_KEY appears to be a placeholder');
+    }
+  }
 
   const result: EnvValidationResult = {
     valid: errors.length === 0,

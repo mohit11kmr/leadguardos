@@ -103,7 +103,10 @@ export function buildRemediationFindings(findings: unknown): Array<Record<string
   });
 }
 
-export async function generateRemediation(findings: unknown[], timeoutMs = 8000): Promise<RemediationResult> {
+export async function generateRemediation(
+  findings: unknown[],
+  timeoutMs = Number(process.env.AI_REMEDIATION_TIMEOUT_MS) || 8000
+): Promise<RemediationResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { status: 'FAILED', error: 'AI remediation is not configured.' };
 

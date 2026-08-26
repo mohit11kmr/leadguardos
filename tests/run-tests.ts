@@ -1383,6 +1383,97 @@ async function runTestSuite() {
   process.env.NODE_ENV = prevEnv39;
   process.env.DATABASE_URL = prevDb39;
 
+  // -------------------------------------------------------------------------
+  // 40. P1 Remediation Closure & Verification Suite
+  // -------------------------------------------------------------------------
+  console.log('\n📌 Test Suite 40: P1 Remediation Closure & Verification');
+
+  // 40.1 CSP Header Inspection (P1-10)
+  const { SecurityDetector: SecurityDetector40 } = await import('../server/scanner/detectors/security');
+  
+  // Missing CSP
+  const resMissingCsp = SecurityDetector40.analyzeSecurity('<html><body>Clean page</body></html>', {});
+  assert(resMissingCsp.cyberShield.cspStatus === 'MISSING', 'SecurityDetector flags missing CSP header');
+  assert(resMissingCsp.findings.some(f => f.id === 'security_missing_csp'), 'SecurityDetector adds security_missing_csp finding');
+
+  // Weak CSP (unsafe-inline / wildcard)
+  const resWeakCsp = SecurityDetector40.analyzeSecurity('<html><body>Clean page</body></html>', {
+    'content-security-policy': "default-src *; script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  });
+  assert(resWeakCsp.cyberShield.cspStatus === 'WEAK', 'SecurityDetector classifies permissive CSP as WEAK');
+  assert(resWeakCsp.findings.some(f => f.id === 'security_weak_csp'), 'SecurityDetector adds security_weak_csp finding');
+
+  // Strong CSP
+  const resStrongCsp = SecurityDetector40.analyzeSecurity('<html><body>Clean page</body></html>', {
+    'content-security-policy': "default-src 'self'; script-src 'self' https://trusted.cdn.com; object-src 'none'",
+  });
+  assert(resStrongCsp.cyberShield.cspStatus === 'STRONG', 'SecurityDetector classifies restrictive CSP as STRONG');
+  assert(!resStrongCsp.findings.some(f => f.id.startsWith('security_')), 'SecurityDetector produces 0 security findings for clean page with strong CSP');
+
+  // 40.2 SEO Canonical URL Validation (P1-11a)
+  const { SeoDetector: SeoDetector40 } = await import('../server/scanner/detectors/seo');
+
+  // Missing canonical
+  const resMissingCan = SeoDetector40.analyzeSeo('<html><head></head></html>', 'https://example.com/page');
+  assert(resMissingCan.seoPenalty.canonicalStatus === 'MISSING', 'SeoDetector classifies missing canonical tag as MISSING');
+  assert(resMissingCan.findings.some(f => f.id === 'seo_missing_canonical'), 'SeoDetector adds seo_missing_canonical finding with INDEXABILITY RISK');
+
+  // Multiple conflicting canonical tags
+  const resMultiCan = SeoDetector40.analyzeSeo(
+    '<html><head><link rel="canonical" href="https://example.com/a"><link rel="canonical" href="https://example.com/b"></head></html>',
+    'https://example.com/a'
+  );
+  assert(resMultiCan.seoPenalty.canonicalStatus === 'MULTIPLE', 'SeoDetector detects multiple conflicting canonical tags');
+  assert(resMultiCan.findings.some(f => f.id === 'seo_multiple_canonical'), 'SeoDetector adds seo_multiple_canonical finding');
+
+  // Relative canonical
+  const resRelCan = SeoDetector40.analyzeSeo('<html><head><link rel="canonical" href="/products/item"></head></html>', 'https://example.com/products/item');
+  assert(resRelCan.seoPenalty.canonicalStatus === 'RELATIVE', 'SeoDetector detects relative canonical URL');
+  assert(resRelCan.findings.some(f => f.id === 'seo_relative_canonical'), 'SeoDetector adds seo_relative_canonical finding');
+
+  // Cross-origin canonical
+  const resCrossCan = SeoDetector40.analyzeSeo('<html><head><link rel="canonical" href="https://other-site.com/post"></head></html>', 'https://example.com/post');
+  assert(resCrossCan.seoPenalty.canonicalStatus === 'CROSS_ORIGIN', 'SeoDetector detects cross-origin canonical URL');
+  assert(resCrossCan.findings.some(f => f.id === 'seo_cross_origin_canonical'), 'SeoDetector adds seo_cross_origin_canonical finding');
+
+  // Consistent canonical
+  const resConsCan = SeoDetector40.analyzeSeo('<html><head><link rel="canonical" href="https://example.com/about"></head></html>', 'https://example.com/about');
+  assert(resConsCan.seoPenalty.canonicalStatus === 'CONSISTENT', 'SeoDetector detects consistent canonical tag');
+
+  // 40.3 Performance Bounded Image Optimization Diagnostics (P1-11b)
+  const { PerformanceDetector: PerformanceDetector40 } = await import('../server/scanner/detectors/performance');
+  const sampleHtml = `
+    <html><body>
+      <img src="/img1.png">
+      <img src="/img2.jpg">
+      <img src="/img3.gif">
+      <img src="/img4.jpeg">
+    </body></html>
+  `;
+  const resPerf = PerformanceDetector40.analyzePerformance(sampleHtml.length, 500, sampleHtml);
+  assert(resPerf.performance.images?.totalImages === 4, 'PerformanceDetector bounds and detects image count');
+  assert(resPerf.performance.images?.lazyLoadedCount === 0, 'PerformanceDetector detects missing lazy attributes');
+  assert(resPerf.performance.images?.modernFormatCount === 0, 'PerformanceDetector detects legacy image formats');
+  assert(resPerf.findings.some(f => f.id === 'perf_images_missing_lazy_loading'), 'PerformanceDetector emits perf_images_missing_lazy_loading finding');
+  assert(resPerf.findings.some(f => f.id === 'perf_legacy_image_formats'), 'PerformanceDetector emits perf_legacy_image_formats finding');
+  assert(resPerf.findings.some(f => f.id === 'perf_images_missing_dimensions'), 'PerformanceDetector emits perf_images_missing_dimensions finding');
+
+  // 40.4 Firebase Cert Cache and Rotation (P1-07)
+  const { verifyFirebaseIdToken: verifyFirebaseIdToken40, clearFirebaseCertCache } = await import('../server/security/firebaseAuth');
+  clearFirebaseCertCache();
+  const resInvalidToken = await verifyFirebaseIdToken40('invalid.token.payload', { projectId: 'test-project' });
+  assert(resInvalidToken === null, 'verifyFirebaseIdToken rejects malformed token safely');
+
+  // 40.5 Environment & AI Configuration (P1-05)
+  const { validateEnvironment: validateEnvironment40 } = await import('../server/config/envValidator');
+  const devEnvCheck = validateEnvironment40();
+  assert(devEnvCheck.valid === true, 'validateEnvironment passes dev/test boot cleanly without forcing optional AI');
+
+  // 40.6 Worker & Queue Adapter Resolution (P1-04)
+  const { selectQueueAdapter: selectQueueAdapter40 } = await import('../server/queue/jobQueue');
+  const resolvedAdapter = selectQueueAdapter40();
+  assert(!!resolvedAdapter, 'selectQueueAdapter returns active queue adapter instance');
+
   console.log('\n======================================================');
   console.log(`  TEST RESULTS: ${passed} PASSED | ${failed} FAILED`);
   console.log('======================================================\n');

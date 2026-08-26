@@ -1,6 +1,12 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
+import { requirePgInProduction } from './server/db/storageMode';
 import { jobQueue, QueueJobPayload } from './server/queue/jobQueue';
 import { RetryPolicy } from './server/queue/retryPolicy';
 import { executeJobByType } from './server/queue/executors/index';
+
+requirePgInProduction();
 
 console.log('🚀 LeadGuard OS Standalone Production Background Worker Started');
 console.log('📡 Listening for async scan, watchdog, webhook, notification, PDF, and AI jobs...');

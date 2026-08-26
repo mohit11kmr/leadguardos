@@ -256,7 +256,6 @@ class PrismaQueueAdapter implements QueueAdapter {
 
   async claimNext(workerId: string): Promise<QueueJobPayload | undefined> {
     const prisma = await this.db();
-    const leaseInterval = `${DEFAULT_LEASE_MS} milliseconds`;
 
     // Phase 1: claim a due QUEUED job atomically.
     const claimed = await prisma.$queryRaw<any[]>`
@@ -265,7 +264,7 @@ class PrismaQueueAdapter implements QueueAdapter {
           "workerId" = ${workerId},
           "attempt" = "attempt" + 1,
           "startedAt" = (NOW() AT TIME ZONE 'utc'),
-          "leaseExpiresAt" = (NOW() AT TIME ZONE 'utc') + ${leaseInterval}::interval
+          "leaseExpiresAt" = (NOW() AT TIME ZONE 'utc') + (${DEFAULT_LEASE_MS} * interval '1 millisecond')
       WHERE "id" = (
         SELECT "id" FROM "JobExecution"
         WHERE "status" = 'QUEUED' AND "nextAttemptAt" <= (NOW() AT TIME ZONE 'utc')
@@ -285,7 +284,7 @@ class PrismaQueueAdapter implements QueueAdapter {
           "previousWorkerId" = "workerId",
           "attempt" = "attempt" + 1,
           "startedAt" = (NOW() AT TIME ZONE 'utc'),
-          "leaseExpiresAt" = (NOW() AT TIME ZONE 'utc') + ${leaseInterval}::interval,
+          "leaseExpiresAt" = (NOW() AT TIME ZONE 'utc') + (${DEFAULT_LEASE_MS} * interval '1 millisecond'),
           "recoveryCount" = "recoveryCount" + 1,
           "recoveredAt" = (NOW() AT TIME ZONE 'utc')
       WHERE "id" = (

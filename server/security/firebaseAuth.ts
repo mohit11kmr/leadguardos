@@ -71,13 +71,13 @@ function getAdminFirebaseUids(): Set<string> {
   );
 }
 
-async function fetchFirebaseCerts(): Promise<Record<string, string>> {
+async function fetchFirebaseCerts(forceRefresh = false): Promise<Record<string, string>> {
   if (process.env.FIREBASE_AUTH_CERTS_JSON) {
     return JSON.parse(process.env.FIREBASE_AUTH_CERTS_JSON) as Record<string, string>;
   }
 
   const now = Date.now();
-  if (cachedCerts && cachedCerts.expiresAtMs > now) {
+  if (!forceRefresh && cachedCerts && cachedCerts.expiresAtMs > now) {
     return cachedCerts.certs;
   }
 
@@ -90,7 +90,7 @@ async function fetchFirebaseCerts(): Promise<Record<string, string>> {
   const maxAgeMatch = /max-age=(\d+)/i.exec(cacheControl);
   const maxAgeSeconds = maxAgeMatch ? Number(maxAgeMatch[1]) : 3600;
   
-  // P1-07: Cap cert cache TTL at 1 hour (3600s) to ensure rotation on key rotation
+  // P1-07: Cap cert cache TTL at 1 hour (3600s) to ensure fresh rotation
   const cappedMaxAgeSeconds = Math.min(maxAgeSeconds, 3600);
   
   const certs = await response.json() as Record<string, string>;
@@ -99,6 +99,10 @@ async function fetchFirebaseCerts(): Promise<Record<string, string>> {
     expiresAtMs: now + Math.max(60, cappedMaxAgeSeconds - 60) * 1000,
   };
   return certs;
+}
+
+export function clearFirebaseCertCache(): void {
+  cachedCerts = null;
 }
 
 export async function verifyFirebaseIdToken(
@@ -129,8 +133,19 @@ export async function verifyFirebaseIdToken(
     if (!payload.exp || payload.exp <= nowSeconds) return null;
     if (!payload.iat || payload.iat > nowSeconds + 300) return null;
 
-    const certs = options.certs || await fetchFirebaseCerts();
-    const publicKey = certs[header.kid];
+    let certs = options.certs || await fetchFirebaseCerts(false);
+    let publicKey = certs[header.kid];
+
+    // P1-07: If key ID not found in cache, force refresh once to handle Google key rotation
+    if (!publicKey && !options.certs) {
+      try {
+        certs = await fetchFirebaseCerts(true);
+        publicKey = certs[header.kid];
+      } catch {
+        // network error or endpoint unreachable
+      }
+    }
+
     if (!publicKey) return null;
 
     const verifier = crypto.createVerify('RSA-SHA256');

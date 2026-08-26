@@ -373,7 +373,7 @@ export class WatchdogRepository implements IWatchdogRepository {
       const result = await prisma.$queryRaw<any[]>`
         UPDATE "Watchdog"
         SET "leaseOwner" = ${workerId},
-            "leaseExpiresAt" = (NOW() AT TIME ZONE 'utc') + ${leaseInterval}::interval
+            "leaseExpiresAt" = (NOW() AT TIME ZONE 'utc') + (${leaseDurationMs} * interval '1 millisecond')
         WHERE "id" = ${targetId}
           AND (
             "leaseOwner" IS NULL

@@ -90,7 +90,7 @@ export class ScanOrchestrator {
     }
 
     const trackingResult = TrackingDetector.analyzeTracking(html, runtimePings);
-    const perfResult = PerformanceDetector.analyzePerformance(html.length, Date.now() - startTime);
+    const perfResult = PerformanceDetector.analyzePerformance(html.length, Date.now() - startTime, html);
 
     // Combine All Standard Findings
     const allFindings: StandardFinding[] = [
