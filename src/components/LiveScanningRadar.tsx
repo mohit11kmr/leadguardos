@@ -1,180 +1,148 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, ShieldCheck, CheckCircle2, AlertTriangle, Radio, Sparkles, Zap, Globe, Lock, Cpu } from 'lucide-react';
+import { Loader2, CheckCircle2, Circle, Radio, Globe, Shield, Zap, Target, SearchCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface LiveScanningRadarProps {
   targetUrl: string;
 }
 
-interface ScanStepItem {
+interface DiagnosticStage {
   id: string;
   label: string;
-  detail: string;
+  subtext: string;
   icon: any;
-  status: 'PENDING' | 'RUNNING' | 'COMPLETED';
 }
 
 export const LiveScanningRadar: React.FC<LiveScanningRadarProps> = ({ targetUrl }) => {
-  const [progress, setProgress] = useState(12);
-  const [activeStepIndex, setActiveStepIndex] = useState(0);
+  const [progress, setProgress] = useState(15);
+  const [activeStage, setActiveStage] = useState(0);
 
-  const steps: ScanStepItem[] = [
+  const stages: DiagnosticStage[] = [
     {
-      id: 'dns',
-      label: 'DNS & SSL Encryption Handshake',
-      detail: 'Pinging host server and validating SSL certificates...',
-      icon: Lock,
-      status: activeStepIndex > 0 ? 'COMPLETED' : activeStepIndex === 0 ? 'RUNNING' : 'PENDING',
+      id: 'availability',
+      label: 'Checking website availability & SSL handshake',
+      subtext: 'Verifying DNS resolution and HTTPS encryption certificates',
+      icon: Globe,
     },
     {
-      id: 'wa',
-      label: 'WhatsApp Mobile Routing & Prefix Probe',
-      detail: 'Scanning for broken +9191 prefixes and blank chat zero-intent leaks...',
+      id: 'whatsapp',
+      label: 'Inspecting WhatsApp buttons for +9191 routing errors',
+      subtext: 'Checking mobile click-to-chat links, country codes, and pre-filled texts',
       icon: Radio,
-      status: activeStepIndex > 1 ? 'COMPLETED' : activeStepIndex === 1 ? 'RUNNING' : 'PENDING',
     },
     {
-      id: 'pixel',
-      label: 'Meta Pixel & GA4 Attribution Crawler',
-      detail: 'Inspecting DOM for fbq("init") scripts and Google Tag Manager IDs...',
+      id: 'phone',
+      label: 'Verifying click-to-call dialers and contact forms',
+      subtext: 'Inspecting tel: protocol links and submission handlers',
+      icon: Target,
+    },
+    {
+      id: 'analytics',
+      label: 'Scanning Meta Pixel and Google Analytics 4 tags',
+      subtext: 'Checking conversion tracking scripts and ad attribution setup',
       icon: Zap,
-      status: activeStepIndex > 2 ? 'COMPLETED' : activeStepIndex === 2 ? 'RUNNING' : 'PENDING',
-    },
-    {
-      id: 'tel',
-      label: 'Telephony & Review Anchor Health',
-      detail: 'Verifying Click-to-Call (tel:) buttons and Google Business Profile links...',
-      icon: ShieldCheck,
-      status: activeStepIndex > 3 ? 'COMPLETED' : activeStepIndex === 3 ? 'RUNNING' : 'PENDING',
     },
     {
       id: 'seo',
-      label: 'SEO Visibility & Robots Directives',
-      detail: 'Scanning <meta name="robots"> for accidental noindex ranking penalties...',
-      icon: Globe,
-      status: activeStepIndex > 4 ? 'COMPLETED' : activeStepIndex === 4 ? 'RUNNING' : 'PENDING',
+      label: 'Checking SEO indexing directives and canonical tags',
+      subtext: 'Verifying robots noindex tags and search engine crawler visibility',
+      icon: SearchCheck,
     },
     {
-      id: 'ai',
-      label: 'AI Revenue Loss Synthesis',
-      detail: 'Synthesizing forensic financial risk and generating 1-click fix code...',
-      icon: Cpu,
-      status: activeStepIndex > 5 ? 'COMPLETED' : activeStepIndex === 5 ? 'RUNNING' : 'PENDING',
+      id: 'security',
+      label: 'Auditing security headers and Content Security Policy',
+      subtext: 'Inspecting CSP directives, mixed content, and browser protection headers',
+      icon: Shield,
     },
   ];
 
   useEffect(() => {
-    const timer = setInterval(() => {
+    const progressInterval = setInterval(() => {
       setProgress((prev) => {
-        if (prev >= 98) return prev;
-        const next = prev + Math.floor(Math.random() * 8) + 4;
-        return Math.min(98, next);
+        if (prev >= 95) return prev;
+        const jump = Math.floor(Math.random() * 8) + 4;
+        return Math.min(95, prev + jump);
       });
-    }, 280);
+    }, 250);
 
-    const stepTimer = setInterval(() => {
-      setActiveStepIndex((prev) => (prev < 5 ? prev + 1 : prev));
-    }, 420);
+    const stageInterval = setInterval(() => {
+      setActiveStage((prev) => (prev < stages.length - 1 ? prev + 1 : prev));
+    }, 550);
 
     return () => {
-      clearInterval(timer);
-      clearInterval(stepTimer);
+      clearInterval(progressInterval);
+      clearInterval(stageInterval);
     };
-  }, []);
+  }, [stages.length]);
 
   const cleanDomain = targetUrl.replace(/^https?:\/\//i, '').split('/')[0] || targetUrl;
 
   return (
-    <div className="rounded-3xl border border-rose-500/30 bg-gradient-to-b from-slate-950 via-slate-900/90 to-slate-950 p-6 md:p-8 shadow-2xl space-y-6 relative overflow-hidden">
-      {/* Background Animated Radar Sweep */}
-      <div className="pointer-events-none absolute -top-12 -right-12 w-96 h-96 bg-rose-600/10 rounded-full blur-3xl animate-pulse" />
-      <div className="pointer-events-none absolute -bottom-12 -left-12 w-96 h-96 bg-emerald-600/10 rounded-full blur-3xl animate-pulse" />
-
-      {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+    <div className="rounded-3xl border border-slate-800/80 bg-slate-950/90 p-6 sm:p-8 shadow-2xl space-y-6 max-w-3xl mx-auto backdrop-blur-xl">
+      
+      {/* Target Domain Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-5">
         <div className="space-y-1">
-          <div className="inline-flex items-center gap-2 rounded-full bg-rose-500/10 border border-rose-500/20 px-3 py-1 text-xs font-semibold text-rose-400">
+          <span className="text-xs font-semibold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            <span>Active Forensic Diagnostic in Progress</span>
-          </div>
-          <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
-            <span>Auditing:</span>
-            <span className="text-rose-400 font-mono underline decoration-rose-500/40">{cleanDomain}</span>
+            Diagnosing Website
+          </span>
+          <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+            {cleanDomain}
           </h2>
         </div>
-
-        <div className="flex items-center gap-3">
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-2.5 text-right">
-            <span className="text-[10px] text-slate-400 font-mono uppercase block">Crawler Progress</span>
-            <span className="text-xl font-mono font-black text-rose-400">{progress}%</span>
-          </div>
+        <div className="text-right font-mono text-xl font-bold text-rose-400">
+          {progress}%
         </div>
       </div>
 
-      {/* Live Animated Progress Bar */}
-      <div className="space-y-2">
-        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-900 border border-slate-800">
-          <motion.div
-            className="h-full bg-gradient-to-r from-rose-500 via-amber-400 to-emerald-400 shadow-lg shadow-rose-500/50"
-            initial={{ width: '10%' }}
-            animate={{ width: `${progress}%` }}
-            transition={{ duration: 0.3 }}
-          />
-        </div>
-        <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-          <span>Concurrency: 6 Parallel Probes</span>
-          <span className="text-emerald-400">DOM Engine: Live Headless Parser</span>
-        </div>
+      {/* Progress Bar */}
+      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-900 border border-slate-800">
+        <motion.div
+          className="h-full bg-gradient-to-r from-rose-600 via-rose-500 to-amber-400"
+          initial={{ width: '10%' }}
+          animate={{ width: `${progress}%` }}
+          transition={{ duration: 0.3 }}
+        />
       </div>
 
-      {/* 6 Step Interactive Inspection Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-        {steps.map((step) => {
-          const Icon = step.icon;
+      {/* Diagnostic Checklist */}
+      <div className="space-y-3 pt-2">
+        {stages.map((stage, idx) => {
+          const isDone = activeStage > idx;
+          const isCurrent = activeStage === idx;
+
           return (
             <div
-              key={step.id}
-              className={`rounded-2xl p-4 border text-xs space-y-1.5 transition-all ${
-                step.status === 'RUNNING'
-                  ? 'border-rose-500/60 bg-rose-950/20 shadow-lg shadow-rose-950/40'
-                  : step.status === 'COMPLETED'
-                  ? 'border-emerald-500/30 bg-slate-950/80'
-                  : 'border-slate-800/80 bg-slate-950/40 opacity-50'
+              key={stage.id}
+              className={`flex items-start gap-3 p-3 rounded-xl border transition-all ${
+                isCurrent
+                  ? 'bg-rose-950/20 border-rose-500/40 text-white'
+                  : isDone
+                  ? 'bg-slate-900/40 border-slate-800/60 text-slate-300'
+                  : 'bg-transparent border-transparent text-slate-500'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 font-bold text-white">
-                  <Icon className={`h-4 w-4 ${step.status === 'RUNNING' ? 'text-rose-400 animate-spin' : step.status === 'COMPLETED' ? 'text-emerald-400' : 'text-slate-500'}`} />
-                  <span>{step.label}</span>
-                </div>
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                    step.status === 'RUNNING'
-                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse'
-                      : step.status === 'COMPLETED'
-                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                      : 'bg-slate-800 text-slate-400'
-                  }`}
-                >
-                  {step.status === 'RUNNING' ? 'Auditing...' : step.status === 'COMPLETED' ? 'Passed' : 'Queued'}
-                </span>
+              <div className="mt-0.5 shrink-0">
+                {isDone ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                ) : isCurrent ? (
+                  <Loader2 className="h-4 w-4 text-rose-400 animate-spin" />
+                ) : (
+                  <Circle className="h-4 w-4 text-slate-700" />
+                )}
               </div>
-              <p className="text-[11px] text-slate-400 font-mono">{step.detail}</p>
+              <div className="space-y-0.5">
+                <div className={`text-xs sm:text-sm font-semibold ${isCurrent ? 'text-rose-200 font-bold' : isDone ? 'text-slate-200' : 'text-slate-500'}`}>
+                  {stage.label}
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  {stage.subtext}
+                </div>
+              </div>
             </div>
           );
         })}
-      </div>
-
-      {/* Terminal Pulse Bar */}
-      <div className="rounded-xl bg-slate-950 border border-slate-800/80 p-3 font-mono text-[11px] text-slate-300 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
-          <span className="text-slate-400">Stream:</span>
-          <span className="text-emerald-300 truncate">
-            {steps[activeStepIndex]?.detail || 'Finalizing audit calculation...'}
-          </span>
-        </div>
-        <span className="text-slate-500 hidden sm:inline text-[10px]">LeadGuard v3.2 Engine</span>
       </div>
     </div>
   );

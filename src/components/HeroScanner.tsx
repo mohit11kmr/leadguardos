@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
-import { Search, Loader2, ArrowRight, ShieldCheck, AlertCircle, Globe, ChevronDown, Sliders, Zap, Sparkles, Activity } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect } from 'react';
+import { Search, Loader2, ArrowRight, MessageSquare, Target, SearchCheck, Shield, Sparkles, CheckCircle2, AlertCircle, Globe, Zap } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
 interface HeroScannerProps {
@@ -9,25 +8,12 @@ interface HeroScannerProps {
   activeUrl: string;
 }
 
-const SCAN_STEPS = [
-  'Connecting to target domain...',
-  'Analyzing page HTML & security headers...',
-  'Checking WhatsApp routing for +9191 & digit errors...',
-  'Inspecting Click-to-Call & review links...',
-  'Scanning Meta Pixel & Google Analytics 4 tags...',
-  'Running browser runtime analysis...',
-  'Calculating 4-pillar health score...',
-  'Preparing forensic diagnostic report...',
-];
-
 export const HeroScanner: React.FC<HeroScannerProps> = ({ onScan, isLoading, activeUrl }) => {
   const { t } = useLanguage();
   const [urlInput, setUrlInput] = useState(activeUrl || '');
-  const [stepIndex, setStepIndex] = useState(0);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (activeUrl) {
       setUrlInput(activeUrl);
     }
@@ -50,85 +36,45 @@ export const HeroScanner: React.FC<HeroScannerProps> = ({ onScan, isLoading, act
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateUrlFormat(urlInput) || isLoading) return;
-
-    let currentStep = 0;
-    setStepIndex(0);
-    const interval = setInterval(() => {
-      currentStep++;
-      if (currentStep < SCAN_STEPS.length) {
-        setStepIndex(currentStep);
-      }
-    }, 500);
-
-    try {
-      await onScan(urlInput.trim());
-    } finally {
-      clearInterval(interval);
-    }
+    await onScan(urlInput.trim());
   };
 
-  const handleQuickSelect = (url: string) => {
-    setUrlInput(url);
+  const handleSampleClick = (domain: string) => {
+    setUrlInput(domain);
     setValidationError(null);
-    onScan(url);
+    onScan(domain);
   };
 
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-rose-500/20 bg-cyber-grid bg-slate-950/80 p-6 md:p-12 shadow-2xl backdrop-blur-2xl">
-      
-      {/* Background Ambient Glows */}
-      <div className="pointer-events-none absolute -top-32 left-1/2 -translate-x-1/2 h-80 w-[600px] rounded-full bg-rose-600/15 blur-[120px]" />
-      <div className="pointer-events-none absolute -bottom-32 right-10 h-64 w-[400px] rounded-full bg-cyan-600/10 blur-[100px]" />
-
-      <div className="relative mx-auto max-w-3xl text-center space-y-6">
+    <div className="space-y-10">
+      {/* Hero Card */}
+      <div className="relative overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 p-6 sm:p-12 md:p-14 text-center space-y-8 shadow-2xl backdrop-blur-2xl">
         
-        {/* Product Badge */}
-        <div className="inline-flex items-center gap-2 rounded-full border border-rose-500/30 bg-rose-500/10 px-4 py-1.5 text-xs font-semibold text-rose-300 shadow-lg shadow-rose-950/40">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
-          </span>
-          <span className="tracking-wide">⚡ LeadGuard OS — Stop Dropping Customer Leads</span>
-        </div>
+        {/* Subtle Ambient Glow */}
+        <div className="pointer-events-none absolute -top-32 left-1/2 -translate-x-1/2 h-72 w-[550px] rounded-full bg-rose-600/15 blur-[120px]" />
 
-        {/* Headline */}
-        <div className="space-y-3">
-          <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-5xl leading-tight">
-            Stop Losing Customers From <span className="bg-gradient-to-r from-rose-400 via-rose-500 to-amber-300 bg-clip-text text-transparent">Broken WhatsApp & Call Buttons</span>
+        <div className="relative max-w-3xl mx-auto space-y-4">
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 rounded-full border border-rose-500/30 bg-rose-500/10 px-3.5 py-1 text-xs font-semibold text-rose-300 shadow-md">
+            <span className="h-1.5 w-1.5 rounded-full bg-rose-400 animate-pulse"></span>
+            <span>Instant Forensic Lead Audit</span>
+          </div>
+
+          {/* Headline */}
+          <h1 className="text-3xl sm:text-5xl md:text-6xl font-extrabold tracking-tight text-white leading-tight">
+            Is Your Website <span className="bg-gradient-to-r from-rose-400 via-rose-500 to-amber-300 bg-clip-text text-transparent">Losing Leads?</span>
           </h1>
-          <p className="text-sm sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Test if your mobile site has the fatal +9191 WhatsApp error, dead dialer links, or missing ad tracking tags in under 30 seconds.
+
+          {/* Supporting Text */}
+          <p className="text-sm sm:text-base md:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
+            LeadGuard finds broken WhatsApp, phone, forms, tracking, SEO and security problems that can cost you customers and ad money.
           </p>
         </div>
 
-        {/* 3 Visual Real-World Problem Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left max-w-2xl mx-auto pt-2">
-          <div className="rounded-2xl border border-rose-500/30 bg-rose-950/20 p-3.5 space-y-1 backdrop-blur-md">
-            <span className="text-[11px] font-bold text-rose-400 uppercase tracking-wider block">📱 WhatsApp +9191 Bug</span>
-            <p className="text-xs text-slate-300 leading-snug">
-              Customers tap WhatsApp but get "Invalid Number" error due to double +91 code.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-amber-500/30 bg-amber-950/20 p-3.5 space-y-1 backdrop-blur-md">
-            <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider block">📞 Dead Call Button</span>
-            <p className="text-xs text-slate-300 leading-snug">
-              Phone button is plain text and fails to launch the phone dialer on tap.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-cyan-500/30 bg-cyan-950/20 p-3.5 space-y-1 backdrop-blur-md">
-            <span className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider block">🎯 Wasted Ad Money</span>
-            <p className="text-xs text-slate-300 leading-snug">
-              Running FB/IG ads without Meta Pixel script wastes 60% of marketing budget.
-            </p>
-          </div>
-        </div>
-
-        {/* Streamlined Input Form */}
-        <form onSubmit={handleSubmit} className="pt-2 max-w-2xl mx-auto space-y-3">
-          <div className="relative flex flex-col sm:flex-row items-center gap-2.5 rounded-2xl bg-slate-900/90 p-2.5 border border-slate-700/80 shadow-2xl focus-within:border-rose-500 focus-within:ring-2 focus-within:ring-rose-500/30 transition-all">
-            <div className="flex w-full items-center gap-3 px-3 py-2 sm:py-0">
+        {/* Primary Scan Input Form */}
+        <form onSubmit={handleSubmit} className="relative max-w-2xl mx-auto space-y-3">
+          <div className="flex flex-col sm:flex-row items-center gap-2.5 rounded-2xl bg-slate-900/90 p-2.5 border border-slate-700/80 shadow-2xl focus-within:border-rose-500 focus-within:ring-2 focus-within:ring-rose-500/30 transition-all">
+            <div className="flex w-full items-center gap-3 px-3 py-1 sm:py-0">
               <Globe className="h-5 w-5 text-rose-400 shrink-0" />
               <input
                 id="target-website-input"
@@ -138,7 +84,7 @@ export const HeroScanner: React.FC<HeroScannerProps> = ({ onScan, isLoading, act
                   setUrlInput(e.target.value);
                   if (validationError) setValidationError(null);
                 }}
-                placeholder="Enter website domain (e.g. drsharmadental.in)"
+                placeholder="yourwebsite.com"
                 className="w-full bg-transparent text-sm sm:text-base text-white placeholder-slate-500 focus:outline-none"
                 disabled={isLoading}
               />
@@ -156,15 +102,14 @@ export const HeroScanner: React.FC<HeroScannerProps> = ({ onScan, isLoading, act
                 </>
               ) : (
                 <>
-                  <Zap className="h-4 w-4 text-amber-300 fill-amber-300" />
-                  <span>Test My Website</span>
+                  <span>Scan My Website</span>
                   <ArrowRight className="h-4 w-4" />
                 </>
               )}
             </button>
           </div>
 
-          {/* Validation Error Message */}
+          {/* Validation Error */}
           {validationError && (
             <div className="text-xs text-rose-400 flex items-center justify-center gap-1.5 pt-1 font-medium">
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
@@ -172,122 +117,96 @@ export const HeroScanner: React.FC<HeroScannerProps> = ({ onScan, isLoading, act
             </div>
           )}
 
-          {/* Advanced Scan Options Toggle */}
-          <div className="pt-1">
+          {/* Reassurance Label */}
+          <div className="text-xs text-slate-400 flex items-center justify-center gap-2 pt-1 font-medium">
+            <span className="text-emerald-400 font-bold">⏱️ 30-second audit</span>
+            <span>•</span>
+            <span>No code or installation required</span>
+          </div>
+
+          {/* Sample Demo Buttons */}
+          <div className="pt-3 flex flex-wrap items-center justify-center gap-2 text-xs">
+            <span className="text-slate-500">Try sample audit:</span>
             <button
               type="button"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+              onClick={() => handleSampleClick('drsharmadental.in')}
+              className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition-colors"
             >
-              <Sliders className="h-3.5 w-3.5 text-rose-400" />
-              <span>Advanced scan options</span>
-              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+              Dental Clinic (+9191 bug)
             </button>
-
-            {showAdvanced && (
-              <div className="mt-3 p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 text-left text-xs space-y-2 text-slate-300 backdrop-blur-md">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Activity className="h-3.5 w-3.5 text-cyan-400" />
-                    Browser Runtime Stage (Playwright DOM Inspection)
-                  </span>
-                  <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono text-[10px] border border-cyan-500/30 font-semibold">ENABLED</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                    SSRF Private Network Defense Guard
-                  </span>
-                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px] border border-emerald-500/30 font-semibold">ACTIVE</span>
-                </div>
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={() => handleSampleClick('elitesalonmumbai.com')}
+              className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition-colors"
+            >
+              Elite Salon (Missing Pixel)
+            </button>
           </div>
         </form>
+      </div>
 
-        {/* Live Loading Progress Bar */}
-        <AnimatePresence>
-          {isLoading && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className="rounded-2xl border border-rose-500/30 bg-slate-950/90 p-4 text-left max-w-2xl mx-auto shadow-2xl backdrop-blur-xl"
-            >
-              <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                <span className="flex items-center gap-2 font-medium text-rose-400">
-                  <Loader2 className="h-4 w-4 animate-spin text-rose-500" />
-                  Running Diagnostic Scan...
-                </span>
-                <span className="font-mono text-rose-300 font-bold">{Math.min(100, Math.round(((stepIndex + 1) / SCAN_STEPS.length) * 100))}%</span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-900 border border-slate-800">
-                <motion.div
-                  className="h-full bg-gradient-to-r from-rose-600 via-rose-500 to-amber-400"
-                  initial={{ width: '10%' }}
-                  animate={{ width: `${Math.min(100, ((stepIndex + 1) / SCAN_STEPS.length) * 100)}%` }}
-                  transition={{ duration: 0.3 }}
-                />
-              </div>
-              <p className="mt-2.5 text-xs text-slate-300 font-mono flex items-center gap-2">
-                <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-                {SCAN_STEPS[stepIndex]}
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Social Proof & Risk Reducers Strip */}
-        <div className="flex flex-wrap items-center justify-center gap-4 text-[11px] text-slate-400 font-semibold pt-1">
-          <span className="flex items-center gap-1.5 text-emerald-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            ⚡ 10,000+ Indian Sites Audited
-          </span>
-          <span className="text-slate-700">•</span>
-          <span className="flex items-center gap-1.5 text-slate-300">
-            <ShieldCheck className="h-3.5 w-3.5 text-rose-400" />
-            100% Free Instant Audit
-          </span>
-          <span className="text-slate-700">•</span>
-          <span className="flex items-center gap-1.5 text-slate-300">
-            🇮🇳 Built for Indian Businesses & Agencies
-          </span>
+      {/* 4 Business-Outcome Diagnostic Cards Below Fold */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card 1: Lead Capture */}
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-5 space-y-2.5 backdrop-blur-sm">
+          <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+            <MessageSquare className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white tracking-tight">
+              Lead Capture
+            </h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Find broken WhatsApp buttons, unclickable phone dialers, and broken contact form paths.
+            </p>
+          </div>
         </div>
 
-        {/* Sample Presets */}
-        <div className="flex flex-wrap items-center justify-center gap-2.5 text-xs pt-1">
-          <span className="text-slate-400 text-xs font-semibold mr-1">Test Sample Websites:</span>
-          
-          <button
-            id="preset-drsharma"
-            onClick={() => handleQuickSelect('drsharmadental.in')}
-            className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-1.5 text-rose-300 hover:bg-rose-500/20 hover:border-rose-500/50 transition-all flex items-center gap-1.5 font-medium shadow-sm active:scale-95"
-          >
-            <span className="h-2 w-2 rounded-full bg-rose-400 animate-pulse" />
-            Dr. Sharma Dental (+9191 Bug)
-          </button>
-
-          <button
-            id="preset-elitesalon"
-            onClick={() => handleQuickSelect('elitesalonmumbai.com')}
-            className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-1.5 text-amber-300 hover:bg-amber-500/20 hover:border-amber-500/50 transition-all flex items-center gap-1.5 font-medium shadow-sm active:scale-95"
-          >
-            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-            Elite Salon (Broken WA)
-          </button>
-
-          <button
-            id="preset-leadguard"
-            onClick={() => handleQuickSelect('leadguard.ai')}
-            className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-1.5 text-emerald-300 hover:bg-emerald-500/20 hover:border-emerald-500/50 transition-all flex items-center gap-1.5 font-medium shadow-sm active:scale-95"
-          >
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            LeadGuard AI (Clean)
-          </button>
+        {/* Card 2: Ad Tracking */}
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-5 space-y-2.5 backdrop-blur-sm">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+            <Target className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white tracking-tight">
+              Ad Tracking
+            </h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Find missing Meta Pixels or broken GA4 tags that waste ad spend without conversion attribution.
+            </p>
+          </div>
         </div>
 
+        {/* Card 3: SEO */}
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-5 space-y-2.5 backdrop-blur-sm">
+          <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+            <SearchCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white tracking-tight">
+              SEO & Indexing
+            </h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Find unintended noindex tags, canonical tag errors, and broken sitemaps blocking search rankings.
+            </p>
+          </div>
+        </div>
+
+        {/* Card 4: Security */}
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-5 space-y-2.5 backdrop-blur-sm">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+            <Shield className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white tracking-tight">
+              Security Shield
+            </h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Detect SSL vulnerabilities, mixed HTTP content, and missing headers that trigger browser warnings.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
 };
-

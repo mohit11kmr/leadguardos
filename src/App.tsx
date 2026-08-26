@@ -1,71 +1,57 @@
 import React, { useState, useEffect } from 'react';
-import { Navbar, AppTab } from './components/Navbar';
+import { Navbar, AppNavTab } from './components/Navbar';
 import { HeroScanner } from './components/HeroScanner';
+import { LiveScanningRadar } from './components/LiveScanningRadar';
 import { ScoreDashboard } from './components/ScoreDashboard';
-import { FourPillarsOverview } from './components/FourPillarsOverview';
-import { FindingsDetailTabs } from './components/FindingsDetailTabs';
-import { RevenueScenarioCalculator } from './components/RevenueScenarioCalculator';
-import { ShareableReportModal } from './components/ShareableReportModal';
-import { ChannelMatrix } from './components/ChannelMatrix';
-import { FreeFixAndLockedPaywall } from './components/FreeFixAndLockedPaywall';
-import { FunnelLeakSimulator } from './components/FunnelLeakSimulator';
-import { AgencyToolsHub } from './components/AgencyToolsHub';
-import { WatchdogConsole } from './components/WatchdogConsole';
+import { FixCenter } from './components/FixCenter';
+import { ReportsView } from './components/ReportsView';
+import { MonitoringView } from './components/MonitoringView';
+import { AgencyView } from './components/AgencyView';
+import { PricingView } from './components/PricingView';
+import { DeveloperDashboardView } from './components/DeveloperDashboardView';
+import { AccountSettingsView } from './components/AccountSettingsView';
+import { AdminDashboardView } from './components/AdminDashboardView';
+import { TestimonialsWall, ReviewItem } from './components/TestimonialsWall';
+import { BlogHubView } from './components/BlogHubView';
+import { PublicReportView } from './components/PublicReportView';
+import { ScanCounterStats } from './components/ScanCounterStats';
+import { Footer } from './components/Footer';
+
+// Modals
 import { WatchdogModal } from './components/WatchdogModal';
 import { ExpressFixModal } from './components/ExpressFixModal';
 import { ContactUsModal } from './components/ContactUsModal';
 import { WhatsAppAlertModal } from './components/WhatsAppAlertModal';
-import { Footer } from './components/Footer';
-import { MonetizationVault } from './components/MonetizationVault';
-import { CompetitorSabotageRadar } from './components/CompetitorSabotageRadar';
-import { ZeroIntentChecker } from './components/ZeroIntentChecker';
-import { CartDeathMonitor } from './components/CartDeathMonitor';
-import { HunterMode } from './components/HunterMode';
-import { ScanCounterStats } from './components/ScanCounterStats';
-import { LiveScanningRadar } from './components/LiveScanningRadar';
-import { PublicReportView } from './components/PublicReportView';
-import { BillingView } from './components/BillingView';
-import { AccountSettingsView } from './components/AccountSettingsView';
-import { AdminDashboardView } from './components/AdminDashboardView';
-import { DeveloperDashboardView } from './components/DeveloperDashboardView';
-import { AgencyWorkspaceView } from './components/AgencyWorkspaceView';
-import { OnboardingBanner } from './components/OnboardingBanner';
-import { AuditResult, GlobalScanStats, PillarType } from './types';
-import { Shield, AlertCircle, Sparkles, CheckCircle2, ArrowRight, Search, ShieldCheck, Zap } from 'lucide-react';
-import { apiFetch } from './lib/api';
-import { LeadAuditPanel } from './components/LeadAuditPanel';
-import { ExecutiveDashboardView } from './components/ExecutiveDashboardView';
-import { SchedulesView } from './components/SchedulesView';
-import { MobileLinkSimulator } from './components/MobileLinkSimulator';
 import { AuthModal } from './components/AuthModal';
-import { TestimonialsWall, ReviewItem } from './components/TestimonialsWall';
 import { ReviewSubmissionModal } from './components/ReviewSubmissionModal';
-import { BlogHubView } from './components/BlogHubView';
 import { AboutLeadGuardModal } from './components/AboutLeadGuardModal';
 import { ServicesCatalogModal } from './components/ServicesCatalogModal';
+import { ShareableReportModal } from './components/ShareableReportModal';
+
+import { AuditResult, GlobalScanStats } from './types';
+import { Shield, AlertCircle } from 'lucide-react';
+import { apiFetch } from './lib/api';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<AppTab>('scanner');
+  const [activeTab, setActiveTab] = useState<AppNavTab>('audit');
   const [auditResult, setAuditResult] = useState<AuditResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeUrl, setActiveUrl] = useState('');
   const [globalStats, setGlobalStats] = useState<GlobalScanStats | null>(null);
-  const [selectedPillar, setSelectedPillar] = useState<PillarType | 'ALL'>('ALL');
-  const [resultTab, setResultTab] = useState<'security' | 'lead' | 'ai'>('security');
 
-  // Public Report Route Detection
+  // Public Report View
   const [publicReport, setPublicReport] = useState<AuditResult | null>(null);
   const [isLoadingPublicReport, setIsLoadingPublicReport] = useState(false);
 
-  // Selected prospect for pitch
+  // Agency prospect pitch selection
   const [selectedProspectPitch, setSelectedProspectPitch] = useState<{
     domain: string;
     businessName: string;
     issues: string;
   } | null>(null);
 
-  // Modals
+  // Modals state
   const [isWatchdogOpen, setIsWatchdogOpen] = useState(false);
   const [isExpressFixOpen, setIsExpressFixOpen] = useState(false);
   const [isContactOpen, setIsContactOpen] = useState(false);
@@ -82,7 +68,7 @@ export default function App() {
       ...newReview,
       id: `rev_${Date.now()}`,
       date: new Date().toISOString().split('T')[0],
-      approved: true, // Auto-approve for demo
+      approved: true,
     };
     setCustomReviews((prev) => [item, ...prev]);
   };
@@ -102,7 +88,7 @@ export default function App() {
   useEffect(() => {
     fetchGlobalStats();
 
-    // Check if current route is a public shareable report
+    // Check if current route is a public shareable report (/report/:id)
     const checkReportRoute = async () => {
       const path = window.location.pathname;
       const hash = window.location.hash;
@@ -143,29 +129,18 @@ export default function App() {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || 'Failed to complete website scan.');
+        throw new Error(errData.error?.message || errData.error || 'Failed to complete website scan.');
       }
 
       const data: AuditResult = await response.json();
       setAuditResult(data);
-      // Refresh global stats counter after successful scan
+      setActiveTab('audit');
       fetchGlobalStats();
     } catch (err: any) {
       console.error('Scan error:', err);
       setErrorMessage(err.message || 'An error occurred while scanning the website.');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleIncrementFix = async () => {
-    try {
-      const res = await apiFetch('/api/scan-stats/increment-fix', { method: 'POST' });
-      if (res.ok) {
-        fetchGlobalStats();
-      }
-    } catch (err) {
-      console.error('Fix increment error:', err);
     }
   };
 
@@ -192,9 +167,7 @@ export default function App() {
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
         <PublicReportView
           report={publicReport}
-          onOpenExpressFix={() => {
-            setIsExpressFixOpen(true);
-          }}
+          onOpenExpressFix={() => setIsExpressFixOpen(true)}
           onBackToScanner={() => {
             setPublicReport(null);
             window.history.pushState({}, '', '/');
@@ -213,350 +186,190 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-rose-500 selection:text-white flex flex-col">
       
-      {/* Top Clean Navigation */}
+      {/* Top Simplified Navigation (5 Primary Tabs) */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onSelectSample={(domain) => {
-          handleScan(domain);
-        }}
+        onSelectSample={handleScan}
         onOpenContact={() => setIsContactOpen(true)}
         onOpenAuth={() => setIsAuthOpen(true)}
       />
 
-      {/* Main Content Area */}
+      {/* Main Content View Container */}
       <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 flex-1 space-y-8">
         
-        {/* Error Alert Toast */}
+        {/* Human-Friendly Error Alert Toast */}
         {errorMessage && (
-          <div className="rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-xs sm:text-sm text-rose-200 flex items-center gap-3">
+          <div className="rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-xs sm:text-sm text-rose-200 flex items-center gap-3 shadow-lg">
             <AlertCircle className="h-5 w-5 text-rose-400 shrink-0" />
-            <div className="flex-1">{errorMessage}</div>
+            <div className="flex-1">
+              <span className="font-bold">Scan Error: </span>
+              {errorMessage}
+            </div>
             <button
               onClick={() => setErrorMessage(null)}
-              className="text-slate-400 hover:text-white font-medium"
+              className="text-slate-400 hover:text-white font-medium text-xs px-2 py-1 rounded-lg bg-slate-900 border border-slate-800"
             >
               Dismiss
             </button>
           </div>
         )}
 
-        {/* TAB 1: LIVE SCANNER & AUDIT RESULTS */}
-        {activeTab === 'scanner' && (
+        {/* 1. AUDIT TAB (Hero Scanner or Audit Result) */}
+        {activeTab === 'audit' && (
           <div className="space-y-8">
             
-            {/* Hero Zero-Friction Scan Input (Top Position) */}
+            {/* Hero Input (Visible when no scan is loading) */}
             <HeroScanner
               onScan={handleScan}
               isLoading={isLoading}
               activeUrl={activeUrl}
             />
 
-            {/* Scanning Radar Visual State (Shown while scan is actively running) */}
+            {/* Diagnostic Progression (Visible while scanning) */}
             {isLoading && (
               <LiveScanningRadar targetUrl={activeUrl || 'Target Domain'} />
             )}
 
-            {/* Empty State when User has not yet scanned a URL */}
-            {!isLoading && !auditResult && (
-              <div className="rounded-3xl border border-slate-800/80 bg-slate-900/40 p-8 text-center space-y-4">
-                <div className="mx-auto w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
-                  <Search className="h-6 w-6" />
-                </div>
-                <div className="max-w-md mx-auto space-y-1">
-                  <h3 className="text-lg font-bold text-white">No Website Scanned Yet</h3>
-                  <p className="text-xs sm:text-sm text-slate-400">
-                    Type your website domain in the search box above or click any sample audit to run the 6-layer forensic diagnostic.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
-                  <button
-                    onClick={() => handleScan('drsharmadental.in')}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-xs text-slate-300 transition-colors"
-                  >
-                    <span>Test Dr. Sharma Dental</span>
-                    <ArrowRight className="h-3 w-3 text-rose-400" />
-                  </button>
-                  <button
-                    onClick={() => handleScan('elitesalonmumbai.com')}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-xs text-slate-300 transition-colors"
-                  >
-                    <span>Test Elite Salon</span>
-                    <ArrowRight className="h-3 w-3 text-amber-400" />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Audit Results View (Only shown after user runs a scan) */}
+            {/* Audit Results View (Visible once scan is complete) */}
             {auditResult && !isLoading && (
-              <div className="space-y-8">
-                <div className="flex items-center gap-2 overflow-x-auto border-b border-slate-800 pb-2">
-                  {(['security', 'lead', 'ai'] as const).map(tab => <button key={tab} onClick={() => setResultTab(tab)} className={`rounded-lg px-4 py-2 text-xs font-bold capitalize ${resultTab === tab ? 'bg-rose-600 text-white' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`}>{tab === 'lead' ? 'Lead Audit' : tab === 'ai' ? 'AI Fixes' : 'Security'}</button>)}
-                </div>
-                {resultTab === 'lead' && <LeadAuditPanel result={auditResult} />}
-                {resultTab === 'ai' && <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 md:p-8"><h2 className="text-xl font-bold text-white">AI Fixes</h2>{auditResult.aiRemediation?.status === 'COMPLETED' ? <pre className="mt-4 whitespace-pre-wrap text-sm text-slate-300">{auditResult.aiRemediation.content}</pre> : <p className="mt-4 text-sm text-slate-400">{auditResult.aiRemediation?.status === 'FAILED' ? 'AI remediation is currently unavailable.' : 'Remediation is being prepared in the background.'}</p>}</div>}
-                {resultTab === 'security' && <>
+              <div className="space-y-10 pt-4 border-t border-slate-800/80">
                 
                 {/* 1. Score & Financial Impact Overview */}
                 <ScoreDashboard
                   result={auditResult}
                   onOpenWatchdog={() => setIsWatchdogOpen(true)}
-                  onOpenExpressFix={() => {
-                    handleIncrementFix();
-                    setIsExpressFixOpen(true);
-                  }}
+                  onOpenExpressFix={() => setIsExpressFixOpen(true)}
                   onOpenAlerts={() => setIsAlertsOpen(true)}
                   onOpenShareModal={() => setIsShareModalOpen(true)}
                 />
 
-                {/* 1.5 Interactive Real Customer Mobile Simulator */}
-                <MobileLinkSimulator domain={auditResult.domain} />
-
-                {/* 2. Four Pillars Architecture Overview */}
-                <FourPillarsOverview
+                {/* 2. Unified Fix Center */}
+                <FixCenter
                   result={auditResult}
-                  activePillarFilter={selectedPillar}
-                  onSelectPillar={setSelectedPillar}
-                />
-
-                {/* 3. Interactive Financial Loss & Scenario Calculator */}
-                <RevenueScenarioCalculator
-                  result={auditResult}
-                  onOpenExpressFix={() => {
-                    handleIncrementFix();
-                    setIsExpressFixOpen(true);
-                  }}
-                />
-
-                {/* 4. Detailed Diagnostic Findings & 1-Click Fix Engine */}
-                <FindingsDetailTabs
-                  result={auditResult}
-                  selectedPillar={selectedPillar}
-                  onSelectPillar={setSelectedPillar}
-                  onOpenExpressFix={() => {
-                    handleIncrementFix();
-                    setIsExpressFixOpen(true);
-                  }}
+                  onOpenExpressFix={() => setIsExpressFixOpen(true)}
                   onOpenWatchdog={() => setIsWatchdogOpen(true)}
                 />
-
-                {/* 5. Free Fix & Locked Paywall Resolution Engine */}
-                <FreeFixAndLockedPaywall
-                  result={auditResult}
-                  onOpenWatchdog={() => setIsWatchdogOpen(true)}
-                  onOpenExpressFix={() => {
-                    handleIncrementFix();
-                    setIsExpressFixOpen(true);
-                  }}
-                />
-
-                {/* 6. Comprehensive Verification Matrix */}
-                <ChannelMatrix result={auditResult} />
-                </>}
-
               </div>
             )}
 
-            {/* Global Live Scan Counter Bar (Positioned Below Search and Audit Results) */}
+            {/* Global Live Scan Counters */}
             <ScanCounterStats statsOverride={globalStats} onRefresh={fetchGlobalStats} />
-
           </div>
         )}
 
-        {activeTab === 'dashboard' && <ExecutiveDashboardView />}
-        {activeTab === 'schedules' && <SchedulesView />}
-
-        {/* MODULE 1: COMPETITOR SABOTAGE RADAR */}
-        {activeTab === 'sabotage-radar' && (
-          <div className="space-y-6">
-            <CompetitorSabotageRadar
-              currentAudit={auditResult}
-              onSelectProspectForPitch={handleSelectProspectForPitch}
-            />
-          </div>
+        {/* 2. REPORTS TAB */}
+        {activeTab === 'reports' && (
+          <ReportsView
+            currentAudit={auditResult}
+            onOpenAudit={(audit) => {
+              setAuditResult(audit);
+              setActiveTab('audit');
+            }}
+            onNewScan={() => {
+              setActiveTab('audit');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onOpenShareModal={(audit) => {
+              setAuditResult(audit);
+              setIsShareModalOpen(true);
+            }}
+          />
         )}
 
-        {/* MODULE 2: WHATSAPP ZERO-INTENT LEAKAGE CHECKER */}
-        {activeTab === 'zero-intent' && (
-          <div className="space-y-6">
-            <ZeroIntentChecker auditResult={auditResult} />
-          </div>
+        {/* 3. MONITORING TAB (24/7 Watchdog) */}
+        {activeTab === 'monitoring' && (
+          <MonitoringView
+            onOpenNewMonitor={() => setIsWatchdogOpen(true)}
+          />
         )}
 
-        {/* MODULE 3: E-COMMERCE CART DEATH MONITOR */}
-        {activeTab === 'cart-death' && (
-          <div className="space-y-6">
-            <CartDeathMonitor
-              auditResult={auditResult}
-              onScanNewStore={(url) => {
-                handleScan(url);
-                setActiveTab('cart-death');
-              }}
-            />
-          </div>
-        )}
-
-        {/* MODULE 4: HUNTER MODE (B2B BULK OUTBOUND) */}
-        {activeTab === 'hunter' && (
-          <div className="space-y-6">
-            <HunterMode onSelectProspectForPitch={handleSelectProspectForPitch} />
-          </div>
-        )}
-
-        {/* TAB 2: INTERACTIVE FUNNEL SIMULATOR */}
-        {activeTab === 'funnel' && (
-          <div className="space-y-6">
-            <FunnelLeakSimulator result={auditResult || ({} as any)} />
-          </div>
-        )}
-
-        {/* TAB 3: AGENCY TOOLS HUB */}
+        {/* 4. AGENCY TAB */}
         {activeTab === 'agency' && (
-          <div className="space-y-6">
-            <AgencyToolsHub
-              currentAudit={
-                selectedProspectPitch
-                  ? {
-                      ...(auditResult || ({} as any)),
-                      domain: selectedProspectPitch.domain,
-                      businessName: selectedProspectPitch.businessName,
-                      aiDiagnosticAdvice: selectedProspectPitch.issues,
-                    }
-                  : auditResult
-              }
-              onSelectProspectForPitch={handleSelectProspectForPitch}
-            />
-          </div>
+          <AgencyView
+            currentAudit={auditResult}
+            selectedProspectPitch={selectedProspectPitch}
+            onSelectProspectForPitch={handleSelectProspectForPitch}
+          />
         )}
 
-        {/* TAB 4: 24/7 WATCHDOG LIVE RADAR CONSOLE */}
-        {activeTab === 'watchdog' && (
-          <div className="space-y-6">
-            <WatchdogConsole onOpenNewMonitor={() => setIsWatchdogOpen(true)} />
-          </div>
-        )}
-
-        {/* TAB 5: PRICING & MONETIZATION VAULT */}
+        {/* 5. PRICING TAB */}
         {activeTab === 'pricing' && (
-          <div className="space-y-6">
-            <MonetizationVault
-              onOpenWatchdog={() => setIsWatchdogOpen(true)}
-              onOpenExpressFix={() => setIsExpressFixOpen(true)}
-            />
-          </div>
+          <PricingView
+            onOpenExpressFix={() => setIsExpressFixOpen(true)}
+            onOpenWatchdog={() => setIsWatchdogOpen(true)}
+          />
         )}
 
-        {/* TAB 6: BILLING VIEW */}
-        {activeTab === 'billing' && (
-          <div className="space-y-6">
-            <BillingView onOpenExpressFix={() => setIsExpressFixOpen(true)} />
-          </div>
-        )}
-
-        {/* TAB 7: ACCOUNT SETTINGS & DANGER ZONE */}
-        {activeTab === 'settings' && (
-          <div className="space-y-6">
-            <AccountSettingsView />
-          </div>
-        )}
-
-        {/* TAB 8: ADMIN OPERATIONS DASHBOARD */}
-        {activeTab === 'admin' && (
-          <div className="space-y-6">
-            <AdminDashboardView />
-          </div>
-        )}
-
-        {/* TAB 9: DEVELOPER PORTAL */}
-        {activeTab === 'developer' && (
-          <div className="space-y-6">
-            <DeveloperDashboardView />
-          </div>
-        )}
-
-        {/* TAB 10: AGENCY WORKSPACE */}
-        {activeTab === 'workspace' && (
-          <div className="space-y-6">
-            <AgencyWorkspaceView />
-          </div>
-        )}
-
-        {/* TAB 11: CLIENT REVIEWS WALL */}
+        {/* SECONDARY UTILITY TABS */}
+        {activeTab === 'developer' && <DeveloperDashboardView />}
+        {activeTab === 'settings' && <AccountSettingsView />}
+        {activeTab === 'admin' && <AdminDashboardView />}
         {activeTab === 'reviews' && (
-          <div className="space-y-6">
-            <TestimonialsWall
-              onOpenReviewModal={() => setIsReviewModalOpen(true)}
-              customReviews={customReviews}
-            />
-          </div>
+          <TestimonialsWall
+            onOpenReviewModal={() => setIsReviewModalOpen(true)}
+            customReviews={customReviews}
+          />
         )}
-
-        {/* TAB 12: SEO KNOWLEDGE HUB & BLOG */}
         {activeTab === 'blog' && (
-          <div className="space-y-6">
-            <BlogHubView onOpenExpressFix={() => setIsExpressFixOpen(true)} />
-          </div>
+          <BlogHubView onOpenExpressFix={() => setIsExpressFixOpen(true)} />
         )}
 
       </main>
 
-      {/* Modern High-End Comprehensive Footer with Contact Info & Copyright */}
+      {/* Footer */}
       <Footer
-        setActiveTab={setActiveTab}
+        setActiveTab={(tab: any) => {
+          if (tab === 'scanner') setActiveTab('audit');
+          else if (tab === 'watchdog') setActiveTab('monitoring');
+          else setActiveTab(tab);
+        }}
         onOpenContact={() => setIsContactOpen(true)}
         onOpenAlerts={() => setIsAlertsOpen(true)}
         onOpenAbout={() => setIsAboutOpen(true)}
         onOpenServices={() => setIsServicesOpen(true)}
       />
 
-      {/* 24-Hour Watchdog Modal */}
+      {/* MODALS */}
       <WatchdogModal
         isOpen={isWatchdogOpen}
         onClose={() => setIsWatchdogOpen(false)}
-        defaultUrl={auditResult?.targetUrl || 'https://' + activeUrl}
+        defaultUrl={auditResult?.targetUrl || (activeUrl ? 'https://' + activeUrl : '')}
       />
 
-      {/* Express DFY Fix Modal */}
       <ExpressFixModal
         isOpen={isExpressFixOpen}
         onClose={() => setIsExpressFixOpen(false)}
         domain={auditResult?.domain || activeUrl}
       />
 
-      {/* Contact Founder Modal (Mohit Sikarwar - 8307070605 / mohitsikarwar123@gmail.com) */}
       <ContactUsModal
         isOpen={isContactOpen}
         onClose={() => setIsContactOpen(false)}
       />
 
-      {/* Real-time WhatsApp Alert Modal */}
       <WhatsAppAlertModal
         isOpen={isAlertsOpen}
         onClose={() => setIsAlertsOpen(false)}
         domain={auditResult?.domain || activeUrl}
       />
 
-      {/* Auth Modal (Rendered at root level for perfect viewport centering) */}
       <AuthModal
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
       />
 
-      {/* Review Submission Modal */}
       <ReviewSubmissionModal
         isOpen={isReviewModalOpen}
         onClose={() => setIsReviewModalOpen(false)}
         onSubmitReview={handleAddReview}
       />
 
-      {/* About LeadGuard Story Modal */}
       <AboutLeadGuardModal
         isOpen={isAboutOpen}
         onClose={() => setIsAboutOpen(false)}
       />
 
-      {/* Detailed Services Catalog Modal */}
       <ServicesCatalogModal
         isOpen={isServicesOpen}
         onClose={() => setIsServicesOpen(false)}
@@ -564,7 +377,6 @@ export default function App() {
         onOpenWatchdog={() => setIsWatchdogOpen(true)}
       />
 
-      {/* Shareable Public Report Modal */}
       {auditResult && (
         <ShareableReportModal
           isOpen={isShareModalOpen}

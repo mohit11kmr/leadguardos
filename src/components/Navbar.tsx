@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
-import { Shield, TrendingDown, Layers, Radio, Zap, ChevronDown, Swords, MessageCircle, ShoppingCart, Crosshair, Phone, Globe, User, LogIn, LogOut, Wrench, Settings, CreditCard, ShieldCheck, Sun, Moon, Monitor, Star } from 'lucide-react';
+import { Shield, Search, FileText, Radio, Briefcase, Zap, HelpCircle, User, LogIn, LogOut, Wrench, Settings, Sun, Moon, Monitor, ChevronDown, Menu, X, MessageSquare, Star, Phone, Code, ShieldAlert } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, ThemeMode } from '../context/ThemeContext';
-import { AuthModal } from './AuthModal';
 
-export type AppTab = 'scanner' | 'dashboard' | 'schedules' | 'sabotage-radar' | 'zero-intent' | 'cart-death' | 'hunter' | 'funnel' | 'agency' | 'watchdog' | 'pricing' | 'billing' | 'settings' | 'admin' | 'developer' | 'workspace' | 'reviews' | 'blog';
+export type AppNavTab = 'audit' | 'reports' | 'monitoring' | 'agency' | 'pricing' | 'developer' | 'settings' | 'admin' | 'reviews' | 'blog';
+export type AppTab = AppNavTab;
 
 interface NavbarProps {
-  activeTab: AppTab;
-  setActiveTab: (tab: AppTab) => void;
+  activeTab: AppNavTab;
+  setActiveTab: (tab: AppNavTab) => void;
   onSelectSample: (domain: string) => void;
   onOpenContact: () => void;
   onOpenAuth: () => void;
@@ -22,10 +22,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenContact,
   onOpenAuth,
 }) => {
-  const { lang, setLang, t } = useLanguage();
+  const { lang, setLang } = useLanguage();
   const { user, profile, signOut, isAdmin } = useAuth();
   const { theme, setTheme } = useTheme();
-  const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState(false);
+  
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const cycleTheme = () => {
     const modes: ThemeMode[] = ['dark', 'light', 'system'];
@@ -33,41 +36,29 @@ export const Navbar: React.FC<NavbarProps> = ({
     setTheme(modes[nextIndex]);
   };
 
-  const primaryTabs = [
-    { id: 'scanner', label: t('nav.liveAudit', 'Live Audit'), icon: Shield },
-    { id: 'watchdog', label: t('nav.watchdog', '24/7 Watchdog'), icon: Radio },
-    { id: 'schedules', label: 'Automated Schedules', icon: Radio },
-    { id: 'cart-death', label: 'Cart Leakage', icon: ShoppingCart },
-    { id: 'pricing', label: t('nav.pricing', 'Plans & Pricing'), icon: Zap },
-    { id: 'reviews', label: 'Client Reviews', icon: Star },
+  const navItems = [
+    { id: 'audit', label: 'Audit', icon: Search },
+    { id: 'reports', label: 'Reports', icon: FileText },
+    { id: 'monitoring', label: 'Monitoring', icon: Radio },
+    { id: 'agency', label: 'Agency', icon: Briefcase },
+    { id: 'pricing', label: 'Pricing', icon: Zap },
   ];
-
-  const secondaryTools = [
-    { id: 'blog', label: 'Knowledge Hub & Articles', description: 'B2B guides on fixing WhatsApp links & Meta Pixels', icon: Wrench },
-    { id: 'dashboard', label: 'Executive Intelligence', description: 'Vulnerability trends & 7-day risk analysis', icon: TrendingDown },
-    { id: 'funnel', label: 'Funnel Simulator', description: 'Simulate ad spend dropoffs & conversion leaks', icon: TrendingDown },
-    { id: 'workspace', label: 'Agency Workspace', description: 'Client management & white-label reports', icon: Layers },
-    { id: 'developer', label: 'Developer Portal', description: 'REST API keys, webhooks & OpenAPI spec', icon: Wrench },
-    { id: 'sabotage-radar', label: 'Competitive Monitor', description: 'Audit competitor landing pages & leaks', icon: Swords },
-    { id: 'zero-intent', label: 'CTA & WhatsApp Analyzer', description: 'Check mobile chat links & drop-offs', icon: MessageCircle },
-    { id: 'hunter', label: 'Prospect Hunter', description: 'Find & audit lead opportunities', icon: Crosshair },
-  ];
-
-  const isSecondaryActive = secondaryTools.some(tool => tool.id === activeTab);
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-rose-500/20 bg-slate-950/85 backdrop-blur-2xl shadow-xl">
+    <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl shadow-lg">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
         
-        {/* Brand Identity */}
+        {/* Brand Logo & Tagline */}
         <div 
-          className="flex items-center gap-2.5 cursor-pointer select-none group shrink-0" 
-          onClick={() => setActiveTab('scanner')}
+          className="flex items-center gap-3 cursor-pointer select-none group shrink-0" 
+          onClick={() => {
+            setActiveTab('audit');
+            setIsMobileMenuOpen(false);
+          }}
         >
           <div className="relative flex items-center justify-center">
-            <div className="absolute -inset-1 rounded-xl bg-gradient-to-r from-rose-500 to-rose-700 opacity-60 blur-sm group-hover:opacity-100 transition-opacity"></div>
-            <div className="relative w-9 h-9 bg-slate-950 rounded-xl flex items-center justify-center font-bold text-white shadow-lg border border-rose-500/40">
-              <Shield className="h-5 w-5 text-rose-400" />
+            <div className="w-9 h-9 bg-slate-900 rounded-xl flex items-center justify-center text-rose-500 font-bold shadow-md border border-rose-500/30 group-hover:border-rose-500/60 transition-colors">
+              <Shield className="h-5 w-5" />
             </div>
           </div>
           <div>
@@ -75,202 +66,256 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="text-base font-bold tracking-tight text-white">
                 LeadGuard<span className="bg-gradient-to-r from-rose-400 to-amber-300 bg-clip-text text-transparent font-extrabold ml-0.5">OS</span>
               </span>
-              <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-300 border border-rose-500/30">
-                <span className="h-1.5 w-1.5 rounded-full bg-rose-400 animate-pulse" />
-                Shield
+              <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-300 border border-rose-500/20">
+                Lead Protection
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 hidden sm:block">Diagnostic & Lead Recovery</p>
+            <p className="text-[10px] text-slate-400 hidden md:block">Stop Dropping Leads & Wasting Ad Spend</p>
           </div>
         </div>
 
-        {/* Clean Structured Navigation Bar (Centered in Header) */}
-        <nav className="hidden lg:flex items-center justify-center gap-1.5 rounded-xl bg-slate-900/90 p-1 border border-slate-800 shadow-inner mx-auto">
-          {primaryTabs.map((t) => {
-            const Icon = t.icon;
-            const isActive = activeTab === t.id;
+        {/* Primary Desktop Navigation (Clean 5-Tab Architecture) */}
+        <nav className="hidden md:flex items-center gap-1 rounded-2xl bg-slate-900/80 p-1.5 border border-slate-800 shadow-inner">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
             return (
               <button
-                key={t.id}
-                id={`nav-tab-${t.id}`}
-                onClick={() => setActiveTab(t.id as AppTab)}
-                className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold tracking-wide whitespace-nowrap transition-all relative ${
+                key={item.id}
+                id={`nav-tab-${item.id}`}
+                onClick={() => setActiveTab(item.id as AppNavTab)}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold tracking-wide transition-all ${
                   isActive
-                    ? 'bg-gradient-to-r from-rose-600 to-rose-700 text-white shadow-md shadow-rose-950/60 border border-rose-400/30'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/70'
+                    ? 'bg-rose-600 text-white shadow-md shadow-rose-950/50 border border-rose-400/30'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                 }`}
               >
-                <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                <span>{t.label}</span>
+                <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                <span>{item.label}</span>
               </button>
             );
           })}
+        </nav>
 
-          {/* Secondary Tools Dropdown */}
+        {/* Right Side: Help & Account Menus */}
+        <div className="flex items-center gap-2">
+          
+          {/* Help Dropdown */}
           <div className="relative">
             <button
-              onClick={() => setIsToolsDropdownOpen(!isToolsDropdownOpen)}
-              className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold tracking-wide whitespace-nowrap transition-all ${
-                isSecondaryActive
-                  ? 'bg-rose-950/80 text-rose-300 border border-rose-500/50 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/70'
-              }`}
+              onClick={() => {
+                setIsHelpMenuOpen(!isHelpMenuOpen);
+                setIsAccountMenuOpen(false);
+              }}
+              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-colors"
             >
-              <Wrench className="h-3.5 w-3.5 text-rose-400 shrink-0" />
-              <span>Tools & Advanced</span>
-              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isToolsDropdownOpen ? 'rotate-180' : ''}`} />
+              <HelpCircle className="h-4 w-4 text-slate-400" />
+              <span className="hidden sm:inline">Help</span>
+              <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform ${isHelpMenuOpen ? 'rotate-180' : ''}`} />
             </button>
 
-            {isToolsDropdownOpen && (
+            {isHelpMenuOpen && (
               <div 
-                className="absolute right-0 mt-2 w-72 rounded-2xl bg-slate-950/95 border border-rose-500/30 shadow-2xl p-2 z-50 space-y-1 backdrop-blur-2xl max-h-[420px] overflow-y-auto"
-                onMouseLeave={() => setIsToolsDropdownOpen(false)}
+                className="absolute right-0 mt-2 w-56 rounded-2xl bg-slate-950 border border-slate-800 shadow-2xl p-2 z-50 space-y-1 backdrop-blur-2xl text-xs"
+                onMouseLeave={() => setIsHelpMenuOpen(false)}
               >
-                <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Diagnostic Modules & Tools
-                </div>
-                {secondaryTools.map((tool) => {
-                  const Icon = tool.icon;
-                  const isActive = activeTab === tool.id;
-                  return (
-                    <button
-                      key={tool.id}
-                      onClick={() => {
-                        setActiveTab(tool.id as AppTab);
-                        setIsToolsDropdownOpen(false);
-                      }}
-                      className={`w-full text-left flex items-start gap-2.5 p-2.5 rounded-xl text-xs transition-colors ${
-                        isActive
-                          ? 'bg-rose-500/20 border border-rose-500/40 text-white font-medium shadow-sm'
-                          : 'text-slate-300 hover:bg-slate-900 hover:text-white'
-                      }`}
-                    >
-                      <Icon className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-semibold text-slate-200">{tool.label}</div>
-                        <div className="text-[11px] text-slate-400 leading-tight">{tool.description}</div>
-                      </div>
-                    </button>
-                  );
-                })}
-
-                {/* Sample Presets inside Tools */}
-                <div className="border-t border-slate-800/80 pt-2 mt-2 px-3 pb-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Load Demo Presets:</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      onClick={() => { onSelectSample('drsharmadental.in'); setActiveTab('scanner'); setIsToolsDropdownOpen(false); }}
-                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-rose-500/20 text-slate-300 hover:text-rose-300 text-[11px] border border-slate-800 transition-colors"
-                    >
-                      Dr. Sharma Dental
-                    </button>
-                    <button
-                      onClick={() => { onSelectSample('elitesalonmumbai.com'); setActiveTab('scanner'); setIsToolsDropdownOpen(false); }}
-                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-amber-500/20 text-slate-300 hover:text-amber-300 text-[11px] border border-slate-800 transition-colors"
-                    >
-                      Elite Salon
-                    </button>
+                <button
+                  onClick={() => {
+                    onOpenContact();
+                    setIsHelpMenuOpen(false);
+                  }}
+                  className="w-full text-left flex items-center gap-2.5 p-2.5 rounded-xl text-slate-200 hover:bg-slate-900 hover:text-white transition-colors"
+                >
+                  <Phone className="h-4 w-4 text-emerald-400" />
+                  <div>
+                    <div className="font-semibold">Direct Founder Support</div>
+                    <div className="text-[10px] text-slate-400">+91 83070 70605</div>
                   </div>
-                </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveTab('reviews');
+                    setIsHelpMenuOpen(false);
+                  }}
+                  className="w-full text-left flex items-center gap-2.5 p-2.5 rounded-xl text-slate-200 hover:bg-slate-900 hover:text-white transition-colors"
+                >
+                  <Star className="h-4 w-4 text-amber-400" />
+                  <div>
+                    <div className="font-semibold">Client Reviews</div>
+                    <div className="text-[10px] text-slate-400">Verified SMB Testimonials</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveTab('blog');
+                    setIsHelpMenuOpen(false);
+                  }}
+                  className="w-full text-left flex items-center gap-2.5 p-2.5 rounded-xl text-slate-200 hover:bg-slate-900 hover:text-white transition-colors"
+                >
+                  <FileText className="h-4 w-4 text-cyan-400" />
+                  <div>
+                    <div className="font-semibold">Knowledge Hub</div>
+                    <div className="text-[10px] text-slate-400">How to fix +9191 WhatsApp bugs</div>
+                  </div>
+                </button>
               </div>
             )}
           </div>
-        </nav>
 
-        {/* Actions Toolbar (Clean, No Phone Number Clutter) */}
-        <div className="flex items-center gap-2 shrink-0">
-          
-          {/* Language Switcher */}
-          <button
-            onClick={() => setLang(lang === 'en' ? 'hi' : 'en')}
-            className="flex items-center gap-1.5 rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs font-bold text-slate-200 hover:border-slate-700 transition-colors shadow-sm whitespace-nowrap"
-            title="Toggle Hindi / English Language"
-          >
-            <Globe className="h-3.5 w-3.5 text-rose-400 shrink-0" />
-            <span className="uppercase">{lang === 'en' ? 'HI' : 'EN'}</span>
-          </button>
-
-          {/* Theme Switcher (Day / Night / System) */}
-          <button
-            onClick={cycleTheme}
-            className="flex items-center gap-1.5 rounded-lg bg-slate-900 border border-slate-800 px-2.5 py-1.5 text-xs font-bold text-slate-200 hover:border-slate-700 transition-colors shadow-sm whitespace-nowrap capitalize"
-            title={`Current Theme: ${theme}. Click to switch (Night / Day / System)`}
-          >
-            {theme === 'dark' && <Moon className="h-3.5 w-3.5 text-amber-300 shrink-0" />}
-            {theme === 'light' && <Sun className="h-3.5 w-3.5 text-amber-400 shrink-0" />}
-            {theme === 'system' && <Monitor className="h-3.5 w-3.5 text-cyan-400 shrink-0" />}
-            <span className="hidden sm:inline capitalize">{theme === 'dark' ? 'Night' : theme === 'light' ? 'Day' : 'System'}</span>
-          </button>
-
-          {/* Help Contact Button (Clean Icon Only, No Raw Number) */}
-          <button
-            onClick={onOpenContact}
-            className="flex items-center gap-1.5 rounded-lg bg-slate-900 border border-emerald-500/40 hover:border-emerald-500/70 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition-colors shadow-sm whitespace-nowrap"
-            title="Direct Founder Support & Help"
-          >
-            <Phone className="h-3.5 w-3.5 text-emerald-400 animate-pulse shrink-0" />
-            <span className="hidden sm:inline">Help</span>
-          </button>
-
-          {/* User Auth Profile */}
-          {user || profile ? (
-            <div className="flex items-center gap-2 pl-1 border-l border-slate-800">
-              <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1">
-                {user?.photoURL ? (
-                  <img src={user.photoURL} alt="Avatar" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
-                ) : (
-                  <User className="w-4 h-4 text-rose-400" />
-                )}
-                <span className="text-xs font-medium text-slate-200 max-w-[90px] truncate hidden sm:inline">
-                  {profile?.displayName?.split(' ')[0] || user?.displayName?.split(' ')[0] || 'User'}
-                </span>
-                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                  {profile?.role || 'USER'}
-                </span>
-              </div>
-              <button
-                onClick={() => signOut()}
-                title="Sign Out"
-                className="p-1.5 rounded-lg bg-slate-900 text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : (
+          {/* Account Dropdown */}
+          <div className="relative">
             <button
-              onClick={onOpenAuth}
-              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white px-3 py-1.5 text-xs font-semibold shadow-md shadow-rose-950/50 transition-all whitespace-nowrap active:scale-95"
+              onClick={() => {
+                setIsAccountMenuOpen(!isAccountMenuOpen);
+                setIsHelpMenuOpen(false);
+              }}
+              className="flex items-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-850 px-3 py-2 text-xs font-semibold text-white border border-slate-800 transition-colors shadow-sm"
             >
-              <LogIn className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Sign In</span>
+              <div className="w-5 h-5 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center font-bold text-[10px]">
+                {user?.email?.charAt(0).toUpperCase() || <User className="h-3 w-3" />}
+              </div>
+              <span className="hidden sm:inline max-w-[100px] truncate">
+                {user ? user.email?.split('@')[0] : 'Account'}
+              </span>
+              <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform ${isAccountMenuOpen ? 'rotate-180' : ''}`} />
             </button>
-          )}
+
+            {isAccountMenuOpen && (
+              <div 
+                className="absolute right-0 mt-2 w-64 rounded-2xl bg-slate-950 border border-slate-800 shadow-2xl p-2 z-50 space-y-1 backdrop-blur-2xl text-xs"
+                onMouseLeave={() => setIsAccountMenuOpen(false)}
+              >
+                {user ? (
+                  <div className="px-3 py-2 border-b border-slate-800/80 mb-1">
+                    <div className="font-bold text-white truncate">{(profile as any)?.name || (profile as any)?.displayName || user.email}</div>
+                    <div className="text-[10px] text-slate-400 truncate">{user.email}</div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      onOpenAuth();
+                      setIsAccountMenuOpen(false);
+                    }}
+                    className="w-full text-left flex items-center gap-2 p-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold mb-1 shadow-md transition-colors"
+                  >
+                    <LogIn className="h-4 w-4" />
+                    <span>Sign In / Register</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => {
+                    setActiveTab('developer');
+                    setIsAccountMenuOpen(false);
+                  }}
+                  className="w-full text-left flex items-center gap-2.5 p-2.5 rounded-xl text-slate-200 hover:bg-slate-900 hover:text-white transition-colors"
+                >
+                  <Code className="h-4 w-4 text-cyan-400" />
+                  <div>
+                    <div className="font-semibold">Developer Portal</div>
+                    <div className="text-[10px] text-slate-400">REST API Keys & Webhooks</div>
+                  </div>
+                </button>
+
+                {isAdmin && (
+                  <button
+                    onClick={() => {
+                      setActiveTab('admin');
+                      setIsAccountMenuOpen(false);
+                    }}
+                    className="w-full text-left flex items-center gap-2.5 p-2.5 rounded-xl text-slate-200 hover:bg-slate-900 hover:text-white transition-colors"
+                  >
+                    <ShieldAlert className="h-4 w-4 text-amber-400" />
+                    <div>
+                      <div className="font-semibold">Admin Overview</div>
+                      <div className="text-[10px] text-slate-400">System Logs & Metrics</div>
+                    </div>
+                  </button>
+                )}
+
+                {/* Theme & Language Utilities */}
+                <div className="pt-2 border-t border-slate-800/80 mt-1 space-y-1">
+                  <div className="flex items-center justify-between px-3 py-1.5 text-slate-400 text-[11px]">
+                    <span>Language:</span>
+                    <button
+                      onClick={() => setLang(lang === 'hi' ? 'en' : 'hi')}
+                      className="font-bold text-rose-400 hover:underline uppercase"
+                    >
+                      {lang === 'hi' ? '🇮🇳 Hinglish' : '🌐 English'}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between px-3 py-1.5 text-slate-400 text-[11px]">
+                    <span>Theme:</span>
+                    <button
+                      onClick={cycleTheme}
+                      className="font-bold text-slate-200 hover:text-white capitalize flex items-center gap-1"
+                    >
+                      {theme === 'dark' ? <Moon className="h-3 w-3" /> : theme === 'light' ? <Sun className="h-3 w-3" /> : <Monitor className="h-3 w-3" />}
+                      <span>{theme}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {user && (
+                  <div className="pt-1 border-t border-slate-800/80">
+                    <button
+                      onClick={() => {
+                        signOut();
+                        setIsAccountMenuOpen(false);
+                      }}
+                      className="w-full text-left flex items-center gap-2 p-2.5 rounded-xl text-rose-400 hover:bg-rose-950/30 font-medium transition-colors"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Mobile Menu Hamburger Button */}
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="md:hidden p-2 rounded-xl bg-slate-900 text-slate-300 hover:text-white border border-slate-800"
+          >
+            {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
 
         </div>
-
       </div>
 
-      {/* Mobile Nav Bar */}
-      <div className="flex lg:hidden border-t border-slate-800/80 bg-slate-950 px-3 py-2 overflow-x-auto gap-1.5 scrollbar-none">
-        {[...primaryTabs, ...secondaryTools].map((t) => {
-          const Icon = t.icon;
-          const isActive = activeTab === t.id;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id as AppTab)}
-              className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors ${
-                isActive
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5 shrink-0" />
-              <span className="whitespace-nowrap">{t.label}</span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Mobile Drawer Navigation */}
+      {isMobileMenuOpen && (
+        <div className="md:hidden border-t border-slate-800 bg-slate-950/95 p-4 space-y-2 backdrop-blur-2xl">
+          <div className="grid grid-cols-2 gap-2">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id as AppNavTab);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`flex items-center gap-2 rounded-xl p-3 text-xs font-semibold transition-all ${
+                    isActive
+                      ? 'bg-rose-600 text-white shadow-md shadow-rose-950/50'
+                      : 'bg-slate-900 text-slate-300 border border-slate-800'
+                  }`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </header>
   );
 };

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { AuditResult } from '../types';
-import { Download, Share2, Sparkles, Check, TrendingDown, Clock, ShieldAlert, CheckCircle2, AlertTriangle, XCircle, MessageCircle, Bell, ArrowRight, Zap, HelpCircle, ShieldCheck } from 'lucide-react';
+import { AuditResult, PillarType } from '../types';
+import { Download, Share2, Sparkles, AlertTriangle, CheckCircle2, AlertCircle, Radio, Zap, ArrowRight, ShieldCheck, MessageSquare, Target, SearchCheck, Shield, ChevronRight } from 'lucide-react';
 import { generateAuditPdf } from '../utils/pdfGenerator';
-import { useLanguage } from '../context/LanguageContext';
+import { ImpactMetric } from './common/ImpactMetric';
 import confetti from 'canvas-confetti';
 
 interface ScoreDashboardProps {
@@ -11,6 +11,7 @@ interface ScoreDashboardProps {
   onOpenExpressFix: () => void;
   onOpenAlerts?: () => void;
   onOpenShareModal?: () => void;
+  onSelectPillar?: (pillar: PillarType | 'ALL') => void;
 }
 
 export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
@@ -19,21 +20,16 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
   onOpenExpressFix,
   onOpenAlerts,
   onOpenShareModal,
+  onSelectPillar,
 }) => {
-  const { lang, t } = useLanguage();
   const [copied, setCopied] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [showPlainSummary, setShowPlainSummary] = useState(true);
 
   const handleDownloadPdf = () => {
     setIsExporting(true);
     try {
       generateAuditPdf(result);
-      confetti({
-        particleCount: 30,
-        spread: 50,
-        origin: { y: 0.8 },
-      });
+      confetti({ particleCount: 35, spread: 60, origin: { y: 0.8 } });
     } catch (err) {
       console.error('PDF generation error:', err);
     } finally {
@@ -42,326 +38,303 @@ export const ScoreDashboard: React.FC<ScoreDashboardProps> = ({
   };
 
   const handleShare = () => {
-    navigator.clipboard.writeText(window.location.href);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (onOpenShareModal) {
+      onOpenShareModal();
+    } else {
+      navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
-  const handleWhatsAppShare = () => {
-    const issuesList = result.allIssues.map((i, idx) => `${idx + 1}. ${i.title} (${i.severity})`).join('\n');
-    const msg = `🚨 *LeadGuard Website Diagnostic Report for ${result.domain}*\n\n` +
-      `📊 *Funnel Health Score:* ${result.score}/100\n` +
-      `💸 *Estimated Revenue Leaking:* ₹${result.estimatedMonthlyLoss.toLocaleString('en-IN')}/month\n` +
-      `⚠️ *Detected Vulnerabilities:*\n${issuesList || 'No critical issues found'}\n\n` +
-      `🛡️ *Audited by LeadGuard OS* (Created by Mohit Sikarwar - +91 83070 70605)\n` +
-      `👉 Test your business website now at LeadGuard!`;
-    
-    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
-  };
-
-  const isHealthy = result.score >= 80;
-  const isModerate = result.score >= 50 && result.score < 80;
-  const isCritical = result.score < 50;
+  const score = result.score;
+  const isHealthy = score >= 80;
+  const isModerate = score >= 50 && score < 80;
 
   const scoreTheme = isHealthy
     ? {
-        text: 'text-emerald-400',
-        bg: 'bg-emerald-500/10',
-        border: 'border-emerald-500/30',
-        badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-        statusLabel: 'All Systems Operational',
-        statusDesc: 'No major revenue leakage detected on customer channels.',
+        textColor: 'text-emerald-400',
+        badgeBg: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+        status: 'Healthy & Operational',
+        summary: 'Your website has minimal revenue leakage. Most lead conversion channels are functioning properly.',
       }
     : isModerate
     ? {
-        text: 'text-amber-400',
-        bg: 'bg-amber-500/10',
-        border: 'border-amber-500/30',
-        badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-        statusLabel: 'Moderate Leakage Risk',
-        statusDesc: 'Some customer lead channels or tracking pixels require attention.',
+        textColor: 'text-amber-400',
+        badgeBg: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
+        status: 'Needs Attention',
+        summary: 'Your website has several issues that may be causing dropped customer leads and wasted ad spend.',
       }
     : {
-        text: 'text-rose-400',
-        bg: 'bg-rose-500/10',
-        border: 'border-rose-500/30',
-        badge: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
-        statusLabel: 'Critical Revenue Leaks Detected',
-        statusDesc: 'Customers attempting to contact or purchase are dropping off silently.',
+        textColor: 'text-rose-400',
+        badgeBg: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
+        status: 'Critical Lead Losses Detected',
+        summary: 'High-severity conversion breaks detected. Customers attempting to reach out or purchase are dropping off silently.',
       };
 
+  // 4 Pillars Breakdown calculation
+  const pillarScores = [
+    {
+      type: 'LEAD' as PillarType,
+      name: 'Lead Capture',
+      score: result.pillars?.lead?.score ?? Math.min(100, Math.max(20, Math.round(result.score * 0.9))),
+      icon: MessageSquare,
+      summary: 'WhatsApp buttons, click-to-call links & contact forms',
+    },
+    {
+      type: 'AD' as PillarType,
+      name: 'Ad Tracking',
+      score: result.pillars?.ad?.score ?? Math.min(100, Math.max(10, Math.round(result.score * 0.85))),
+      icon: Target,
+      summary: 'Meta Pixel (fbq), GA4 tags & conversion events',
+    },
+    {
+      type: 'SEO' as PillarType,
+      name: 'SEO & Indexing',
+      score: result.pillars?.seo?.score ?? Math.min(100, Math.max(30, Math.round(result.score * 1.05))),
+      icon: SearchCheck,
+      summary: 'Search crawler noindex tags & canonical URLs',
+    },
+    {
+      type: 'CYBER' as PillarType,
+      name: 'Security Shield',
+      score: result.pillars?.cyber?.score ?? Math.min(100, Math.max(40, Math.round(result.score * 1.0))),
+      icon: Shield,
+      summary: 'SSL encryption status & Content Security Policy',
+    },
+  ];
+
+  const criticalIssues = (result.allIssues || []).filter((i) => i.severity === 'CRITICAL' || i.severity === 'HIGH');
+  const estimatedLeadsLost = Math.max(4, Math.round(result.estimatedMonthlyLoss / 1500));
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       
-      {/* 3-Second Executive Diagnostic Banner */}
-      <div className="rounded-3xl border border-slate-800/80 bg-slate-950/80 p-6 md:p-8 shadow-2xl backdrop-blur-2xl space-y-6 relative overflow-hidden">
+      {/* Top Banner: Score & Executive Summary */}
+      <div className="rounded-3xl border border-slate-800/80 bg-slate-950/80 p-6 sm:p-8 md:p-10 shadow-2xl backdrop-blur-xl relative overflow-hidden space-y-8">
         
-        {/* Subtle Ambient Glow */}
-        <div className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-rose-500/10 blur-3xl" />
+        {/* Subtle Ambient Accent Glow */}
+        <div className="pointer-events-none absolute -top-24 right-0 h-64 w-64 rounded-full bg-rose-500/10 blur-3xl" />
 
-        {/* Domain & Quick Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-5">
-          <div className="flex items-center gap-3">
-            <div className="h-11 w-11 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shadow-md">
-              <ShieldCheck className="h-6 w-6 text-rose-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
-                  Audit Report: <span className="text-rose-400 font-mono text-glow-rose">{result.domain}</span>
-                </h2>
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/30">
-                  LIVE SCANNED
-                </span>
-              </div>
-              <p className="text-xs text-slate-400">
-                Automated 6-Layer Diagnostic Scan completed in 1.2 seconds
-              </p>
-            </div>
+        {/* Header Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-6">
+          <div className="space-y-1">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              Forensic Audit Results
+            </span>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              {result.domain}
+            </h1>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Quick Action Toolbar */}
+          <div className="flex items-center gap-2.5 flex-wrap">
             <button
-              onClick={() => setShowPlainSummary(!showPlainSummary)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-slate-300 border border-slate-700/80 transition-all shadow-sm"
-            >
-              <HelpCircle className="h-3.5 w-3.5 text-cyan-400" />
-              <span>{showPlainSummary ? 'Hide Simple Guide' : 'Explain in Simple Hindi/English'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* 3 Core Questions: The Non-Technical 3-Second Triage */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-stretch">
-          
-          {/* Card 1: Question 1: Is Something Wrong? */}
-          <div className={`rounded-2xl border ${scoreTheme.border} ${scoreTheme.bg} p-5 flex flex-col justify-between space-y-3 relative overflow-hidden backdrop-blur-md`}>
-            <div className="space-y-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                1. Website Status
-              </span>
-              <div className="flex items-center gap-2 pt-1">
-                {isHealthy ? (
-                  <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
-                ) : isModerate ? (
-                  <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0" />
-                ) : (
-                  <XCircle className="h-5 w-5 text-rose-400 shrink-0" />
-                )}
-                <h3 className={`text-base sm:text-lg font-extrabold ${scoreTheme.text} leading-snug`}>
-                  {scoreTheme.statusLabel}
-                </h3>
-              </div>
-            </div>
-            
-            <p className="text-xs text-slate-300 leading-relaxed">
-              {scoreTheme.statusDesc}
-            </p>
-
-            <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-xs font-semibold">
-              <span className="text-slate-400">Total Flaws Found:</span>
-              <span className={`font-mono font-bold ${scoreTheme.text}`}>
-                {result.allIssues.length} issues
-              </span>
-            </div>
-          </div>
-
-          {/* Card 2: Question 2: How Serious Is It? */}
-          <div className="rounded-2xl border border-slate-800/90 bg-slate-900/60 p-5 flex flex-col justify-between space-y-3 backdrop-blur-md">
-            <div className="space-y-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                2. Health Score & Potential Impact
-              </span>
-              <div className="flex items-baseline gap-3 pt-1">
-                <span className={`text-3xl sm:text-4xl font-extrabold font-mono tracking-tight ${scoreTheme.text}`}>
-                  {result.score}<span className="text-sm font-semibold text-slate-500">/100</span>
-                </span>
-                <div className="text-right ml-auto">
-                  <span className="text-xs text-slate-400 block">Est. Revenue Range:</span>
-                  <span className="text-sm sm:text-base font-bold font-mono text-rose-400">
-                    {result.revenueImpactRange
-                      ? `₹${(result.revenueImpactRange.lowEstimateINR / 1000).toFixed(0)}k–₹${(result.revenueImpactRange.highEstimateINR / 1000).toFixed(0)}k/mo`
-                      : `₹${(result.estimatedMonthlyLoss / 1000).toFixed(0)}k/mo`}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Confidence Badge */}
-            <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-800/60">
-              <span className="text-slate-400">Model Confidence:</span>
-              <span className="px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-300 font-semibold border border-rose-500/30 text-[10px]">
-                HIGH CONFIDENCE
-              </span>
-            </div>
-
-            {/* Health Meter Bar */}
-            <div className="space-y-1">
-              <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
-                <div
-                  className={`h-full rounded-full transition-all duration-700 ${
-                    isHealthy ? 'bg-emerald-500 shadow-sm shadow-emerald-500' : isModerate ? 'bg-amber-500 shadow-sm shadow-amber-500' : 'bg-rose-500 shadow-sm shadow-rose-500'
-                  }`}
-                  style={{ width: `${result.score}%` }}
-                />
-              </div>
-              <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                <span>0 (Broken)</span>
-                <span>50 (Moderate)</span>
-                <span>100 (Flawless)</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Card 3: Question 3: What Should I Do Next? */}
-          <div className="rounded-2xl border border-rose-500/30 bg-gradient-to-b from-rose-950/30 to-slate-950 p-5 flex flex-col justify-between space-y-3 backdrop-blur-md shadow-lg shadow-rose-950/20">
-            <div className="space-y-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-rose-300">
-                3. Recommended Immediate Action
-              </span>
-              <h3 className="text-sm sm:text-base font-bold text-white pt-1">
-                {result.score < 80 ? 'Fix Critical Leaks Now' : 'Keep Website Monitored'}
-              </h3>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                {result.score < 80
-                  ? 'Apply verified 1-click code fixes below or let our engineers resolve your +9191 WhatsApp & tracking bugs.'
-                  : 'Your website channels are clean! Enable 24/7 Watchdog to get alerted if a link breaks in the future.'}
-              </p>
-            </div>
-
-            <button
-              id="fix-now-primary-cta"
-              onClick={onOpenExpressFix}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white py-3 px-4 text-xs sm:text-sm font-bold shadow-lg shadow-rose-950/60 active:scale-95 transition-all border border-rose-400/30"
-            >
-              <Zap className="h-4 w-4 text-amber-300 fill-amber-300" />
-              <span>{result.score < 80 ? 'Fix My Website Leaks (₹2,999)' : 'Optimize Further'}</span>
-              <ArrowRight className="h-4 w-4" />
-            </button>
-          </div>
-
-        </div>
-
-        {/* Simple Plain-English / आसान भाषा में Explanation Box */}
-        {showPlainSummary && (
-          <div className="rounded-2xl border border-cyan-500/30 bg-slate-900/80 p-4 sm:p-5 space-y-3 backdrop-blur-md">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-cyan-400 shrink-0" />
-              <h4 className="text-xs sm:text-sm font-bold text-cyan-200">
-                Summary in Plain Language (आसान भाषा में सारांश)
-              </h4>
-            </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-              <div className="rounded-xl bg-slate-950/80 p-3 border border-slate-800 space-y-1">
-                <span className="font-bold text-slate-200">📱 WhatsApp Contact:</span>
-                <p className="text-slate-300">
-                  {result.whatsappLinks && result.whatsappLinks.length > 0 && result.whatsappLinks.every(w => w.isValid)
-                    ? '✅ Perfect: Link opens WhatsApp directly with valid number.'
-                    : result.whatsappLinks && result.whatsappLinks.some(w => !w.isValid)
-                    ? '❌ Broken: +9191 double code or missing country code causes WhatsApp error for users.'
-                    : '⚠️ Missing: No direct WhatsApp chat button found on page.'}
-                </p>
-              </div>
-
-              <div className="rounded-xl bg-slate-950/80 p-3 border border-slate-800 space-y-1">
-                <span className="font-bold text-slate-200">📞 Phone Call Button:</span>
-                <p className="text-slate-300">
-                  {result.phoneLinks && result.phoneLinks.length > 0 && result.phoneLinks.some(p => p.isValid)
-                    ? '✅ Working: Clicking phone opens mobile dialer directly.'
-                    : '⚠️ Not configured or missing standard tel: link.'}
-                </p>
-              </div>
-
-              <div className="rounded-xl bg-slate-950/80 p-3 border border-slate-800 space-y-1">
-                <span className="font-bold text-slate-200">🎯 Ad Tracking (Meta Pixel):</span>
-                <p className="text-slate-300">
-                  {result.metaPixel?.exists
-                    ? '✅ Active: Tracking conversions for Facebook/Instagram ads.'
-                    : '⚠️ Missing: Ad money may be wasted without conversion data.'}
-                </p>
-              </div>
-
-              <div className="rounded-xl bg-slate-950/80 p-3 border border-slate-800 space-y-1">
-                <span className="font-bold text-slate-200">🔍 Google SEO Status:</span>
-                <p className="text-slate-300">
-                  {result.seoPenalty?.hasNoIndex !== true
-                    ? '✅ Indexable: Pages can appear in Google search results.'
-                    : '⚠️ Warning: Hidden noindex tags or missing title detected.'}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Clean Action Toolbar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800/80">
-          
-          <div className="flex flex-wrap items-center gap-2">
-            {/* 1. Share on WhatsApp */}
-            <button
-              id="whatsapp-share-button"
-              onClick={handleWhatsAppShare}
-              className="flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 text-xs font-semibold tracking-wide transition-all shadow-md shadow-emerald-950/40 active:scale-95"
-            >
-              <MessageCircle className="h-4 w-4 text-white" />
-              <span>Share on WhatsApp</span>
-            </button>
-
-            {/* 2. Download Official PDF */}
-            <button
-              id="download-pdf-button"
               onClick={handleDownloadPdf}
               disabled={isExporting}
-              className="flex items-center gap-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 text-xs font-semibold tracking-wide transition-all border border-slate-700 active:scale-95"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 text-xs font-semibold transition-colors shadow-sm"
             >
-              <Download className="h-3.5 w-3.5 text-white" />
+              <Download className="h-4 w-4 text-rose-400" />
               <span>{isExporting ? 'Generating PDF...' : 'Download PDF Report'}</span>
             </button>
 
-            {/* 3. Share Public Link Modal */}
-            {onOpenShareModal && (
-              <button
-                id="share-report-modal-button"
-                onClick={onOpenShareModal}
-                className="flex items-center gap-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2.5 text-xs font-semibold tracking-wide transition-all border border-slate-700"
-              >
-                <Share2 className="h-3.5 w-3.5 text-indigo-400" />
-                <span>Share Public Report</span>
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* 4. WhatsApp Alerts */}
-            {onOpenAlerts && (
-              <button
-                id="get-whatsapp-alerts-btn"
-                onClick={onOpenAlerts}
-                className="flex items-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 px-3.5 py-2.5 text-xs font-semibold tracking-wide transition-all border border-slate-800"
-              >
-                <Bell className="h-3.5 w-3.5 text-emerald-400" />
-                <span>Get Daily Alerts</span>
-              </button>
-            )}
-
-            {/* 5. 24/7 Watchdog */}
             <button
-              id="activate-watchdog-btn"
-              onClick={onOpenWatchdog}
-              className="flex items-center gap-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 px-3.5 py-2.5 text-xs font-semibold tracking-wide transition-all border border-slate-800"
+              onClick={handleShare}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 text-xs font-semibold transition-colors shadow-sm"
             >
-              <ShieldAlert className="h-3.5 w-3.5 text-rose-400" />
-              <span>24/7 Watchdog</span>
+              <Share2 className="h-4 w-4 text-cyan-400" />
+              <span>{copied ? 'Link Copied!' : 'Share Audit'}</span>
+            </button>
+
+            <button
+              onClick={onOpenWatchdog}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-950/40 hover:bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-colors shadow-sm"
+            >
+              <Radio className="h-4 w-4 text-emerald-400" />
+              <span>Enable 24/7 Monitoring</span>
             </button>
           </div>
-
         </div>
 
+        {/* Lead Health Score & Executive Overview */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+          
+          {/* Score Gauge */}
+          <div className="lg:col-span-4 flex flex-col items-center justify-center p-6 rounded-3xl bg-slate-900/60 border border-slate-800/80 text-center space-y-3">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+              Lead Health Score
+            </span>
+            <div className="flex items-baseline justify-center gap-1">
+              <span className={`text-6xl sm:text-7xl font-black font-mono tracking-tight ${scoreTheme.textColor}`}>
+                {score}
+              </span>
+              <span className="text-xl text-slate-500 font-bold">/ 100</span>
+            </div>
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${scoreTheme.badgeBg}`}>
+              {scoreTheme.status}
+            </span>
+          </div>
+
+          {/* Business Impact Overview */}
+          <div className="lg:col-span-8 space-y-4">
+            <div className="space-y-2">
+              <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                {scoreTheme.status}
+              </h2>
+              <p className="text-sm text-slate-300 leading-relaxed">
+                {scoreTheme.summary}
+              </p>
+            </div>
+
+            {/* Quick DFY Fix Action Card */}
+            <div className="p-4 rounded-2xl bg-rose-950/20 border border-rose-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <span className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
+                  <Zap className="h-4 w-4 text-amber-300 fill-amber-300" />
+                  Express 48h Done-For-You Repair Available
+                </span>
+                <p className="text-xs text-slate-400">
+                  An expert LeadGuard engineer will fix all detected broken WhatsApp links, dialers, and pixels for ₹2,999.
+                </p>
+              </div>
+              <button
+                onClick={onOpenExpressFix}
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-xs sm:text-sm font-bold text-white transition-all shadow-lg shadow-rose-950/50 active:scale-95 whitespace-nowrap shrink-0"
+              >
+                <span>Fix All Issues (₹2,999)</span>
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
+      {/* Four-Pillar Health Score Cards (Progressive Summary) */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
+          Four-Pillar Diagnostic Breakdown
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {pillarScores.map((p) => {
+            const Icon = p.icon;
+            const isGood = p.score >= 80;
+            const isWarn = p.score >= 50 && p.score < 80;
+            const color = isGood ? 'text-emerald-400' : isWarn ? 'text-amber-400' : 'text-rose-400';
+            const badgeBg = isGood ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : isWarn ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400';
+            const iconBadge = isGood ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : isWarn ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+
+            return (
+              <div
+                key={p.type}
+                className="rounded-2xl border border-slate-800/80 bg-slate-900/50 p-5 space-y-3 flex flex-col justify-between backdrop-blur-sm hover:border-slate-700 transition-colors"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className={`w-9 h-9 rounded-xl border flex items-center justify-center ${iconBadge}`}>
+                      <Icon className="h-4 w-4" />
+                    </div>
+                    <span className={`text-xl font-bold font-mono ${color}`}>
+                      {p.score}<span className="text-xs text-slate-500 font-normal">/100</span>
+                    </span>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white tracking-tight">
+                      {p.name}
+                    </h4>
+                    <p className="text-xs text-slate-400 mt-0.5 leading-snug">
+                      {p.summary}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-xs">
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${badgeBg}`}>
+                    {isGood ? 'Healthy' : isWarn ? 'Needs Attention' : 'Critical Leak'}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Business Impact Section */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
+          Estimated Business Impact
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <ImpactMetric
+            label="Estimated Monthly Loss"
+            value={`₹${result.estimatedMonthlyLoss?.toLocaleString('en-IN') || 0}`}
+            subtext="Estimated ad spend & lead leakage per month"
+            icon={Zap}
+            variant="rose"
+          />
+          <ImpactMetric
+            label="Leads at Risk"
+            value={`~${estimatedLeadsLost} / mo`}
+            subtext="Lost calls, chats & un-submitted forms"
+            icon={MessageSquare}
+            variant="amber"
+          />
+          <ImpactMetric
+            label="Critical Lead Breaks"
+            value={result.allIssues?.filter(i => i.severity === 'CRITICAL').length || 0}
+            subtext="High-severity conversion blockers"
+            icon={AlertCircle}
+            variant="rose"
+          />
+          <ImpactMetric
+            label="Total Diagnostics"
+            value={result.allIssues?.length || 0}
+            subtext="Identified optimization opportunities"
+            icon={Target}
+            variant="slate"
+          />
+        </div>
+      </div>
+
+      {/* Critical Lead Losses Highlight (High Priority Issues) */}
+      {criticalIssues.length > 0 && (
+        <div className="rounded-3xl border border-rose-500/40 bg-rose-950/20 p-6 sm:p-8 space-y-4 backdrop-blur-xl">
+          <div className="flex items-center gap-2 text-rose-400 font-bold text-sm uppercase tracking-wider">
+            <AlertCircle className="h-5 w-5" />
+            <span>Critical Lead Losses (Fix First)</span>
+          </div>
+
+          <div className="space-y-3">
+            {criticalIssues.slice(0, 3).map((issue, idx) => (
+              <div
+                key={issue.id || idx}
+                className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 uppercase">
+                      {issue.severity}
+                    </span>
+                    <h4 className="text-sm font-bold text-white">
+                      {issue.title}
+                    </h4>
+                  </div>
+                  <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
+                    {issue.impact || issue.description}
+                  </p>
+                </div>
+
+                <button
+                  onClick={onOpenExpressFix}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold transition-colors shrink-0 shadow-sm"
+                >
+                  <span>View Fix</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-
-

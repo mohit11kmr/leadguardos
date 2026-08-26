@@ -50,7 +50,7 @@ export const Footer: React.FC<FooterProps> = ({
 
           <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0 relative z-10 w-full lg:w-auto">
             <button
-              onClick={() => { setActiveTab('scanner'); scrollToTop(); }}
+              onClick={() => { setActiveTab('audit'); scrollToTop(); }}
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 px-6 py-3.5 text-xs font-bold text-white shadow-lg shadow-rose-950/60 border border-rose-400/30 transition-all active:scale-95"
             >
               <span>Audit My Website Free</span>
@@ -129,34 +129,34 @@ export const Footer: React.FC<FooterProps> = ({
               )}
               <li>
                 <button
-                  onClick={() => { setActiveTab('scanner'); scrollToTop(); }}
+                  onClick={() => { setActiveTab('audit'); scrollToTop(); }}
                   className="hover:text-rose-400 transition-colors"
                 >
-                  Live 6-Layer Website Audit
+                  Live Website Diagnostic Audit
                 </button>
               </li>
               <li>
                 <button
-                  onClick={() => { setActiveTab('sabotage-radar'); scrollToTop(); }}
+                  onClick={() => { setActiveTab('monitoring'); scrollToTop(); }}
                   className="hover:text-rose-400 transition-colors"
                 >
-                  Competitor Sabotage Radar
+                  24/7 Watchdog Monitoring
                 </button>
               </li>
               <li>
                 <button
-                  onClick={() => { setActiveTab('zero-intent'); scrollToTop(); }}
+                  onClick={() => { setActiveTab('agency'); scrollToTop(); }}
                   className="hover:text-rose-400 transition-colors"
                 >
-                  Zero-Intent WhatsApp Probe
+                  Agency & Growth Suite
                 </button>
               </li>
               <li>
                 <button
-                  onClick={() => { setActiveTab('cart-death'); scrollToTop(); }}
+                  onClick={() => { setActiveTab('pricing'); scrollToTop(); }}
                   className="hover:text-rose-400 transition-colors"
                 >
-                  Cart Death & Checkout Monitor
+                  Plans & DFY Fix Services
                 </button>
               </li>
             </ul>
